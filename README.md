@@ -1,72 +1,96 @@
 # Image Generation Autopilot
 
-Automatically queue SD message swipes so that every visible image generation request produces a predictable batch (default: four images). This UI extension watches for new media posts created by SillyTavern's built‑in **Image Generation** module (including NanoGPT providers) and reuses the existing paintbrush button to request additional swipes on the same message.
+**End‑to‑end SD automation: auto image tags ➜ auto image generation ➜ auto swipes.**
+This extension guides the assistant to emit `<pic prompt="...">` tags, triggers SD generation automatically, and then queues extra swipes so every reply yields a predictable batch of images.
 
-## Features
+**Badges:**
+- ✅ SillyTavern v1.12.0+
+- ✅ Requires built-in stable-diffusion extension
+- ✅ Works with NanoGPT and other SD providers
 
-- Fire off extra swipes immediately after an image message is rendered so you always get the desired batch size.
-- Works with any provider supported by the core SD extension (NanoGPT, NovelAI, Horde, etc.).
-- Adjustable default swipe count (1‒12) and delay between requests to avoid rate limits.
-- Queue multiple SD models with independent swipe counts so one prompt can explore several favorites automatically.
-- Auto-generate images when the assistant emits <pic prompt="..."> tags, with configurable insertion modes.
-- Built-in prompt injection and regex matching to guide the model in emitting image tags.
-- Optional burst mode dispatches every swipe instantly so fast models don't get held up by slower ones.
-- Respects manual overrides: stop/abort buttons, disabling the extension, or editing the message halts the automation.
-- No new API keys or server plugins required.
-- Inline drawer UI inside **Settings → Extensions** for quick toggles and live summaries.
-- Global, sticky progress pill in the chat column mirrors SillyTavern MessageSummarize's UX so you always know what is running (with an inline stop button).
+---
 
-## Requirements
+## ✨ What it does
+
+- **Auto image generation** from `<pic prompt>` tags (inline, replace, or new message).
+- **Auto swipes** on each generated image message (per-model counts).
+- **Prompt injection + regex matching** to guide consistent image tags.
+- **Global progress HUD** with a stop button.
+- **Rate-limit friendly** with configurable delay.
+
+---
+
+## ✅ Requirements
 
 - SillyTavern v1.12.0 or newer.
-- The built-in `stable-diffusion` extension must be enabled and configured (Chat Completion → NanoGPT is fine).
+- The built-in stable-diffusion extension must be enabled and configured.
 
-## Installation
+---
 
-### Recommended: Install via GitHub
+## 📦 Install (GitHub)
 
-1. In SillyTavern open **Settings → Extensions** and click **Install extension**.
-2. Choose the **GitHub** tab, then paste `https://github.com/djdembeck/SillyTavern-Image-Generation-Autopilot` as the repository URL.
-3. Click **Install**, allow SillyTavern to reload scripts, then enable **Image Generation Autopilot** from the extensions list.
+1. In SillyTavern, open **Settings → Extensions** and click **Install extension**.
+2. Choose the **GitHub** tab and paste: `https://github.com/djdembeck/SillyTavern-Image-Generation-Autopilot`
+3. Click **Install**, allow reloads, then enable **Image Generation Autopilot**.
 
-## Configuration
+---
 
-The settings block exposes several knobs:
+## 🧭 Auto image + auto swipes flow
 
-| Option                       | Description                                                                                                                                                                             |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Enabled**                  | Master switch. Turn off to return to manual swiping.                                                                                                                                    |
-| **Default swipes per model** | Number of automated swipes to queue for any new model entry (and the fallback when the queue is empty). Default `4`.                                                                    |
-| **Delay between swipes**     | Milliseconds to wait between swipe requests. Useful if your backend enforces cooldowns. Default `800`.                                                                                  |
-| **Burst mode**               | When enabled, every swipe is dispatched immediately and the extension waits in the background for the results. Disable it to run swipes sequentially using the configured delay.        |
-| **Model queue**              | Add one or more SD models, each with its own swipe count. They run sequentially (order shown in the list). Leave the list empty to keep using the model that is active in the SD panel. |
-| **Auto generation**          | Enable tag-driven image generation, pick an insert mode (inline, replace, new message), and configure prompt injection/regex.                        |
+1. **Prompt injection** nudges the assistant to include `<pic prompt="...">` tags.
+2. **Auto generation** uses those tags to request SD images (inline/replace/new message).
+3. **Auto swipes** fire extra swipes for each generated image message.
+4. **Progress HUD** shows status and lets you stop everything instantly.
 
-The extension only touches messages whose media attachments have the `generated` source and the gallery display mode, so uploads or captions are ignored.
+**Note:** Only SD-generated gallery messages are automated. Manual uploads are ignored.
 
-## How It Works
+---
 
-1. Listens for `CHARACTER_MESSAGE_RENDERED` events emitted by the SD extension.
-2. When a qualifying message appears, it triggers the built-in `.sd_message_gen` button to request another swipe.
-3. Repeats until the configured swipe plan (per-model counts) finishes, or until a request fails/gets canceled. Burst mode issues every swipe first and then monitors completion; sequential mode waits for each image before requesting the next.
-4. Honors the global stop button, chat switches, and manual deletions by aborting outstanding queues.
-5. Shows a small progress bar below the message while the queue is active.
+## ⚙️ Key settings (quick map)
 
-## Credits
+| Area | Purpose |
+| --- | --- |
+| **Enable auto image generation** | Turns the `<pic prompt>` automation on/off. |
+| **Insert mode** | Inline, replace marker, or new message. |
+| **Enable auto-swipes** | Triggers swipe queues on SD-generated messages. |
+| **Default swipes per model** | Baseline count when the model queue is empty. |
+| **Model queue** | Run multiple SD models with per-model counts. |
+| **Delay between swipes** | Protects against provider throttles. |
+| **Prompt injection** | Main prompt, positive/negative rules, example prompt, and count rules. |
 
-- The refreshed drawer and panel styling were inspired by Pathweaver, the beautifully polished SillyTavern extension UI. Huge thanks to its creators for the design spark.
-- Auto-generation behavior is inspired by wickedcode01/st-image-auto-generation (reimplemented without code reuse).
+---
 
-## Troubleshooting
+## 🧪 Prompt guidance tips
 
-- **Nothing happens:** Ensure the SD extension is enabled and its paintbrush icon appears on generated messages. The manifest declares a dependency, so SillyTavern will refuse to load this extension if SD is missing.
-- **Too many requests:** Increase the delay or lower the target count.
-- **NanoGPT throttling:** NanoGPT's image endpoints can be touchy. Start with `delay = 1500ms` and work downward.
-- **Old chats auto-swipe on load:** This should not happen because the extension filters for new `extension`-sourced renders. If you notice otherwise, file an issue.
+Use these fields to keep image tags consistent:
 
-## Development Notes
+- **Main prompt**: global rules (e.g., restate core traits every time).
+- **Positive instructions**: required style or composition details.
+- **Negative instructions**: forbidden elements or words.
+- **Example prompt**: a single “gold standard” prompt to emulate.
+- **Count rules**: exact/min/max `<pic prompt>` tags per reply.
 
-- No bundler needed; `index.js` runs directly in the browser context.
-- Settings are stored under `extensionSettings.autoMultiImageSwipes`.
+---
+
+## 🆘 Troubleshooting
+
+- **No images**: confirm SD is enabled and the paintbrush appears on generated images.
+- **Too many requests**: increase delay or reduce swipe counts.
+- **Provider throttles**: start with 1500ms delay and tune down.
+- **Old chats auto-swipe**: file an issue with repro steps.
+
+---
+
+## 🙏 Credits
+
+- UI styling inspired by Pathweaver’s extension design.
+- Auto-generation behavior inspired by wickedcode01/st-image-auto-generation (clean-room).
+
+---
+
+## 🧰 Development notes
+
+- No bundler needed; the extension runs directly in the browser context.
+- Settings live under `extensionSettings.autoMultiImageSwipes`.
 - Licensed under MIT (see `LICENSE`).
 - AI developer: GitHub Copilot (GPT-5.2-Codex).
