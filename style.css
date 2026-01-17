@@ -300,6 +300,12 @@
     margin: 0;
 }
 
+.auto-multi-image-settings .auto-multi-burst-note {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    opacity: 0.75;
+}
+
 .auto-multi-image-settings .auto-multi-credit {
     margin: 0;
     font-size: 0.75rem;

@@ -107,14 +107,29 @@
                             class="text_pole"
                         />
                     </label>
+                    <label>
+                        <span>Burst throttle (ms)</span>
+                        <input
+                            type="number"
+                            min="0"
+                            max="5000"
+                            step="25"
+                            id="auto_multi_burst_throttle"
+                            class="text_pole"
+                        />
+                    </label>
                 </div>
                 <label
                     class="checkbox_label auto-multi-inline"
-                    title="Immediately fire every queued swipe instead of waiting for each result."
+                    title="Burst mode is deprecated and disabled."
                 >
-                    <input type="checkbox" id="auto_multi_burst_mode" />
+                    <input type="checkbox" id="auto_multi_burst_mode" disabled />
                     <span>Fire all swipes at once (burst mode)</span>
                 </label>
+                <p class="note auto-multi-burst-note margin0">
+                    Burst mode is deprecated and currently disabled to prevent
+                    Stable Diffusion requests from aborting each other.
+                </p>
             </section>
 
             <section class="auto-multi-panel auto-multi-panel--queue">

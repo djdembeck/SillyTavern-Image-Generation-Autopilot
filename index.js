@@ -5,6 +5,7 @@ const defaultSettings = Object.freeze({
     delayMs: 800,
     swipeTimeoutMs: 120000,
     burstMode: false,
+    burstThrottleMs: 250,
     modelQueue: [],
     swipeModel: '',
 })
@@ -87,6 +88,10 @@ function ensureSettings() {
         settings.modelQueue = []
     }
 
+    if (settings.burstMode) {
+        settings.burstMode = false
+    }
+
     if (settings.swipeModel?.trim() && settings.modelQueue.length === 0) {
         settings.modelQueue = [
             {
@@ -127,6 +132,14 @@ function clampDelay(value) {
         return defaultSettings.delayMs
     }
     return Math.max(0, Math.min(10000, Math.round(numeric)))
+}
+
+function clampBurstThrottle(value) {
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) {
+        return defaultSettings.burstThrottleMs
+    }
+    return Math.max(0, Math.min(5000, Math.round(numeric)))
 }
 
 function sanitizeModelQueue(
@@ -214,6 +227,9 @@ async function buildSettingsPanel() {
     const delayInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_image_delay')
     )
+    const burstThrottleInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_burst_throttle')
+    )
     const summary = /** @type {HTMLParagraphElement | null} */ (
         container.querySelector('#auto_multi_image_summary')
     )
@@ -235,6 +251,7 @@ async function buildSettingsPanel() {
             enabledInput &&
             countInput &&
             delayInput &&
+            burstThrottleInput &&
             summary &&
             modelRowsContainer &&
             burstModeInput
@@ -264,6 +281,13 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
+    burstThrottleInput.addEventListener('change', () => {
+        const current = getSettings()
+        current.burstThrottleMs = clampBurstThrottle(burstThrottleInput.value)
+        burstThrottleInput.value = String(current.burstThrottleMs)
+        saveSettings()
+    })
+
     burstModeInput.addEventListener('change', () => {
         const current = getSettings()
         current.burstMode = burstModeInput.checked
@@ -285,6 +309,7 @@ async function buildSettingsPanel() {
         enabledInput,
         countInput,
         delayInput,
+        burstThrottleInput,
         summary,
         modelRowsContainer,
         burstModeInput,
@@ -513,7 +538,16 @@ function syncUiFromSettings() {
     state.ui.enabledInput.checked = settings.enabled
     state.ui.countInput.value = String(settings.targetCount)
     state.ui.delayInput.value = String(settings.delayMs)
-    state.ui.burstModeInput.checked = !!settings.burstMode
+    if (state.ui.burstThrottleInput) {
+        state.ui.burstThrottleInput.value = String(
+            clampBurstThrottle(settings.burstThrottleMs),
+        )
+    }
+    if (settings.burstMode) {
+        settings.burstMode = false
+        saveSettings()
+    }
+    state.ui.burstModeInput.checked = false
     const configuredQueue = sanitizeModelQueue(
         settings.modelQueue,
         clampCount(settings.targetCount),
@@ -540,7 +574,7 @@ function syncUiFromSettings() {
     })
 
     const strategyBlurb = settings.burstMode
-        ? 'All swipes fire immediately; completions stream in as they finish.'
+        ? 'Burst mode is deprecated and has been disabled.'
         : 'Swipes run sequentially with pacing between requests.'
     state.ui.summary.textContent = `Will queue ${segments.join(', ')} with ${settings.delayMs} ms between swipes. ${strategyBlurb}`
 }
@@ -855,6 +889,8 @@ async function runSequentialSwipePlan(
     swipeLabels,
 ) {
     let completed = 0
+    let failed = 0
+    let effectiveTarget = totalSwipes
 
     log('Sequential plan start', {
         messageId,
@@ -897,7 +933,7 @@ async function runSequentialSwipePlan(
                 updateProgressUi(
                     messageId,
                     completed,
-                    totalSwipes,
+                    effectiveTarget,
                     true,
                     pendingLabel ? `Waiting on ${pendingLabel}` : modelLabel,
                 )
@@ -915,7 +951,19 @@ async function runSequentialSwipePlan(
                         '[AutoMultiImage] Swipe request timed out or failed for message',
                         messageId,
                     )
-                    break outer
+                    failed += 1
+                    effectiveTarget = Math.max(1, totalSwipes - failed)
+                    const failedLabel = swipeLabels?.[completed]
+                    updateProgressUi(
+                        messageId,
+                        completed,
+                        effectiveTarget,
+                        false,
+                        failedLabel
+                            ? `Failed ${failedLabel}`
+                            : `${modelLabel} swipe failed`,
+                    )
+                    continue
                 }
 
                 const completedLabel = swipeLabels?.[completed]
@@ -923,14 +971,14 @@ async function runSequentialSwipePlan(
                 updateProgressUi(
                     messageId,
                     completed,
-                    totalSwipes,
+                    effectiveTarget,
                     false,
                     completedLabel
                         ? `Completed ${completedLabel}`
                         : modelLabel,
                 )
 
-                if (settings.delayMs > 0 && completed < totalSwipes) {
+                if (settings.delayMs > 0 && completed < effectiveTarget) {
                     await sleep(settings.delayMs)
                 }
             }
@@ -953,6 +1001,8 @@ async function runBurstSwipePlan(
     const ctx = getCtx()
     const baselineCount = getMediaCount(ctx.chat?.[messageId])
     let issued = 0
+    let failedDispatches = 0
+    let effectiveTarget = totalSwipes
 
     log('Burst plan start', {
         messageId,
@@ -975,6 +1025,9 @@ async function runBurstSwipePlan(
                 swipeIndex < entry.count;
                 swipeIndex += 1
             ) {
+                const throttleMs = clampBurstThrottle(
+                    getSettings().burstThrottleMs,
+                )
                 if (!settings.enabled || token !== state.chatToken) {
                     return
                 }
@@ -1008,7 +1061,20 @@ async function runBurstSwipePlan(
                         '[AutoMultiImage] Failed to dispatch swipe click for message',
                         messageId,
                     )
-                    return
+                    failedDispatches += 1
+                    effectiveTarget = Math.max(1, totalSwipes - failedDispatches)
+                    const failedLabel = swipeLabels?.[issued]
+                    issued += 1
+                    updateProgressUi(
+                        messageId,
+                        issued,
+                        effectiveTarget,
+                        false,
+                        failedLabel
+                            ? `Failed ${failedLabel}`
+                            : `${label} swipe failed`,
+                    )
+                    continue
                 }
 
                 const issuedLabel = swipeLabels?.[issued]
@@ -1016,15 +1082,17 @@ async function runBurstSwipePlan(
                 updateProgressUi(
                     messageId,
                     issued,
-                    totalSwipes,
+                    effectiveTarget,
                     true,
                     issuedLabel ? `Queued ${issuedLabel}` : label,
                 )
 
-                if (settings.delayMs > 0 && issued < totalSwipes) {
-                    await sleep(settings.delayMs)
-                } else if (issued < totalSwipes) {
-                    await sleep(BURST_MODEL_SETTLE_MS)
+                if (issued < effectiveTarget) {
+                    if (throttleMs > 0) {
+                        await sleep(throttleMs)
+                    } else {
+                        await sleep(BURST_MODEL_SETTLE_MS)
+                    }
                 }
             }
         } finally {
@@ -1040,6 +1108,7 @@ async function runBurstSwipePlan(
         totalSwipes,
         token,
         swipeLabels,
+        failedDispatches,
     )
 }
 
@@ -1049,10 +1118,13 @@ async function monitorBurstCompletion(
     totalSwipes,
     token,
     swipeLabels,
+    failedDispatches = 0,
 ) {
     const timeout = getSettings().swipeTimeoutMs
     const deadline = performance.now() + timeout
-    const targetCount = baselineCount + totalSwipes
+    const effectiveTarget = Math.max(1, totalSwipes - failedDispatches)
+    const targetCount = baselineCount + effectiveTarget
+    let lastDelivered = 0
 
     while (performance.now() < deadline) {
         if (token !== state.chatToken) {
@@ -1066,13 +1138,16 @@ async function monitorBurstCompletion(
 
         const attachments = getMediaCount(message)
         const delivered = Math.max(0, attachments - baselineCount)
+        lastDelivered = delivered
         const pendingLabel = swipeLabels?.[delivered]
         updateProgressUi(
             messageId,
-            Math.min(delivered, totalSwipes),
-            totalSwipes,
-            delivered < totalSwipes,
-            pendingLabel ? `Waiting on ${pendingLabel}` : 'Waiting for swipes',
+            Math.min(delivered, effectiveTarget),
+            effectiveTarget,
+            delivered < effectiveTarget,
+            pendingLabel
+                ? `Waiting on ${pendingLabel}`
+                : 'Waiting for swipes',
         )
 
         if (attachments >= targetCount) {
@@ -1085,6 +1160,17 @@ async function monitorBurstCompletion(
     console.warn(
         '[AutoMultiImage] Burst swipe completion timed out for message',
         messageId,
+    )
+
+    const timeoutDelivered = Math.min(lastDelivered, effectiveTarget)
+    updateProgressUi(
+        messageId,
+        timeoutDelivered,
+        Math.max(1, timeoutDelivered),
+        false,
+        timeoutDelivered > 0
+            ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
+            : 'Timed out waiting for swipes',
     )
 }
 
