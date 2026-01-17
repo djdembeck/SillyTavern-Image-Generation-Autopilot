@@ -1,4 +1,4 @@
-# Auto Multi-Image Swipes
+# Image Generation Autopilot
 
 Automatically queue SD message swipes so that every visible image generation request produces a predictable batch (default: four images). This UI extension watches for new media posts created by SillyTavern's built‑in **Image Generation** module (including NanoGPT providers) and reuses the existing paintbrush button to request additional swipes on the same message.
 
@@ -26,8 +26,8 @@ Automatically queue SD message swipes so that every visible image generation req
 ### Recommended: Install via GitHub
 
 1. In SillyTavern open **Settings → Extensions** and click **Install extension**.
-2. Choose the **GitHub** tab, then paste `https://github.com/djdembeck/SillyTavern-auto-multi-image-swipes` as the repository URL.
-3. Click **Install**, allow SillyTavern to reload scripts, then enable **Auto Multi-Image Swipes** from the extensions list.
+2. Choose the **GitHub** tab, then paste `https://github.com/djdembeck/SillyTavern-Image-Generation-Autopilot` as the repository URL.
+3. Click **Install**, allow SillyTavern to reload scripts, then enable **Image Generation Autopilot** from the extensions list.
 
 ## Configuration
 
@@ -69,3 +69,4 @@ The extension only touches messages whose media attachments have the `generated`
 - No bundler needed; `index.js` runs directly in the browser context.
 - Settings are stored under `extensionSettings.autoMultiImageSwipes`.
 - Licensed under MIT (see `LICENSE`).
+- AI developer: GitHub Copilot (GPT-5.2-Codex).

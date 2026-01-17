@@ -70,8 +70,8 @@ function resolveTemplateRoot() {
 
     const ranked = [
         (script) =>
-            script?.src?.includes('/SillyTavern-auto-multi-image-swipes/') ||
-            script?.src?.includes('/auto-multi-image-swipes/'),
+            script?.src?.includes('/SillyTavern-Image-Generation-Autopilot/') ||
+            script?.src?.includes('/Image-Generation-Autopilot/'),
         (script) => script?.src?.includes('/Multi-Image-Gen/'),
         () => true,
     ]
@@ -1189,7 +1189,8 @@ function updateProgressUi(messageId, current, target, waiting, labelText = '') {
     const safeTarget = Math.max(1, target)
     const clampedCurrent = Math.max(0, Math.min(current, safeTarget))
     const descriptor =
-        labelText || (waiting ? 'Preparing swipe queue…' : 'Auto Multi-Image')
+        labelText ||
+            (waiting ? 'Preparing swipe queue…' : 'Image Generation Autopilot')
 
     entry.container.classList.toggle('waiting', !!waiting)
     entry.statusLabel.textContent = descriptor
