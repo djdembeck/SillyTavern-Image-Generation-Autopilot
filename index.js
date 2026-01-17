@@ -1,4 +1,10 @@
 const MODULE_NAME = 'autoMultiImageSwipes'
+const INSERT_TYPE = Object.freeze({
+    DISABLED: 'disabled',
+    INLINE: 'inline',
+    REPLACE: 'replace',
+    NEW_MESSAGE: 'new',
+})
 const defaultSettings = Object.freeze({
     enabled: true,
     targetCount: 4,
@@ -8,11 +14,23 @@ const defaultSettings = Object.freeze({
     burstThrottleMs: 250,
     modelQueue: [],
     swipeModel: '',
+    autoGeneration: {
+        enabled: false,
+        insertType: INSERT_TYPE.DISABLED,
+        promptInjection: {
+            enabled: true,
+            prompt: `<image_generation>\nYou must insert a <pic prompt="example prompt"> at end of the reply. Prompts are used for stable diffusion image generation, based on the plot and character to output appropriate prompts to generate captivating images.\n</image_generation>`,
+            regex: '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g',
+            position: 'deep_system',
+            depth: 0,
+        },
+    },
 })
 
 const state = {
     initialized: false,
     seenMessages: new Set(),
+    autoGenMessages: new Set(),
     runningMessages: new Map(),
     chatToken: 0,
     ui: null,
@@ -41,7 +59,9 @@ function resolveTemplateRoot() {
     )
 
     const ranked = [
-        (script) => script?.src?.includes('/auto-multi-image-swipes/'),
+        (script) =>
+            script?.src?.includes('/SillyTavern-auto-multi-image-swipes/') ||
+            script?.src?.includes('/auto-multi-image-swipes/'),
         (script) => script?.src?.includes('/Multi-Image-Gen/'),
         () => true,
     ]
@@ -83,6 +103,33 @@ function ensureSettings() {
         }
     }
     const settings = extensionSettings[MODULE_NAME]
+
+    if (!settings.autoGeneration) {
+        settings.autoGeneration = { ...defaultSettings.autoGeneration }
+    }
+
+    if (typeof settings.autoGeneration.enabled !== 'boolean') {
+        settings.autoGeneration.enabled = false
+    }
+
+    if (!Object.values(INSERT_TYPE).includes(settings.autoGeneration.insertType)) {
+        settings.autoGeneration.insertType = INSERT_TYPE.DISABLED
+    }
+
+    if (!settings.autoGeneration.promptInjection) {
+        settings.autoGeneration.promptInjection = {
+            ...defaultSettings.autoGeneration.promptInjection,
+        }
+    }
+
+    const promptInjection = settings.autoGeneration.promptInjection
+    for (const [key, value] of Object.entries(
+        defaultSettings.autoGeneration.promptInjection,
+    )) {
+        if (typeof promptInjection[key] === 'undefined') {
+            promptInjection[key] = value
+        }
+    }
 
     if (!Array.isArray(settings.modelQueue)) {
         settings.modelQueue = []
@@ -140,6 +187,56 @@ function clampBurstThrottle(value) {
         return defaultSettings.burstThrottleMs
     }
     return Math.max(0, Math.min(5000, Math.round(numeric)))
+}
+
+function clampDepth(value) {
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) {
+        return defaultSettings.autoGeneration.promptInjection.depth
+    }
+    return Math.max(0, Math.min(100, Math.round(numeric)))
+}
+
+function normalizeRegexString(value) {
+    if (typeof value !== 'string') {
+        return ''
+    }
+    return value.trim()
+}
+
+function parseRegexFromString(raw) {
+    const source = normalizeRegexString(raw)
+    if (!source) {
+        return null
+    }
+
+    if (source.startsWith('/') && source.lastIndexOf('/') > 0) {
+        const lastSlash = source.lastIndexOf('/')
+        const pattern = source.slice(1, lastSlash)
+        const flags = source.slice(lastSlash + 1) || 'g'
+        try {
+            return new RegExp(pattern, flags.includes('g') ? flags : `${flags}g`)
+        } catch (error) {
+            console.warn('[AutoMultiImage] Invalid regex string', error)
+            return null
+        }
+    }
+
+    try {
+        return new RegExp(source, 'g')
+    } catch (error) {
+        console.warn('[AutoMultiImage] Invalid regex string', error)
+        return null
+    }
+}
+
+function escapeHtmlAttribute(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
 }
 
 function sanitizeModelQueue(
@@ -245,6 +342,28 @@ async function buildSettingsPanel() {
     const burstModeInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_burst_mode')
     )
+    const autoGenEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_auto_gen_enabled')
+    )
+    const autoGenInsertSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_auto_gen_insert_type')
+    )
+    const promptInjectionEnabledInput =
+        /** @type {HTMLInputElement | null} */ (
+            container.querySelector('#auto_multi_prompt_injection_enabled')
+        )
+    const promptTemplateInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_template')
+    )
+    const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_regex')
+    )
+    const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_position')
+    )
+    const promptDepthInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_depth')
+    )
 
     if (
         !(
@@ -259,6 +378,20 @@ async function buildSettingsPanel() {
     ) {
         console.warn('[AutoMultiImage] Settings template missing inputs')
         return
+    }
+
+    if (
+        !(
+            autoGenEnabledInput &&
+            autoGenInsertSelect &&
+            promptInjectionEnabledInput &&
+            promptTemplateInput &&
+            promptRegexInput &&
+            promptPositionSelect &&
+            promptDepthInput
+        )
+    ) {
+        console.warn('[AutoMultiImage] Auto-generation inputs missing')
     }
 
     enabledInput.addEventListener('change', () => {
@@ -294,6 +427,55 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
+    autoGenEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.enabled = autoGenEnabledInput.checked
+        saveSettings()
+    })
+
+    autoGenInsertSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.insertType = autoGenInsertSelect.value
+        saveSettings()
+    })
+
+    promptInjectionEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.enabled =
+            promptInjectionEnabledInput.checked
+        saveSettings()
+    })
+
+    promptTemplateInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.prompt = promptTemplateInput.value
+        saveSettings()
+    })
+
+    promptRegexInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.regex = promptRegexInput.value
+        saveSettings()
+    })
+
+    promptPositionSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.position =
+            promptPositionSelect.value
+        saveSettings()
+    })
+
+    promptDepthInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.depth = clampDepth(
+            promptDepthInput.value,
+        )
+        promptDepthInput.value = String(
+            current.autoGeneration.promptInjection.depth,
+        )
+        saveSettings()
+    })
+
     addModelButton?.addEventListener('click', (event) => {
         event.preventDefault()
         handleAddModelRow()
@@ -315,6 +497,13 @@ async function buildSettingsPanel() {
         burstModeInput,
         addModelButton,
         refreshModelsButton,
+        autoGenEnabledInput,
+        autoGenInsertSelect,
+        promptInjectionEnabledInput,
+        promptTemplateInput,
+        promptRegexInput,
+        promptPositionSelect,
+        promptDepthInput,
     }
     syncModelSelectOptions()
     syncUiFromSettings()
@@ -548,6 +737,36 @@ function syncUiFromSettings() {
         saveSettings()
     }
     state.ui.burstModeInput.checked = false
+
+    if (state.ui.autoGenEnabledInput) {
+        state.ui.autoGenEnabledInput.checked =
+            settings.autoGeneration.enabled
+    }
+    if (state.ui.autoGenInsertSelect) {
+        state.ui.autoGenInsertSelect.value =
+            settings.autoGeneration.insertType || INSERT_TYPE.DISABLED
+    }
+    if (state.ui.promptInjectionEnabledInput) {
+        state.ui.promptInjectionEnabledInput.checked =
+            settings.autoGeneration.promptInjection.enabled
+    }
+    if (state.ui.promptTemplateInput) {
+        state.ui.promptTemplateInput.value =
+            settings.autoGeneration.promptInjection.prompt
+    }
+    if (state.ui.promptRegexInput) {
+        state.ui.promptRegexInput.value =
+            settings.autoGeneration.promptInjection.regex
+    }
+    if (state.ui.promptPositionSelect) {
+        state.ui.promptPositionSelect.value =
+            settings.autoGeneration.promptInjection.position
+    }
+    if (state.ui.promptDepthInput) {
+        state.ui.promptDepthInput.value = String(
+            clampDepth(settings.autoGeneration.promptInjection.depth),
+        )
+    }
     const configuredQueue = sanitizeModelQueue(
         settings.modelQueue,
         clampCount(settings.targetCount),
@@ -676,8 +895,198 @@ function clearProgress(messageId) {
 function resetPerChatState() {
     state.chatToken += 1
     state.seenMessages.clear()
+    state.autoGenMessages.clear()
     state.runningMessages.clear()
     clearProgress()
+}
+
+function getPromptRole(position) {
+    switch (position) {
+        case 'deep_user':
+            return 'user'
+        case 'deep_assistant':
+            return 'assistant'
+        case 'deep_system':
+        default:
+            return 'system'
+    }
+}
+
+function insertPromptAtDepth(chat, prompt, role, depth) {
+    if (!Array.isArray(chat)) {
+        return
+    }
+
+    const entry = { role, content: prompt }
+    if (!Number.isFinite(depth) || depth <= 0) {
+        chat.push(entry)
+        return
+    }
+
+    const insertIndex = Math.max(0, chat.length - depth)
+    chat.splice(insertIndex, 0, entry)
+}
+
+async function handlePromptInjection(eventData) {
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+    if (!autoSettings?.enabled) {
+        return
+    }
+
+    if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
+        return
+    }
+
+    const injection = autoSettings.promptInjection
+    if (!injection?.enabled || !injection.prompt?.trim()) {
+        return
+    }
+
+    const role = getPromptRole(injection.position)
+    const depth = clampDepth(injection.depth)
+    insertPromptAtDepth(eventData?.chat, injection.prompt, role, depth)
+    log('Prompt injected', { role, depth })
+}
+
+async function resolveSlashCommandParser() {
+    if (window?.SlashCommandParser?.commands) {
+        return window.SlashCommandParser
+    }
+
+    if (window?.SillyTavern?.SlashCommandParser?.commands) {
+        return window.SillyTavern.SlashCommandParser
+    }
+
+    try {
+        const module = await import(
+            '../../../slash-commands/SlashCommandParser.js'
+        )
+        if (module?.SlashCommandParser?.commands) {
+            return module.SlashCommandParser
+        }
+    } catch (error) {
+        console.warn('[AutoMultiImage] Failed to import SlashCommandParser', error)
+    }
+
+    return null
+}
+
+async function callSdSlash(prompt, quiet) {
+    const parser = await resolveSlashCommandParser()
+    const command = parser?.commands?.sd
+    if (!command?.callback) {
+        console.warn('[AutoMultiImage] SlashCommandParser sd not available')
+        return null
+    }
+
+    try {
+        return await command.callback({ quiet: quiet ? 'true' : 'false' }, prompt)
+    } catch (error) {
+        console.error('[AutoMultiImage] Slash command sd failed', error)
+        return null
+    }
+}
+
+async function handleIncomingMessage(messageId) {
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+    if (!autoSettings?.enabled) {
+        return
+    }
+
+    if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
+        return
+    }
+
+    const context = getCtx()
+    const resolvedId =
+        typeof messageId === 'number' ? messageId : context.chat?.length - 1
+    const message = context.chat?.[resolvedId]
+    if (!message || message.is_user || !message.mes) {
+        return
+    }
+
+    if (state.autoGenMessages.has(resolvedId)) {
+        return
+    }
+
+    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
+    if (!regex) {
+        return
+    }
+
+    const matches = regex.global
+        ? [...message.mes.matchAll(regex)]
+        : message.mes.match(regex)
+            ? [message.mes.match(regex)]
+            : []
+
+    if (!matches.length) {
+        return
+    }
+
+    state.autoGenMessages.add(resolvedId)
+    setTimeout(async () => {
+        for (const match of matches) {
+            const prompt = typeof match?.[1] === 'string' ? match[1] : ''
+            if (!prompt.trim()) {
+                continue
+            }
+
+            if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
+                await callSdSlash(prompt, false)
+                continue
+            }
+
+            const imageUrl = await callSdSlash(prompt, true)
+            if (!imageUrl || typeof imageUrl !== 'string') {
+                continue
+            }
+
+            if (!message.extra) {
+                message.extra = {}
+            }
+
+            if (autoSettings.insertType === INSERT_TYPE.INLINE) {
+                if (!Array.isArray(message.extra.image_swipes)) {
+                    message.extra.image_swipes = []
+                }
+                if (message.extra.image && !message.extra.image_swipes.includes(message.extra.image)) {
+                    message.extra.image_swipes.push(message.extra.image)
+                }
+                message.extra.image_swipes.push(imageUrl)
+                message.extra.image = imageUrl
+                message.extra.title = prompt
+                message.extra.inline_image = true
+            }
+
+            if (autoSettings.insertType === INSERT_TYPE.REPLACE) {
+                const originalTag = typeof match?.[0] === 'string' ? match[0] : ''
+                if (originalTag) {
+                    const escapedUrl = escapeHtmlAttribute(imageUrl)
+                    const escapedPrompt = escapeHtmlAttribute(prompt)
+                    const newTag = `<img src="${escapedUrl}" title="${escapedPrompt}" alt="${escapedPrompt}">`
+                    message.mes = message.mes.replace(originalTag, newTag)
+                }
+            }
+
+            if (typeof window.appendMediaToMessage === 'function') {
+                const messageElement = document.querySelector(
+                    `.mes[mesid="${resolvedId}"]`,
+                )
+                window.appendMediaToMessage(message, messageElement)
+            } else if (typeof window.updateMessageBlock === 'function') {
+                window.updateMessageBlock(resolvedId, message)
+            }
+
+            context.eventSource?.emit(
+                context.eventTypes.MESSAGE_UPDATED,
+                resolvedId,
+            )
+            await context.saveChat?.()
+        }
+    }, 0)
 }
 
 function shouldAutoFill(message) {
@@ -1236,6 +1645,15 @@ async function init() {
     eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, handleMessageRendered)
     eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
     eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
+    if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
+        eventSource.on(
+            eventTypes.CHAT_COMPLETION_PROMPT_READY,
+            handlePromptInjection,
+        )
+    }
+    if (eventTypes.MESSAGE_RECEIVED) {
+        eventSource.on(eventTypes.MESSAGE_RECEIVED, handleIncomingMessage)
+    }
 
     document.addEventListener('change', handleDocumentChange)
 

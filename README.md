@@ -8,6 +8,8 @@ Automatically queue Stable Diffusion message swipes so that every visible image 
 - Works with any provider supported by the core Stable Diffusion extension (NanoGPT, NovelAI, Horde, etc.).
 - Adjustable default swipe count (1‒12) and delay between requests to avoid rate limits.
 - Queue multiple Stable Diffusion models with independent swipe counts so one prompt can explore several favorites automatically.
+- Auto-generate images when the assistant emits <pic prompt="..."> tags, with configurable insertion modes.
+- Built-in prompt injection and regex matching to guide the model in emitting image tags.
 - Optional burst mode dispatches every swipe instantly so fast models don't get held up by slower ones.
 - Respects manual overrides: stop/abort buttons, disabling the extension, or editing the message halts the automation.
 - No new API keys or server plugins required.
@@ -38,6 +40,7 @@ The settings block exposes several knobs:
 | **Delay between swipes**     | Milliseconds to wait between swipe requests. Useful if your backend enforces cooldowns. Default `800`.                                                                                  |
 | **Burst mode**               | When enabled, every swipe is dispatched immediately and the extension waits in the background for the results. Disable it to run swipes sequentially using the configured delay.        |
 | **Model queue**              | Add one or more SD models, each with its own swipe count. They run sequentially (order shown in the list). Leave the list empty to keep using the model that is active in the SD panel. |
+| **Auto generation**          | Enable tag-driven image generation, pick an insert mode (inline, replace, new message), and configure prompt injection/regex.                        |
 
 The extension only touches messages whose media attachments have the `generated` source and the gallery display mode, so uploads or captions are ignored.
 
@@ -52,6 +55,7 @@ The extension only touches messages whose media attachments have the `generated`
 ## Credits
 
 - The refreshed drawer and panel styling were inspired by Pathweaver, the beautifully polished SillyTavern extension UI. Huge thanks to its creators for the design spark.
+- Auto-generation behavior is inspired by wickedcode01/st-image-auto-generation (reimplemented without code reuse).
 
 ## Troubleshooting
 

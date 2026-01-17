@@ -132,6 +132,83 @@
                 </p>
             </section>
 
+            <section class="auto-multi-panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-image"></i> Auto generation
+                        </p>
+                        <h5>Generate images from tags</h5>
+                    </div>
+                    <p class="caption">
+                        Detect <pic prompt="..."> tags in AI replies and
+                        generate images automatically.
+                    </p>
+                </header>
+                <label class="checkbox_label auto-multi-toggle">
+                    <input type="checkbox" id="auto_multi_auto_gen_enabled" />
+                    <span>Enable auto image generation</span>
+                </label>
+                <div class="auto-multi-grid">
+                    <label>
+                        <span>Insert mode</span>
+                        <select
+                            id="auto_multi_auto_gen_insert_type"
+                            class="text_pole"
+                        >
+                            <option value="disabled">Disabled</option>
+                            <option value="inline">Insert in current message</option>
+                            <option value="replace">Inline replace tag</option>
+                            <option value="new">Create new message</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Prompt injection position</span>
+                        <select id="auto_multi_prompt_position" class="text_pole">
+                            <option value="deep_system">@D ⚙️ System</option>
+                            <option value="deep_user">@D 👤 User</option>
+                            <option value="deep_assistant">@D 🤖 Assistant</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Prompt injection depth</span>
+                        <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            id="auto_multi_prompt_depth"
+                            class="text_pole"
+                        />
+                    </label>
+                </div>
+                <label class="checkbox_label auto-multi-inline">
+                    <input
+                        type="checkbox"
+                        id="auto_multi_prompt_injection_enabled"
+                    />
+                    <span>Enable prompt injection</span>
+                </label>
+                <div class="auto-multi-stack">
+                    <label>
+                        <span>Prompt template</span>
+                        <textarea
+                            id="auto_multi_prompt_template"
+                            class="text_pole auto-multi-textarea"
+                            rows="3"
+                        ></textarea>
+                    </label>
+                    <label>
+                        <span>Regex (capture group 1 = prompt)</span>
+                        <textarea
+                            id="auto_multi_prompt_regex"
+                            class="text_pole auto-multi-textarea"
+                            rows="2"
+                        ></textarea>
+                    </label>
+                </div>
+            </section>
+
             <section class="auto-multi-panel auto-multi-panel--queue">
                 <header>
                     <div>

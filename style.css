@@ -300,6 +300,16 @@
     margin: 0;
 }
 
+.auto-multi-image-settings .auto-multi-stack {
+    display: grid;
+    gap: 12px;
+}
+
+.auto-multi-image-settings .auto-multi-textarea {
+    min-height: 72px;
+    resize: vertical;
+}
+
 .auto-multi-image-settings .auto-multi-burst-note {
     margin-top: 8px;
     font-size: 0.82rem;
