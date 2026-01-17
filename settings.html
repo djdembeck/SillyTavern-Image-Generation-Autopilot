@@ -1,42 +1,168 @@
-<div id="auto_multi_image_container" class="extension_container auto-multi-image-settings">
-    <div class="inline-drawer">
-        <div class="inline-drawer-toggle inline-drawer-header">
-            <div class="flex-container alignitemscenter flexGap10">
+<div
+    id="auto_multi_image_container"
+    class="extension_container auto-multi-image-settings"
+>
+    <div class="inline-drawer auto-multi-drawer">
+        <div
+            class="inline-drawer-toggle inline-drawer-header auto-multi-drawer__toggle"
+        >
+            <div
+                class="flex-container alignitemscenter flexGap10 auto-multi-drawer__header"
+            >
                 <i class="fa-solid fa-images"></i>
-                <div>
+                <div class="auto-multi-drawer__header-text">
                     <h4 class="margin0">Auto Multi-Image</h4>
-                    <p class="extension_descr margin0">Queue extra Stable Diffusion swipes whenever a generated image lands.</p>
+                    <p class="extension_descr margin0">
+                        Queue extra Stable Diffusion swipes whenever a generated
+                        image lands.
+                    </p>
                 </div>
             </div>
-            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+            <div
+                class="inline-drawer-icon fa-solid fa-circle-chevron-down down auto-multi-drawer__icon"
+            ></div>
         </div>
-        <div class="inline-drawer-content">
-            <label class="checkbox_label">
-                <input type="checkbox" id="auto_multi_image_enabled">
-                <span>Enable automatic swipes</span>
-            </label>
+        <div class="inline-drawer-content auto-multi-ui">
+            <section class="auto-multi-hero">
+                <div class="auto-multi-hero__badge">
+                    <i class="fa-solid fa-sparkles"></i>
+                    <span>Auto Multi-Image</span>
+                </div>
+                <h4>Batch swipes. Compare vibes.</h4>
+                <p>
+                    Layer multiple Stable Diffusion models, pace them with
+                    millisecond precision, or kick everything off in a single
+                    burst so faster workers finish first.
+                </p>
+                <div class="auto-multi-hero__chips">
+                    <span
+                        ><i class="fa-solid fa-layer-group"></i> Multi-model
+                        queue</span
+                    >
+                    <span
+                        ><i class="fa-solid fa-gauge-high"></i> Burst
+                        dispatch</span
+                    >
+                    <span
+                        ><i class="fa-solid fa-bars-progress"></i> Global
+                        progress HUD</span
+                    >
+                </div>
+            </section>
 
-            <div class="flex-container flexGap10">
-                <label class="flex1">
-                    <span>Images per request</span>
-                    <input type="number" min="1" max="12" step="1" id="auto_multi_image_target" class="text_pole">
+            <section class="auto-multi-panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-power-off"></i> Automation
+                            control
+                        </p>
+                        <h5>Toggle the autopilot</h5>
+                    </div>
+                    <p class="caption">
+                        Once enabled, every SD message auto-fills to your swipe
+                        goals.
+                    </p>
+                </header>
+                <label class="checkbox_label auto-multi-toggle">
+                    <input type="checkbox" id="auto_multi_image_enabled" />
+                    <span>Enable automatic swipes</span>
                 </label>
-                <label class="flex1">
-                    <span>Delay between swipes (ms)</span>
-                    <input type="number" min="0" max="10000" step="50" id="auto_multi_image_delay" class="text_pole">
-                </label>
-            </div>
+            </section>
 
-            <div class="flex-container flexGap10 alignitemscenter">
-                <label class="flex1">
-                    <span>Image model override</span>
-                    <select id="auto_multi_image_model" class="text_pole"></select>
+            <section class="auto-multi-panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-wave-square"></i> Timing &
+                            strategy
+                        </p>
+                        <h5>Dial in swipe cadence</h5>
+                    </div>
+                    <p class="caption">
+                        Mix deliberate pacing with all-out bursts to suit wildly
+                        different backend speeds.
+                    </p>
+                </header>
+                <div class="auto-multi-grid">
+                    <label>
+                        <span>Default swipes per model</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="12"
+                            step="1"
+                            id="auto_multi_image_target"
+                            class="text_pole"
+                        />
+                    </label>
+                    <label>
+                        <span>Delay between swipes (ms)</span>
+                        <input
+                            type="number"
+                            min="0"
+                            max="10000"
+                            step="50"
+                            id="auto_multi_image_delay"
+                            class="text_pole"
+                        />
+                    </label>
+                </div>
+                <label
+                    class="checkbox_label auto-multi-inline"
+                    title="Immediately fire every queued swipe instead of waiting for each result."
+                >
+                    <input type="checkbox" id="auto_multi_burst_mode" />
+                    <span>Fire all swipes at once (burst mode)</span>
                 </label>
-                <button id="auto_multi_refresh_models" class="menu_button fa-solid fa-arrows-rotate" title="Refresh the model list"></button>
-            </div>
+            </section>
 
-            <p class="note marginTop5">Pick a dedicated model for automated swipes or leave it on the current Stable Diffusion selection.</p>
-            <p id="auto_multi_image_summary" class="note"></p>
+            <section class="auto-multi-panel auto-multi-panel--queue">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-cubes"></i> Model queue
+                        </p>
+                        <h5>Compose your lineup</h5>
+                    </div>
+                    <div
+                        class="auto-multi-model-queue__actions flex-container flexGap5"
+                    >
+                        <button
+                            id="auto_multi_refresh_models"
+                            class="menu_button fa-solid fa-arrows-rotate"
+                            title="Refresh the model list"
+                        ></button>
+                        <button
+                            id="auto_multi_add_model"
+                            class="menu_button auto-multi-add-model"
+                        >
+                            <span class="fa-solid fa-plus"></span>
+                            <span>Add model</span>
+                        </button>
+                    </div>
+                </header>
+                <p class="caption">
+                    Each row pins a model + swipe count. Leave the list empty to
+                    mirror the SD panel selection.
+                </p>
+                <div
+                    id="auto_multi_model_rows"
+                    class="auto-multi-model-rows"
+                ></div>
+            </section>
+
+            <section class="auto-multi-panel auto-multi-panel--summary">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-chart-line"></i> Live summary
+                        </p>
+                        <h5>At-a-glance plan</h5>
+                    </div>
+                </header>
+                <p id="auto_multi_image_summary" class="auto-multi-summary"></p>
+            </section>
         </div>
     </div>
 </div>
