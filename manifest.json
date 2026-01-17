@@ -1,0 +1,12 @@
+{
+  "display_name": "Auto Multi-Image Swipes",
+  "author": "GitHub Copilot",
+  "version": "1.0.0",
+  "js": "index.js",
+  "dependencies": [
+    "stable-diffusion"
+  ],
+  "auto_update": false,
+  "minimum_client_version": "1.12.0",
+  "homePage": "https://github.com/djdembeck/multi-image-gen"
+}

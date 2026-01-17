@@ -1,0 +1,42 @@
+<div id="auto_multi_image_container" class="extension_container auto-multi-image-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <div class="flex-container alignitemscenter flexGap10">
+                <i class="fa-solid fa-images"></i>
+                <div>
+                    <h4 class="margin0">Auto Multi-Image</h4>
+                    <p class="extension_descr margin0">Queue extra Stable Diffusion swipes whenever a generated image lands.</p>
+                </div>
+            </div>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <label class="checkbox_label">
+                <input type="checkbox" id="auto_multi_image_enabled">
+                <span>Enable automatic swipes</span>
+            </label>
+
+            <div class="flex-container flexGap10">
+                <label class="flex1">
+                    <span>Images per request</span>
+                    <input type="number" min="1" max="12" step="1" id="auto_multi_image_target" class="text_pole">
+                </label>
+                <label class="flex1">
+                    <span>Delay between swipes (ms)</span>
+                    <input type="number" min="0" max="10000" step="50" id="auto_multi_image_delay" class="text_pole">
+                </label>
+            </div>
+
+            <div class="flex-container flexGap10 alignitemscenter">
+                <label class="flex1">
+                    <span>Image model override</span>
+                    <select id="auto_multi_image_model" class="text_pole"></select>
+                </label>
+                <button id="auto_multi_refresh_models" class="menu_button fa-solid fa-arrows-rotate" title="Refresh the model list"></button>
+            </div>
+
+            <p class="note marginTop5">Pick a dedicated model for automated swipes or leave it on the current Stable Diffusion selection.</p>
+            <p id="auto_multi_image_summary" class="note"></p>
+        </div>
+    </div>
+</div>
