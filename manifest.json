@@ -3,6 +3,9 @@
   "author": "GitHub Copilot",
   "version": "1.0.0",
   "js": "index.js",
+  "css": [
+    "style.css"
+  ],
   "dependencies": [
     "stable-diffusion"
   ],
