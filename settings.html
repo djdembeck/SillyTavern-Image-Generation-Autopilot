@@ -12,10 +12,6 @@
                 <i class="fa-solid fa-images"></i>
                 <div class="auto-multi-drawer__header-text">
                     <h4 class="margin0">Auto Multi-Image</h4>
-                    <p class="extension_descr margin0">
-                        Queue extra Stable Diffusion swipes whenever a generated
-                        image lands.
-                    </p>
                 </div>
             </div>
             <div
@@ -28,11 +24,11 @@
                     <i class="fa-solid fa-sparkles"></i>
                     <span>Auto Multi-Image</span>
                 </div>
-                <h4>Batch swipes. Compare vibes.</h4>
+                <h4>Auto-generate multi-model images per reply.</h4>
                 <p>
-                    Layer multiple Stable Diffusion models, pace them with
-                    millisecond precision, or kick everything off in a single
-                    burst so faster workers finish first.
+                    For every new message, automatically generate multiple
+                    images across your selected SD models so you can compare
+                    looks without manual swiping.
                 </p>
                 <div class="auto-multi-hero__chips">
                     <span
@@ -40,17 +36,20 @@
                         queue</span
                     >
                     <span
-                        ><i class="fa-solid fa-gauge-high"></i> Burst
-                        dispatch</span
-                    >
-                    <span
                         ><i class="fa-solid fa-bars-progress"></i> Global
                         progress HUD</span
+                    >
+                    <span
+                        ><i class="fa-solid fa-wand-magic-sparkles"></i> Auto
+                        image gen</span
+                    >
+                    <span
+                        ><i class="fa-solid fa-gear"></i> SD prompt injection</span
                     >
                 </div>
             </section>
 
-            <section class="auto-multi-panel">
+            <section class="auto-multi-panel" id="auto_multi_master_panel">
                 <header>
                     <div>
                         <p class="eyebrow">
@@ -60,97 +59,46 @@
                         <h5>Toggle the autopilot</h5>
                     </div>
                     <p class="caption">
-                        Once enabled, every SD message auto-fills to your swipe
-                        goals.
+                        Enable swipe automation and automatic image creation.
                     </p>
                 </header>
-                <label class="checkbox_label auto-multi-toggle">
+                <label class="checkbox_label auto-multi-toggle" title="Toggle automatic image generation from assistant replies.">
+                    <input type="checkbox" id="auto_multi_auto_gen_enabled" />
+                    <span>Enable auto image generation</span>
+                </label>
+                <label class="checkbox_label auto-multi-toggle" title="Toggle automatic swipe requests for each new SD image message.">
                     <input type="checkbox" id="auto_multi_image_enabled" />
-                    <span>Enable automatic swipes</span>
+                    <span>Enable auto-swipes</span>
                 </label>
             </section>
 
-            <section class="auto-multi-panel">
+            <section class="auto-multi-panel" id="auto_multi_summary_panel">
                 <header>
                     <div>
                         <p class="eyebrow">
-                            <i class="fa-solid fa-wave-square"></i> Timing &
-                            strategy
+                            <i class="fa-solid fa-chart-line"></i> Live summary
                         </p>
-                        <h5>Dial in swipe cadence</h5>
+                        <h5>At-a-glance plan</h5>
                     </div>
-                    <p class="caption">
-                        Mix deliberate pacing with all-out bursts to suit wildly
-                        different backend speeds.
-                    </p>
                 </header>
-                <div class="auto-multi-grid">
-                    <label>
-                        <span>Default swipes per model</span>
-                        <input
-                            type="number"
-                            min="1"
-                            max="12"
-                            step="1"
-                            id="auto_multi_image_target"
-                            class="text_pole"
-                        />
-                    </label>
-                    <label>
-                        <span>Delay between swipes (ms)</span>
-                        <input
-                            type="number"
-                            min="0"
-                            max="10000"
-                            step="50"
-                            id="auto_multi_image_delay"
-                            class="text_pole"
-                        />
-                    </label>
-                    <label>
-                        <span>Burst throttle (ms)</span>
-                        <input
-                            type="number"
-                            min="0"
-                            max="5000"
-                            step="25"
-                            id="auto_multi_burst_throttle"
-                            class="text_pole"
-                        />
-                    </label>
-                </div>
-                <label
-                    class="checkbox_label auto-multi-inline"
-                    title="Burst mode is deprecated and disabled."
-                >
-                    <input type="checkbox" id="auto_multi_burst_mode" disabled />
-                    <span>Fire all swipes at once (burst mode)</span>
-                </label>
-                <p class="note auto-multi-burst-note margin0">
-                    Burst mode is deprecated and currently disabled to prevent
-                    Stable Diffusion requests from aborting each other.
-                </p>
+                <p id="auto_multi_image_summary" class="auto-multi-summary"></p>
             </section>
 
-            <section class="auto-multi-panel">
+            <section class="auto-multi-panel" id="auto_multi_autogen_panel">
                 <header>
                     <div>
                         <p class="eyebrow">
                             <i class="fa-solid fa-image"></i> Auto generation
                         </p>
-                        <h5>Generate images from tags</h5>
+                        <h5>Generate images automatically</h5>
                     </div>
                     <p class="caption">
-                        Detect <pic prompt="..."> tags in AI replies and
-                        generate images automatically.
+                        Generate images from the assistant’s replies using your
+                        SD prompt guidance and insert mode.
                     </p>
                 </header>
-                <label class="checkbox_label auto-multi-toggle">
-                    <input type="checkbox" id="auto_multi_auto_gen_enabled" />
-                    <span>Enable auto image generation</span>
-                </label>
                 <div class="auto-multi-grid">
-                    <label>
+                    <label title="Where generated images should be inserted.">
                         <span>Insert mode</span>
                         <select
                             id="auto_multi_auto_gen_insert_type"
@@ -158,11 +106,11 @@
                         >
                             <option value="disabled">Disabled</option>
                             <option value="inline">Insert in current message</option>
-                            <option value="replace">Inline replace tag</option>
+                            <option value="replace">Inline replace marker</option>
                             <option value="new">Create new message</option>
                         </select>
                     </label>
-                    <label>
+                    <label title="Where to inject the prompt guidance into the chat completion prompt.">
                         <span>Prompt injection position</span>
                         <select id="auto_multi_prompt_position" class="text_pole">
                             <option value="deep_system">@D ⚙️ System</option>
@@ -170,7 +118,7 @@
                             <option value="deep_assistant">@D 🤖 Assistant</option>
                         </select>
                     </label>
-                    <label>
+                    <label title="How far from the end to inject prompt guidance (0 = end of prompt).">
                         <span>Prompt injection depth</span>
                         <input
                             type="number"
@@ -182,7 +130,63 @@
                         />
                     </label>
                 </div>
-                <label class="checkbox_label auto-multi-inline">
+                <div class="auto-multi-count-group" title="How many <pic> prompts the assistant should output per reply.">
+                    <label>
+                        <span>Image count rule</span>
+                        <select id="auto_multi_pic_count_mode" class="text_pole">
+                            <option value="exact">Exactly</option>
+                            <option value="range">Between (range)</option>
+                            <option value="min">At least</option>
+                            <option value="max">At most</option>
+                        </select>
+                    </label>
+                    <label
+                        class="auto-multi-count-field"
+                        data-count-mode="exact"
+                        title="Exact number of <pic> prompts to request when using the Exact rule."
+                    >
+                        <span>Exact</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="12"
+                            step="1"
+                            id="auto_multi_pic_count_exact"
+                            class="text_pole"
+                        />
+                    </label>
+                    <label
+                        class="auto-multi-count-field"
+                        data-count-mode="min range"
+                        title="Minimum number of <pic> prompts when using At least or Between."
+                    >
+                        <span>Min</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="12"
+                            step="1"
+                            id="auto_multi_pic_count_min"
+                            class="text_pole"
+                        />
+                    </label>
+                    <label
+                        class="auto-multi-count-field"
+                        data-count-mode="max range"
+                        title="Maximum number of <pic> prompts when using At most or Between."
+                    >
+                        <span>Max</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="12"
+                            step="1"
+                            id="auto_multi_pic_count_max"
+                            class="text_pole"
+                        />
+                    </label>
+                </div>
+                <label class="checkbox_label auto-multi-inline" title="Inject the composed guidance into the chat completion prompt.">
                     <input
                         type="checkbox"
                         id="auto_multi_prompt_injection_enabled"
@@ -190,26 +194,84 @@
                     <span>Enable prompt injection</span>
                 </label>
                 <div class="auto-multi-stack">
-                    <label>
-                        <span>Prompt template</span>
+                    <label title="High-level system prompt for image generation behavior.">
+                        <span>Main prompt</span>
                         <textarea
-                            id="auto_multi_prompt_template"
+                            id="auto_multi_prompt_main"
                             class="text_pole auto-multi-textarea"
                             rows="3"
+                            placeholder="You must insert exactly one <pic prompt=\"detailed scene description\"> at the end of each reply."
                         ></textarea>
                     </label>
-                    <label>
+                    <div class="auto-multi-grid">
+                        <label title="Positive constraints or style rules for image prompts.">
+                            <span>Image prompt instructions (positive)</span>
+                            <textarea
+                                id="auto_multi_prompt_positive"
+                                class="text_pole auto-multi-textarea"
+                                rows="2"
+                                placeholder="ALWAYS specify Pixar 3D style. ALWAYS describe the full body in each prompt."
+                            ></textarea>
+                        </label>
+                        <label title="Negative constraints or disallowed terms for image prompts.">
+                            <span>Image prompt instructions (negative)</span>
+                            <textarea
+                                id="auto_multi_prompt_negative"
+                                class="text_pole auto-multi-textarea"
+                                rows="2"
+                                placeholder="NEVER use terms: realistic, cinematic. NEVER reference male anatomy."
+                            ></textarea>
+                        </label>
+                    </div>
+                    <label title="Example image prompt to guide the model.">
+                        <span>Example prompt</span>
+                        <textarea
+                            id="auto_multi_prompt_example"
+                            class="text_pole auto-multi-textarea"
+                            rows="2"
+                            placeholder="A female with long dark hair... (example of a prompt you like)"
+                        ></textarea>
+                    </label>
+                    <div class="auto-multi-grid">
+                        <label title="Optional limit for the prompt length.">
+                            <span>Image prompt length limit</span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="500"
+                                step="1"
+                                id="auto_multi_prompt_limit"
+                                class="text_pole"
+                            />
+                        </label>
+                        <label title="Whether the limit is counted in words or characters.">
+                            <span>Length limit type</span>
+                            <select
+                                id="auto_multi_prompt_limit_type"
+                                class="text_pole"
+                            >
+                                <option value="none">No limit</option>
+                                <option value="words">Words</option>
+                                <option value="chars">Characters</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label title="Regex used to extract the prompt text (first capture group).">
                         <span>Regex (capture group 1 = prompt)</span>
                         <textarea
                             id="auto_multi_prompt_regex"
                             class="text_pole auto-multi-textarea"
                             rows="2"
+                            placeholder="/<pic[^>]*\\sprompt=\"([^\"]*)\"[^>]*?>/g"
                         ></textarea>
                     </label>
                 </div>
             </section>
 
-            <section class="auto-multi-panel auto-multi-panel--queue">
+            <section
+                class="auto-multi-panel auto-multi-panel--queue"
+                id="auto_multi_queue_panel"
+            >
                 <header>
                     <div>
                         <p class="eyebrow">
@@ -244,16 +306,65 @@
                 ></div>
             </section>
 
-            <section class="auto-multi-panel auto-multi-panel--summary">
+            <section class="auto-multi-panel" id="auto_multi_cadence_panel">
                 <header>
                     <div>
                         <p class="eyebrow">
-                            <i class="fa-solid fa-chart-line"></i> Live summary
+                            <i class="fa-solid fa-wave-square"></i> Timing &
+                            strategy
                         </p>
-                        <h5>At-a-glance plan</h5>
+                        <h5>Dial in swipe cadence</h5>
                     </div>
+                    <p class="caption">
+                        Tune swipe pacing for slow or fast backends.
+                    </p>
                 </header>
-                <p id="auto_multi_image_summary" class="auto-multi-summary"></p>
+                <div class="auto-multi-grid">
+                    <label title="Default number of swipes per model when added to the queue.">
+                        <span>Default swipes per model</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="12"
+                            step="1"
+                            id="auto_multi_image_target"
+                            class="text_pole"
+                        />
+                    </label>
+                    <label title="Delay between swipe requests to avoid provider rate limits.">
+                        <span>Delay between swipes (ms)</span>
+                        <input
+                            type="number"
+                            min="0"
+                            max="10000"
+                            step="50"
+                            id="auto_multi_image_delay"
+                            class="text_pole"
+                        />
+                    </label>
+                    <label title="Throttle used when burst mode is enabled (currently deprecated).">
+                        <span>Burst throttle (ms)</span>
+                        <input
+                            type="number"
+                            min="0"
+                            max="5000"
+                            step="25"
+                            id="auto_multi_burst_throttle"
+                            class="text_pole"
+                        />
+                    </label>
+                </div>
+                <label
+                    class="checkbox_label auto-multi-inline"
+                    title="Burst mode is deprecated and disabled."
+                >
+                    <input type="checkbox" id="auto_multi_burst_mode" disabled />
+                    <span>Fire all swipes at once (burst mode)</span>
+                </label>
+                <p class="note auto-multi-burst-note margin0">
+                    Burst mode is deprecated and currently disabled to prevent
+                    SD requests from aborting each other.
+                </p>
             </section>
         </div>
     </div>

@@ -19,7 +19,17 @@ const defaultSettings = Object.freeze({
         insertType: INSERT_TYPE.DISABLED,
         promptInjection: {
             enabled: true,
-            prompt: `<image_generation>\nYou must insert a <pic prompt="example prompt"> at end of the reply. Prompts are used for stable diffusion image generation, based on the plot and character to output appropriate prompts to generate captivating images.\n</image_generation>`,
+            mainPrompt:
+                'Insert <pic prompt="detailed scene description"> tags at the end of each reply.',
+            instructionsPositive: '',
+            instructionsNegative: '',
+            examplePrompt: '',
+            lengthLimit: 0,
+            lengthLimitType: 'none',
+            picCountMode: 'exact',
+            picCountExact: 1,
+            picCountMin: 1,
+            picCountMax: 3,
             regex: '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g',
             position: 'deep_system',
             depth: 0,
@@ -239,6 +249,114 @@ function escapeHtmlAttribute(value) {
         .replace(/>/g, '&gt;')
 }
 
+function clampPromptLimit(value) {
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) {
+        return 0
+    }
+    return Math.max(0, Math.min(500, Math.round(numeric)))
+}
+
+function clampPicCount(value, fallback = 1) {
+    const numeric = Number(value)
+    if (Number.isNaN(numeric)) {
+        return fallback
+    }
+    return Math.max(1, Math.min(12, Math.round(numeric)))
+}
+
+function buildPicCountInstruction(injection) {
+    if (!injection) {
+        return ''
+    }
+
+    const mode = injection.picCountMode || 'exact'
+    const exact = clampPicCount(injection.picCountExact, 1)
+    const min = clampPicCount(injection.picCountMin, 1)
+    const max = clampPicCount(injection.picCountMax, Math.max(min, 1))
+
+    switch (mode) {
+        case 'range':
+            return `Insert between ${Math.min(min, max)} and ${Math.max(
+                min,
+                max,
+            )} <pic prompt="..."> tags per reply.`
+        case 'min':
+            return `Insert at least ${min} <pic prompt="..."> tag${
+                min === 1 ? '' : 's'
+            } per reply.`
+        case 'max':
+            return `Insert at most ${max} <pic prompt="..."> tag${
+                max === 1 ? '' : 's'
+            } per reply.`
+        case 'exact':
+        default:
+            return `Insert exactly ${exact} <pic prompt="..."> tag${
+                exact === 1 ? '' : 's'
+            } per reply.`
+    }
+}
+
+function updatePicCountFieldVisibility(container, mode) {
+    if (!container) {
+        return
+    }
+
+    const normalizedMode = mode || 'exact'
+    const fields = container.querySelectorAll('.auto-multi-count-field')
+    fields.forEach((field) => {
+        const modes =
+            field.getAttribute('data-count-mode')?.split(/\s+/) || []
+        const shouldShow = modes.includes(normalizedMode)
+        field.classList.toggle('is-hidden', !shouldShow)
+    })
+}
+
+function composePromptInjection(injection) {
+    if (!injection) {
+        return ''
+    }
+
+    const chunks = []
+    chunks.push('IMAGE PROMPT INSTRUCTIONS')
+
+    const countInstruction = buildPicCountInstruction(injection)
+    if (countInstruction) {
+        chunks.push(countInstruction)
+    }
+
+    if (injection.mainPrompt?.trim()) {
+        chunks.push(injection.mainPrompt.trim())
+    }
+
+    if (injection.instructionsPositive?.trim()) {
+        chunks.push(injection.instructionsPositive.trim())
+    }
+
+    if (injection.instructionsNegative?.trim()) {
+        chunks.push('NEGATIVE PROMPT INSTRUCTIONS:')
+        chunks.push(injection.instructionsNegative.trim())
+    }
+
+    const limitValue = clampPromptLimit(injection.lengthLimit)
+    if (limitValue > 0 && injection.lengthLimitType !== 'none') {
+        const limitLabel =
+            injection.lengthLimitType === 'words' ? 'words' : 'characters'
+        chunks.push(`MAXIMUM ${limitValue} ${limitLabel} per prompt`)
+    }
+
+    if (injection.examplePrompt?.trim()) {
+        chunks.push('EXAMPLE STRUCTURE:')
+        chunks.push(injection.examplePrompt.trim())
+    }
+
+    if (!chunks.length) {
+        return ''
+    }
+
+    return `<image_generation>\n${chunks.join('\n')}\n</image_generation>`
+}
+
 function sanitizeModelQueue(
     queue,
     fallbackCount = defaultSettings.targetCount,
@@ -342,6 +460,18 @@ async function buildSettingsPanel() {
     const burstModeInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_burst_mode')
     )
+    const summaryPanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_summary_panel')
+    )
+    const autoGenPanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_autogen_panel')
+    )
+    const queuePanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_queue_panel')
+    )
+    const cadencePanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_cadence_panel')
+    )
     const autoGenEnabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_auto_gen_enabled')
     )
@@ -352,8 +482,23 @@ async function buildSettingsPanel() {
         /** @type {HTMLInputElement | null} */ (
             container.querySelector('#auto_multi_prompt_injection_enabled')
         )
-    const promptTemplateInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_template')
+    const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_main')
+    )
+    const promptPositiveInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_positive')
+    )
+    const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_negative')
+    )
+    const promptExampleInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_example')
+    )
+    const promptLimitInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_limit')
+    )
+    const promptLimitTypeSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_limit_type')
     )
     const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_regex')
@@ -363,6 +508,18 @@ async function buildSettingsPanel() {
     )
     const promptDepthInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_prompt_depth')
+    )
+    const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_mode')
+    )
+    const picCountExactInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_exact')
+    )
+    const picCountMinInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_min')
+    )
+    const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_max')
     )
 
     if (
@@ -385,10 +542,19 @@ async function buildSettingsPanel() {
             autoGenEnabledInput &&
             autoGenInsertSelect &&
             promptInjectionEnabledInput &&
-            promptTemplateInput &&
+            promptMainInput &&
+            promptPositiveInput &&
+            promptNegativeInput &&
+            promptExampleInput &&
+            promptLimitInput &&
+            promptLimitTypeSelect &&
             promptRegexInput &&
             promptPositionSelect &&
-            promptDepthInput
+            promptDepthInput &&
+            picCountModeSelect &&
+            picCountExactInput &&
+            picCountMinInput &&
+            picCountMaxInput
         )
     ) {
         console.warn('[AutoMultiImage] Auto-generation inputs missing')
@@ -446,9 +612,48 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-    promptTemplateInput?.addEventListener('input', () => {
+    promptMainInput?.addEventListener('input', () => {
         const current = getSettings()
-        current.autoGeneration.promptInjection.prompt = promptTemplateInput.value
+        current.autoGeneration.promptInjection.mainPrompt =
+            promptMainInput.value
+        saveSettings()
+    })
+
+    promptPositiveInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsPositive =
+            promptPositiveInput.value
+        saveSettings()
+    })
+
+    promptNegativeInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsNegative =
+            promptNegativeInput.value
+        saveSettings()
+    })
+
+    promptExampleInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.examplePrompt =
+            promptExampleInput.value
+        saveSettings()
+    })
+
+    promptLimitInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.lengthLimit =
+            clampPromptLimit(promptLimitInput.value)
+        promptLimitInput.value = String(
+            current.autoGeneration.promptInjection.lengthLimit,
+        )
+        saveSettings()
+    })
+
+    promptLimitTypeSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.lengthLimitType =
+            promptLimitTypeSelect.value
         saveSettings()
     })
 
@@ -472,6 +677,47 @@ async function buildSettingsPanel() {
         )
         promptDepthInput.value = String(
             current.autoGeneration.promptInjection.depth,
+        )
+        saveSettings()
+    })
+
+    picCountModeSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountMode =
+            picCountModeSelect.value
+        updatePicCountFieldVisibility(
+            container,
+            current.autoGeneration.promptInjection.picCountMode,
+        )
+        saveSettings()
+    })
+
+    picCountExactInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountExact =
+            clampPicCount(picCountExactInput.value, 1)
+        picCountExactInput.value = String(
+            current.autoGeneration.promptInjection.picCountExact,
+        )
+        saveSettings()
+    })
+
+    picCountMinInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountMin =
+            clampPicCount(picCountMinInput.value, 1)
+        picCountMinInput.value = String(
+            current.autoGeneration.promptInjection.picCountMin,
+        )
+        saveSettings()
+    })
+
+    picCountMaxInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountMax =
+            clampPicCount(picCountMaxInput.value, 3)
+        picCountMaxInput.value = String(
+            current.autoGeneration.promptInjection.picCountMax,
         )
         saveSettings()
     })
@@ -500,10 +746,23 @@ async function buildSettingsPanel() {
         autoGenEnabledInput,
         autoGenInsertSelect,
         promptInjectionEnabledInput,
-        promptTemplateInput,
+        promptMainInput,
+        promptPositiveInput,
+        promptNegativeInput,
+        promptExampleInput,
+        promptLimitInput,
+        promptLimitTypeSelect,
         promptRegexInput,
         promptPositionSelect,
         promptDepthInput,
+        picCountModeSelect,
+        picCountExactInput,
+        picCountMinInput,
+        picCountMaxInput,
+        summaryPanel,
+        autoGenPanel,
+        queuePanel,
+        cadencePanel,
     }
     syncModelSelectOptions()
     syncUiFromSettings()
@@ -578,7 +837,7 @@ function renderModelQueueRows(queue) {
         const emptyMessage = document.createElement('p')
         emptyMessage.className = 'note auto-multi-model-empty margin0'
         emptyMessage.textContent =
-            'No dedicated models configured. The current Stable Diffusion selection will be reused.'
+            'No dedicated models configured. The current SD selection will be reused.'
         container.appendChild(emptyMessage)
         return
     }
@@ -651,7 +910,7 @@ function getSdModelOptions() {
 
 function getModelLabel(value) {
     if (!value) {
-        return 'the active Stable Diffusion model'
+        return 'the active SD model'
     }
 
     if (state.modelLabels.has(value)) {
@@ -685,7 +944,7 @@ function syncModelSelectOptions(showFeedback = false) {
 
         const placeholder = document.createElement('option')
         placeholder.value = ''
-        placeholder.textContent = 'Use current Stable Diffusion model'
+        placeholder.textContent = 'Use current SD model'
         select.appendChild(placeholder)
 
         for (const option of options) {
@@ -750,9 +1009,30 @@ function syncUiFromSettings() {
         state.ui.promptInjectionEnabledInput.checked =
             settings.autoGeneration.promptInjection.enabled
     }
-    if (state.ui.promptTemplateInput) {
-        state.ui.promptTemplateInput.value =
-            settings.autoGeneration.promptInjection.prompt
+    if (state.ui.promptMainInput) {
+        state.ui.promptMainInput.value =
+            settings.autoGeneration.promptInjection.mainPrompt
+    }
+    if (state.ui.promptPositiveInput) {
+        state.ui.promptPositiveInput.value =
+            settings.autoGeneration.promptInjection.instructionsPositive
+    }
+    if (state.ui.promptNegativeInput) {
+        state.ui.promptNegativeInput.value =
+            settings.autoGeneration.promptInjection.instructionsNegative
+    }
+    if (state.ui.promptExampleInput) {
+        state.ui.promptExampleInput.value =
+            settings.autoGeneration.promptInjection.examplePrompt
+    }
+    if (state.ui.promptLimitInput) {
+        state.ui.promptLimitInput.value = String(
+            clampPromptLimit(settings.autoGeneration.promptInjection.lengthLimit),
+        )
+    }
+    if (state.ui.promptLimitTypeSelect) {
+        state.ui.promptLimitTypeSelect.value =
+            settings.autoGeneration.promptInjection.lengthLimitType
     }
     if (state.ui.promptRegexInput) {
         state.ui.promptRegexInput.value =
@@ -767,6 +1047,59 @@ function syncUiFromSettings() {
             clampDepth(settings.autoGeneration.promptInjection.depth),
         )
     }
+    if (state.ui.picCountModeSelect) {
+        state.ui.picCountModeSelect.value =
+            settings.autoGeneration.promptInjection.picCountMode
+    }
+    if (state.ui.picCountExactInput) {
+        state.ui.picCountExactInput.value = String(
+            clampPicCount(
+                settings.autoGeneration.promptInjection.picCountExact,
+                1,
+            ),
+        )
+    }
+    if (state.ui.picCountMinInput) {
+        state.ui.picCountMinInput.value = String(
+            clampPicCount(
+                settings.autoGeneration.promptInjection.picCountMin,
+                1,
+            ),
+        )
+    }
+    if (state.ui.picCountMaxInput) {
+        state.ui.picCountMaxInput.value = String(
+            clampPicCount(
+                settings.autoGeneration.promptInjection.picCountMax,
+                3,
+            ),
+        )
+    }
+
+    updatePicCountFieldVisibility(
+        state.ui.container,
+        settings.autoGeneration.promptInjection.picCountMode,
+    )
+
+    const setPanelEnabled = (panel, enabled) => {
+        if (!panel) {
+            return
+        }
+        panel.classList.toggle('is-disabled', !enabled)
+        const controls = panel.querySelectorAll(
+            'input, select, textarea, button',
+        )
+        controls.forEach((control) => {
+            if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement || control instanceof HTMLButtonElement) {
+                control.disabled = !enabled || control.hasAttribute('disabled')
+            }
+        })
+    }
+
+    setPanelEnabled(state.ui.summaryPanel, settings.enabled)
+    setPanelEnabled(state.ui.queuePanel, settings.enabled)
+    setPanelEnabled(state.ui.cadencePanel, settings.enabled)
+    setPanelEnabled(state.ui.autoGenPanel, settings.autoGeneration.enabled)
     const configuredQueue = sanitizeModelQueue(
         settings.modelQueue,
         clampCount(settings.targetCount),
@@ -791,6 +1124,16 @@ function syncUiFromSettings() {
         const suffix = entry.count === 1 ? '' : 's'
         return `${entry.count} swipe${suffix} on ${label}`
     })
+
+    if (settings.autoGeneration.enabled) {
+        const insertLabel = settings.autoGeneration.insertType
+        const injectionLabel = settings.autoGeneration.promptInjection.enabled
+            ? 'prompt injection on'
+            : 'prompt injection off'
+        segments.push(
+            `auto image gen (${insertLabel}, ${injectionLabel})`,
+        )
+    }
 
     const strategyBlurb = settings.burstMode
         ? 'Burst mode is deprecated and has been disabled.'
@@ -939,13 +1282,14 @@ async function handlePromptInjection(eventData) {
     }
 
     const injection = autoSettings.promptInjection
-    if (!injection?.enabled || !injection.prompt?.trim()) {
+    const composedPrompt = composePromptInjection(injection)
+    if (!injection?.enabled || !composedPrompt.trim()) {
         return
     }
 
     const role = getPromptRole(injection.position)
     const depth = clampDepth(injection.depth)
-    insertPromptAtDepth(eventData?.chat, injection.prompt, role, depth)
+    insertPromptAtDepth(eventData?.chat, composedPrompt, role, depth)
     log('Prompt injected', { role, depth })
 }
 
@@ -1026,21 +1370,68 @@ async function handleIncomingMessage(messageId) {
         return
     }
 
+    const totalImages = matches.length
+    let completedImages = 0
+    let failedImages = 0
+    updateProgressUi(
+        resolvedId,
+        0,
+        totalImages,
+        true,
+        `Starting SD image generation (1/${totalImages})`,
+    )
+
     state.autoGenMessages.add(resolvedId)
     setTimeout(async () => {
-        for (const match of matches) {
+        for (let index = 0; index < matches.length; index += 1) {
+            const match = matches[index]
             const prompt = typeof match?.[1] === 'string' ? match[1] : ''
             if (!prompt.trim()) {
                 continue
             }
 
+            updateProgressUi(
+                resolvedId,
+                completedImages,
+                Math.max(1, totalImages - failedImages),
+                true,
+                `Generating image ${index + 1}/${totalImages}`,
+            )
+
             if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
-                await callSdSlash(prompt, false)
+                const result = await callSdSlash(prompt, false)
+                if (!result) {
+                    failedImages += 1
+                    updateProgressUi(
+                        resolvedId,
+                        completedImages,
+                        Math.max(1, totalImages - failedImages),
+                        false,
+                        `Failed image ${index + 1}/${totalImages}`,
+                    )
+                } else {
+                    completedImages += 1
+                    updateProgressUi(
+                        resolvedId,
+                        completedImages,
+                        Math.max(1, totalImages - failedImages),
+                        false,
+                        `Completed image ${index + 1}/${totalImages}`,
+                    )
+                }
                 continue
             }
 
             const imageUrl = await callSdSlash(prompt, true)
             if (!imageUrl || typeof imageUrl !== 'string') {
+                failedImages += 1
+                updateProgressUi(
+                    resolvedId,
+                    completedImages,
+                    Math.max(1, totalImages - failedImages),
+                    false,
+                    `Failed image ${index + 1}/${totalImages}`,
+                )
                 continue
             }
 
@@ -1085,7 +1476,19 @@ async function handleIncomingMessage(messageId) {
                 resolvedId,
             )
             await context.saveChat?.()
+            completedImages += 1
+            updateProgressUi(
+                resolvedId,
+                completedImages,
+                Math.max(1, totalImages - failedImages),
+                false,
+                `Completed image ${index + 1}/${totalImages}`,
+            )
         }
+
+        setTimeout(() => {
+            clearProgress(resolvedId)
+        }, 1200)
     }, 0)
 }
 
@@ -1624,7 +2027,7 @@ async function handleMessageRendered(messageId, origin) {
     const button = await waitForPaintbrush(messageId)
     if (!button) {
         console.warn(
-            '[AutoMultiImage] No Stable Diffusion control found for message',
+            '[AutoMultiImage] No SD control found for message',
             messageId,
         )
         return

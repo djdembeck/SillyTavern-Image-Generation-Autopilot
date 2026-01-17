@@ -1,13 +1,13 @@
 # Auto Multi-Image Swipes
 
-Automatically queue Stable Diffusion message swipes so that every visible image generation request produces a predictable batch (default: four images). This UI extension watches for new media posts created by SillyTavern's built‑in **Image Generation** module (including NanoGPT providers) and reuses the existing paintbrush button to request additional swipes on the same message.
+Automatically queue SD message swipes so that every visible image generation request produces a predictable batch (default: four images). This UI extension watches for new media posts created by SillyTavern's built‑in **Image Generation** module (including NanoGPT providers) and reuses the existing paintbrush button to request additional swipes on the same message.
 
 ## Features
 
 - Fire off extra swipes immediately after an image message is rendered so you always get the desired batch size.
-- Works with any provider supported by the core Stable Diffusion extension (NanoGPT, NovelAI, Horde, etc.).
+- Works with any provider supported by the core SD extension (NanoGPT, NovelAI, Horde, etc.).
 - Adjustable default swipe count (1‒12) and delay between requests to avoid rate limits.
-- Queue multiple Stable Diffusion models with independent swipe counts so one prompt can explore several favorites automatically.
+- Queue multiple SD models with independent swipe counts so one prompt can explore several favorites automatically.
 - Auto-generate images when the assistant emits <pic prompt="..."> tags, with configurable insertion modes.
 - Built-in prompt injection and regex matching to guide the model in emitting image tags.
 - Optional burst mode dispatches every swipe instantly so fast models don't get held up by slower ones.
@@ -46,7 +46,7 @@ The extension only touches messages whose media attachments have the `generated`
 
 ## How It Works
 
-1. Listens for `CHARACTER_MESSAGE_RENDERED` events emitted by the Stable Diffusion extension.
+1. Listens for `CHARACTER_MESSAGE_RENDERED` events emitted by the SD extension.
 2. When a qualifying message appears, it triggers the built-in `.sd_message_gen` button to request another swipe.
 3. Repeats until the configured swipe plan (per-model counts) finishes, or until a request fails/gets canceled. Burst mode issues every swipe first and then monitors completion; sequential mode waits for each image before requesting the next.
 4. Honors the global stop button, chat switches, and manual deletions by aborting outstanding queues.
@@ -59,7 +59,7 @@ The extension only touches messages whose media attachments have the `generated`
 
 ## Troubleshooting
 
-- **Nothing happens:** Ensure the Stable Diffusion extension is enabled and its paintbrush icon appears on generated messages. The manifest declares a dependency, so SillyTavern will refuse to load this extension if SD is missing.
+- **Nothing happens:** Ensure the SD extension is enabled and its paintbrush icon appears on generated messages. The manifest declares a dependency, so SillyTavern will refuse to load this extension if SD is missing.
 - **Too many requests:** Increase the delay or lower the target count.
 - **NanoGPT throttling:** NanoGPT's image endpoints can be touchy. Start with `delay = 1500ms` and work downward.
 - **Old chats auto-swipe on load:** This should not happen because the extension filters for new `extension`-sourced renders. If you notice otherwise, file an issue.
