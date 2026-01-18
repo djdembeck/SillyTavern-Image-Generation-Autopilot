@@ -1299,6 +1299,10 @@ function ensureGlobalProgressElement(messageId) {
     const ctxHost = document.getElementById('sheld') || document.body
     let container = document.getElementById('auto-multi-global-progress')
 
+    const headerAnchor = document.querySelector(
+        '#top-bar, #topbar, #top-menu, header, .topbar, .top-bar, .navbar, .nav-bar, .header',
+    )
+
     if (!container) {
         container = document.createElement('div')
         container.id = 'auto-multi-global-progress'
@@ -1328,11 +1332,28 @@ function ensureGlobalProgressElement(messageId) {
         })
     }
 
-    if (lastMessage?.parentElement && container.previousElementSibling !== lastMessage) {
+    if (headerAnchor && headerAnchor.parentElement) {
+        const headerHeight = Math.ceil(
+            headerAnchor.getBoundingClientRect().height || 0,
+        )
+        container.style.setProperty(
+            '--auto-multi-global-progress-top',
+            `${headerHeight + 8}px`,
+        )
+        if (headerAnchor.nextElementSibling !== container) {
+            headerAnchor.after(container)
+        }
+    } else if (
+        lastMessage?.parentElement &&
+        container.previousElementSibling !== lastMessage
+    ) {
+        container.style.removeProperty('--auto-multi-global-progress-top')
         lastMessage.after(container)
     } else if (!lastMessage && chatRoot && container.parentElement !== chatRoot) {
+        container.style.removeProperty('--auto-multi-global-progress-top')
         chatRoot.appendChild(container)
     } else if (!lastMessage && !chatRoot && container.parentElement !== ctxHost) {
+        container.style.removeProperty('--auto-multi-global-progress-top')
         ctxHost.appendChild(container)
     }
 

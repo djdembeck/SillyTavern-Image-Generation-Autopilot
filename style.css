@@ -404,8 +404,9 @@
 }
 
 .auto-multi-global-progress {
-    position: relative;
-    margin: 12px;
+    position: sticky;
+    top: var(--auto-multi-global-progress-top, 0px);
+    margin: 0 12px 12px;
     padding: 10px 14px;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.12);
