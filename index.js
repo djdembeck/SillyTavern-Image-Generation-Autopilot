@@ -1835,7 +1835,7 @@ function injectReswipeButtonTemplate() {
     const button = document.createElement('div')
     button.className =
         'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-    button.title = 'Generate another swipe batch'
+    button.title = 'run image auto-swipe'
     button.setAttribute('tabindex', '0')
     button.style.display = 'none'
     target.prepend(button)
@@ -1865,7 +1865,7 @@ function ensureReswipeButton(messageId, shouldShow = true) {
     const button = document.createElement('div')
     button.className =
         'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-    button.title = 'Generate another swipe batch'
+    button.title = 'run image auto-swipe'
     button.setAttribute('tabindex', '0')
     bar.appendChild(button)
 }

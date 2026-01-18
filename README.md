@@ -17,6 +17,7 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 - **Auto swipes** on each generated image message (per-model counts).
 - **Prompt injection + regex matching** to guide consistent image tags.
 - **Global progress HUD** with a stop button.
+- **Message toolbar action** to re-run auto-swipes on image messages.
 - **Rate-limit friendly** with configurable delay.
 
 ---
