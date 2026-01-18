@@ -16,6 +16,18 @@ const defaultSettings = Object.freeze({
     modelQueue: [],
     modelQueueEnabled: true,
     swipeModel: '',
+    perCharacter: {
+        enabled: false,
+        fields: {
+            mainPrompt: true,
+            promptPositive: true,
+            promptNegative: true,
+            examplePrompt: true,
+            modelQueue: true,
+            imageCount: true,
+        },
+        globalDefaults: {},
+    },
     autoGeneration: {
         enabled: false,
         insertType: INSERT_TYPE.DISABLED,
@@ -228,6 +240,35 @@ function ensureSettings() {
         defaultSettings.modelQueueEnabled,
     )
 
+    if (!settings.perCharacter) {
+        settings.perCharacter = {
+            ...defaultSettings.perCharacter,
+            fields: { ...defaultSettings.perCharacter.fields },
+            globalDefaults: {},
+        }
+    }
+
+    if (typeof settings.perCharacter.enabled !== 'boolean') {
+        settings.perCharacter.enabled = defaultSettings.perCharacter.enabled
+    }
+
+    if (!settings.perCharacter.fields) {
+        settings.perCharacter.fields = {
+            ...defaultSettings.perCharacter.fields,
+        }
+    }
+
+    for (const key of Object.keys(defaultSettings.perCharacter.fields)) {
+        if (typeof settings.perCharacter.fields[key] !== 'boolean') {
+            settings.perCharacter.fields[key] =
+                defaultSettings.perCharacter.fields[key]
+        }
+    }
+
+    if (!settings.perCharacter.globalDefaults) {
+        settings.perCharacter.globalDefaults = {}
+    }
+
     if (settings.burstMode) {
         settings.burstMode = false
     }
@@ -256,6 +297,7 @@ function getSettings() {
 function saveSettings() {
     getCtx().saveSettingsDebounced()
     syncUiFromSettings()
+    syncPerCharacterStorage()
 }
 
 function setQueueControlsEnabled(panel, enabled) {
@@ -284,6 +326,226 @@ function applyQueueEnabledState(queueEnabled) {
     }
     state.ui.queuePanel.classList.toggle('is-queue-disabled', !queueEnabled)
     setQueueControlsEnabled(state.ui.queuePanel, queueEnabled)
+}
+
+const PER_CHARACTER_FIELDS = Object.freeze({
+    mainPrompt: {
+        label: 'Main prompt',
+        get: (settings) =>
+            settings.autoGeneration.promptInjection.mainPrompt || '',
+        set: (settings, value) => {
+            settings.autoGeneration.promptInjection.mainPrompt =
+                typeof value === 'string' ? value : ''
+        },
+    },
+    promptPositive: {
+        label: 'Image prompt instructions (positive)',
+        get: (settings) =>
+            settings.autoGeneration.promptInjection.instructionsPositive || '',
+        set: (settings, value) => {
+            settings.autoGeneration.promptInjection.instructionsPositive =
+                typeof value === 'string' ? value : ''
+        },
+    },
+    promptNegative: {
+        label: 'Image prompt instructions (negative)',
+        get: (settings) =>
+            settings.autoGeneration.promptInjection.instructionsNegative || '',
+        set: (settings, value) => {
+            settings.autoGeneration.promptInjection.instructionsNegative =
+                typeof value === 'string' ? value : ''
+        },
+    },
+    examplePrompt: {
+        label: 'Example prompt',
+        get: (settings) =>
+            settings.autoGeneration.promptInjection.examplePrompt || '',
+        set: (settings, value) => {
+            settings.autoGeneration.promptInjection.examplePrompt =
+                typeof value === 'string' ? value : ''
+        },
+    },
+    modelQueue: {
+        label: 'Model queue',
+        get: (settings) => ({
+            modelQueue: sanitizeModelQueue(
+                settings.modelQueue,
+                clampCount(settings.targetCount),
+            ),
+            modelQueueEnabled: normalizeModelQueueEnabled(
+                settings.modelQueueEnabled,
+                defaultSettings.modelQueueEnabled,
+            ),
+        }),
+        set: (settings, value) => {
+            if (!value || typeof value !== 'object') {
+                return
+            }
+            if (Array.isArray(value.modelQueue)) {
+                settings.modelQueue = sanitizeModelQueue(
+                    value.modelQueue,
+                    clampCount(settings.targetCount),
+                )
+            }
+            if (typeof value.modelQueueEnabled !== 'undefined') {
+                settings.modelQueueEnabled = normalizeModelQueueEnabled(
+                    value.modelQueueEnabled,
+                    defaultSettings.modelQueueEnabled,
+                )
+            }
+        },
+    },
+    imageCount: {
+        label: 'Image count rule + values',
+        get: (settings) => ({
+            picCountMode: settings.autoGeneration.promptInjection.picCountMode,
+            picCountExact: settings.autoGeneration.promptInjection.picCountExact,
+            picCountMin: settings.autoGeneration.promptInjection.picCountMin,
+            picCountMax: settings.autoGeneration.promptInjection.picCountMax,
+        }),
+        set: (settings, value) => {
+            if (!value || typeof value !== 'object') {
+                return
+            }
+            if (value.picCountMode) {
+                settings.autoGeneration.promptInjection.picCountMode =
+                    value.picCountMode
+            }
+            settings.autoGeneration.promptInjection.picCountExact =
+                clampPicCount(value.picCountExact, 1)
+            settings.autoGeneration.promptInjection.picCountMin =
+                clampPicCount(value.picCountMin, 1)
+            settings.autoGeneration.promptInjection.picCountMax =
+                clampPicCount(
+                    value.picCountMax,
+                    Math.max(settings.autoGeneration.promptInjection.picCountMin, 1),
+                )
+        },
+    },
+})
+
+function normalizePerCharacterFields(fields) {
+    const normalized = {}
+    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
+        normalized[key] = !!fields?.[key]
+    }
+    return normalized
+}
+
+function getActiveCharacter() {
+    const ctx = getCtx()
+    if (typeof ctx?.characterId === 'number') {
+        if (Array.isArray(ctx.characters)) {
+            return ctx.characters[ctx.characterId] || null
+        }
+        if (ctx.characters && ctx.characters[ctx.characterId]) {
+            return ctx.characters[ctx.characterId]
+        }
+    }
+    if (ctx?.character && typeof ctx.character === 'object') {
+        return ctx.character
+    }
+    if (typeof ctx?.getCharacter === 'function') {
+        try {
+            return ctx.getCharacter()
+        } catch (error) {
+            return null
+        }
+    }
+    return null
+}
+
+function getCharacterExtensionStore(character) {
+    if (!character || typeof character !== 'object') {
+        return null
+    }
+    const dataHost = character.data || character
+    if (!dataHost.extensions) {
+        dataHost.extensions = {}
+    }
+    if (!dataHost.extensions[MODULE_NAME]) {
+        dataHost.extensions[MODULE_NAME] = {}
+    }
+    return dataHost.extensions[MODULE_NAME]
+}
+
+function ensurePerCharacterDefaults(settings) {
+    const perCharacter = settings.perCharacter
+    const defaults = perCharacter.globalDefaults || {}
+    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
+        if (typeof defaults[key] === 'undefined') {
+            defaults[key] = PER_CHARACTER_FIELDS[key].get(settings)
+        }
+    }
+    perCharacter.globalDefaults = defaults
+    return defaults
+}
+
+function applyPerCharacterOverrides() {
+    const settings = getSettings()
+    const perCharacter = settings.perCharacter
+    if (!perCharacter?.enabled) {
+        return
+    }
+    const character = getActiveCharacter()
+    if (!character) {
+        return
+    }
+    const store = getCharacterExtensionStore(character)
+    const saved = store?.perCharacter
+    const fields = normalizePerCharacterFields(
+        saved?.fields || perCharacter.fields,
+    )
+    const defaults = ensurePerCharacterDefaults(settings)
+    const values = saved?.values || {}
+
+    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
+        const definition = PER_CHARACTER_FIELDS[key]
+        if (fields[key] && typeof values[key] !== 'undefined') {
+            definition.set(settings, values[key])
+        } else if (typeof defaults[key] !== 'undefined') {
+            definition.set(settings, defaults[key])
+        }
+    }
+
+    syncUiFromSettings()
+}
+
+function syncPerCharacterStorage() {
+    const settings = getSettings()
+    const perCharacter = settings.perCharacter
+    if (!perCharacter?.enabled) {
+        return
+    }
+    const character = getActiveCharacter()
+    if (!character) {
+        return
+    }
+    const store = getCharacterExtensionStore(character)
+    const fields = normalizePerCharacterFields(perCharacter.fields)
+    const defaults = ensurePerCharacterDefaults(settings)
+    const values = {}
+
+    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
+        const definition = PER_CHARACTER_FIELDS[key]
+        if (fields[key]) {
+            values[key] = definition.get(settings)
+        } else {
+            defaults[key] = definition.get(settings)
+        }
+    }
+
+    store.perCharacter = {
+        fields,
+        values,
+    }
+
+    const ctx = getCtx()
+    if (typeof ctx.saveCharacterDebounced === 'function') {
+        ctx.saveCharacterDebounced()
+    } else if (typeof ctx.saveCharacter === 'function') {
+        ctx.saveCharacter()
+    }
 }
 
 function clampCount(value) {
@@ -813,6 +1075,30 @@ async function buildSettingsPanel() {
     const queuePanel = /** @type {HTMLElement | null} */ (
         container.querySelector('#auto_multi_queue_panel')
     )
+    const characterPanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_character_panel')
+    )
+    const characterEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_enabled')
+    )
+    const characterFieldMainInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_field_main')
+    )
+    const characterFieldPositiveInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_field_positive')
+    )
+    const characterFieldNegativeInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_field_negative')
+    )
+    const characterFieldExampleInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_field_example')
+    )
+    const characterFieldModelQueueInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_field_model_queue')
+    )
+    const characterFieldImageCountInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_field_image_count')
+    )
     const cadencePanel = /** @type {HTMLElement | null} */ (
         container.querySelector('#auto_multi_cadence_panel')
     )
@@ -922,6 +1208,55 @@ async function buildSettingsPanel() {
         current.modelQueueEnabled = modelQueueEnabledInput.checked
         saveSettings()
         applyQueueEnabledState(modelQueueEnabledInput.checked)
+    })
+
+    characterEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.enabled = characterEnabledInput.checked
+        saveSettings()
+        applyPerCharacterOverrides()
+    })
+
+    characterFieldMainInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.fields.mainPrompt =
+            characterFieldMainInput.checked
+        saveSettings()
+    })
+
+    characterFieldPositiveInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.fields.promptPositive =
+            characterFieldPositiveInput.checked
+        saveSettings()
+    })
+
+    characterFieldNegativeInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.fields.promptNegative =
+            characterFieldNegativeInput.checked
+        saveSettings()
+    })
+
+    characterFieldExampleInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.fields.examplePrompt =
+            characterFieldExampleInput.checked
+        saveSettings()
+    })
+
+    characterFieldModelQueueInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.fields.modelQueue =
+            characterFieldModelQueueInput.checked
+        saveSettings()
+    })
+
+    characterFieldImageCountInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.fields.imageCount =
+            characterFieldImageCountInput.checked
+        saveSettings()
     })
 
     countInput.addEventListener('change', () => {
@@ -1144,6 +1479,14 @@ async function buildSettingsPanel() {
         autoGenPanel,
         queuePanel,
         cadencePanel,
+        characterPanel,
+        characterEnabledInput,
+        characterFieldMainInput,
+        characterFieldPositiveInput,
+        characterFieldNegativeInput,
+        characterFieldExampleInput,
+        characterFieldModelQueueInput,
+        characterFieldImageCountInput,
     }
     syncModelSelectOptions()
     syncUiFromSettings()
@@ -1483,6 +1826,34 @@ function syncUiFromSettings() {
     if (state.ui.debugModeInput) {
         state.ui.debugModeInput.checked = settings.debugMode
     }
+    if (state.ui.characterEnabledInput) {
+        state.ui.characterEnabledInput.checked =
+            settings.perCharacter?.enabled || false
+    }
+    if (state.ui.characterFieldMainInput) {
+        state.ui.characterFieldMainInput.checked =
+            settings.perCharacter?.fields?.mainPrompt ?? true
+    }
+    if (state.ui.characterFieldPositiveInput) {
+        state.ui.characterFieldPositiveInput.checked =
+            settings.perCharacter?.fields?.promptPositive ?? true
+    }
+    if (state.ui.characterFieldNegativeInput) {
+        state.ui.characterFieldNegativeInput.checked =
+            settings.perCharacter?.fields?.promptNegative ?? true
+    }
+    if (state.ui.characterFieldExampleInput) {
+        state.ui.characterFieldExampleInput.checked =
+            settings.perCharacter?.fields?.examplePrompt ?? true
+    }
+    if (state.ui.characterFieldModelQueueInput) {
+        state.ui.characterFieldModelQueueInput.checked =
+            settings.perCharacter?.fields?.modelQueue ?? true
+    }
+    if (state.ui.characterFieldImageCountInput) {
+        state.ui.characterFieldImageCountInput.checked =
+            settings.perCharacter?.fields?.imageCount ?? true
+    }
     if (state.ui.picCountModeSelect) {
         state.ui.picCountModeSelect.value =
             settings.autoGeneration.promptInjection.picCountMode
@@ -1541,6 +1912,7 @@ function syncUiFromSettings() {
     setPanelEnabled(state.ui.queuePanel, settings.enabled)
     setPanelEnabled(state.ui.cadencePanel, settings.enabled)
     setPanelEnabled(state.ui.autoGenPanel, settings.autoGeneration.enabled)
+    setPanelEnabled(state.ui.characterPanel, settings.enabled)
     const queueEnabled = normalizeModelQueueEnabled(
         settings.modelQueueEnabled,
         defaultSettings.modelQueueEnabled,
@@ -3629,6 +4001,7 @@ async function init() {
     ensureSettings()
     patchToastrForDebug()
     await buildSettingsPanel()
+    applyPerCharacterOverrides()
     injectReswipeButtonTemplate()
     refreshReswipeButtons()
 
@@ -3681,6 +4054,7 @@ async function init() {
     const { eventSource, eventTypes } = getCtx()
     eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, handleMessageRendered)
     eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
+    eventSource.on(eventTypes.CHAT_CHANGED, applyPerCharacterOverrides)
     if (eventTypes.MORE_MESSAGES_LOADED) {
         eventSource.on(eventTypes.MORE_MESSAGES_LOADED, refreshReswipeButtons)
     }

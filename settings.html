@@ -385,6 +385,73 @@
                     SD requests from aborting each other.
                 </p>
             </section>
+
+            <section class="auto-multi-panel" id="auto_multi_character_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-user-tag"></i> Per-character
+                            overrides
+                        </p>
+                        <h5>Save selected settings with the character</h5>
+                    </div>
+                    <p class="caption">
+                        Choose which items are stored in the character card
+                        data (shareable).
+                    </p>
+                </header>
+                <label
+                    class="checkbox_label auto-multi-inline"
+                    title="When enabled, selected settings are saved to the active character card."
+                >
+                    <input type="checkbox" id="auto_multi_character_enabled" />
+                    <span>Enable per-character settings (shareable)</span>
+                </label>
+                <div class="auto-multi-grid">
+                    <label class="checkbox_label auto-multi-inline">
+                        <input
+                            type="checkbox"
+                            id="auto_multi_character_field_main"
+                        />
+                        <span>Main prompt</span>
+                    </label>
+                    <label class="checkbox_label auto-multi-inline">
+                        <input
+                            type="checkbox"
+                            id="auto_multi_character_field_positive"
+                        />
+                        <span>Image prompt instructions (positive)</span>
+                    </label>
+                    <label class="checkbox_label auto-multi-inline">
+                        <input
+                            type="checkbox"
+                            id="auto_multi_character_field_negative"
+                        />
+                        <span>Image prompt instructions (negative)</span>
+                    </label>
+                    <label class="checkbox_label auto-multi-inline">
+                        <input
+                            type="checkbox"
+                            id="auto_multi_character_field_example"
+                        />
+                        <span>Example prompt</span>
+                    </label>
+                    <label class="checkbox_label auto-multi-inline">
+                        <input
+                            type="checkbox"
+                            id="auto_multi_character_field_model_queue"
+                        />
+                        <span>Model queue</span>
+                    </label>
+                    <label class="checkbox_label auto-multi-inline">
+                        <input
+                            type="checkbox"
+                            id="auto_multi_character_field_image_count"
+                        />
+                        <span>Image count rule + values</span>
+                    </label>
+                </div>
+            </section>
             <section class="auto-multi-panel" id="auto_multi_debug_panel">
                 <header>
                     <div>
