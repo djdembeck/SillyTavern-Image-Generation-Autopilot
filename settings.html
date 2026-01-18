@@ -264,6 +264,16 @@
                             placeholder="/<pic[^>]*\\sprompt=\"([^\"]*)\"[^>]*?>/g"
                         ></textarea>
                     </label>
+                    <label
+                        class="checkbox_label auto-multi-inline"
+                        title="Rewrite failed <pic> prompts with the active chat model and retry image generation."
+                    >
+                        <input
+                            type="checkbox"
+                            id="auto_multi_prompt_rewrite_enabled"
+                        />
+                        <span>Rewrite failed prompts with chat model</span>
+                    </label>
                 </div>
             </section>
 
@@ -364,6 +374,23 @@
                     Burst mode is deprecated and currently disabled to prevent
                     SD requests from aborting each other.
                 </p>
+            </section>
+            <section class="auto-multi-panel" id="auto_multi_debug_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-bug"></i> Debugging
+                        </p>
+                        <h5>Diagnostics</h5>
+                    </div>
+                    <p class="caption">
+                        Enable verbose logging for troubleshooting.
+                    </p>
+                </header>
+                <label class="checkbox_label auto-multi-inline" title="Enable debug logging in the browser console.">
+                    <input type="checkbox" id="auto_multi_debug_mode" />
+                    <span>Debug mode</span>
+                </label>
             </section>
         </div>
     </div>

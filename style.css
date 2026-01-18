@@ -404,10 +404,15 @@
 }
 
 .auto-multi-global-progress {
-    position: sticky;
-    top: var(--auto-multi-global-progress-top, 0px);
-    margin: 0 12px 12px;
+    position: fixed;
+    top: var(--auto-multi-global-progress-top, var(--topBarBlockSize, 0px));
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: var(--sheldWidth, 100%);
+    margin: 0 auto;
     padding: 10px 14px;
+    box-sizing: border-box;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: rgba(5, 10, 25, 0.85);
@@ -416,7 +421,7 @@
     display: flex;
     gap: 12px;
     align-items: center;
-    z-index: 25;
+    z-index: 999999;
 }
 
 .auto-multi-global-progress__meta {
@@ -443,4 +448,10 @@
 
 .auto-multi-global-progress__stop {
     min-width: 34px;
+}
+
+@media (max-width: 720px) {
+    .auto-multi-global-progress {
+        max-width: 100%;
+    }
 }

@@ -7,6 +7,7 @@ const INSERT_TYPE = Object.freeze({
 })
 const defaultSettings = Object.freeze({
     enabled: true,
+    debugMode: false,
     targetCount: 4,
     delayMs: 800,
     swipeTimeoutMs: 120000,
@@ -17,6 +18,9 @@ const defaultSettings = Object.freeze({
     autoGeneration: {
         enabled: false,
         insertType: INSERT_TYPE.DISABLED,
+        promptRewrite: {
+            enabled: false,
+        },
         promptInjection: {
             enabled: true,
             mainPrompt:
@@ -43,6 +47,7 @@ const state = {
     autoGenMessages: new Set(),
     runningMessages: new Map(),
     chatToken: 0,
+    toastPatched: false,
     ui: null,
     progress: {
         messageId: null,
@@ -51,6 +56,7 @@ const state = {
         ratioLabel: null,
         progressBar: null,
     },
+    abortInProgress: false,
     modelLabels: new Map(),
     unifiedProgress: {
         active: false,
@@ -106,7 +112,54 @@ const TEMPLATE_ROOT = resolveTemplateRoot()
 const BURST_MODEL_SETTLE_MS = 120
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-const log = (...args) => console.log('[AutoMultiImage]', ...args)
+const log = (...args) => {
+    if (!getSettings().debugMode) return
+    console.log('[AutoMultiImage]', ...args)
+}
+
+function patchToastrForDebug() {
+    if (state.toastPatched || !getSettings().debugMode) {
+        return
+    }
+
+    if (typeof window.toastr !== 'object') {
+        return
+    }
+
+    const originalError = window.toastr.error
+    const originalWarning = window.toastr.warning
+
+    const wrap = (fn, level) =>
+        function wrappedToastr(message, title, options) {
+            try {
+                if (
+                    typeof message === 'string' &&
+                    message.includes('Invalid swipe ID')
+                ) {
+                    console.groupCollapsed(
+                        '[AutoMultiImage] Invalid swipe ID toast',
+                    )
+                    console.log('message:', message)
+                    console.log('title:', title)
+                    console.trace('toast stack')
+                    console.groupEnd()
+                }
+            } catch (error) {
+                console.warn('[AutoMultiImage] Toast debug failed', error)
+            }
+
+            return fn?.call?.(window.toastr, message, title, options)
+        }
+
+    if (typeof originalError === 'function') {
+        window.toastr.error = wrap(originalError, 'error')
+    }
+    if (typeof originalWarning === 'function') {
+        window.toastr.warning = wrap(originalWarning, 'warning')
+    }
+
+    state.toastPatched = true
+}
 
 function getCtx() {
     return SillyTavern.getContext()
@@ -137,6 +190,17 @@ function ensureSettings() {
         !Object.values(INSERT_TYPE).includes(settings.autoGeneration.insertType)
     ) {
         settings.autoGeneration.insertType = INSERT_TYPE.DISABLED
+    }
+
+    if (!settings.autoGeneration.promptRewrite) {
+        settings.autoGeneration.promptRewrite = {
+            ...defaultSettings.autoGeneration.promptRewrite,
+        }
+    }
+
+    if (typeof settings.autoGeneration.promptRewrite.enabled !== 'boolean') {
+        settings.autoGeneration.promptRewrite.enabled =
+            defaultSettings.autoGeneration.promptRewrite.enabled
     }
 
     if (!settings.autoGeneration.promptInjection) {
@@ -256,6 +320,81 @@ function parseRegexFromString(raw) {
     }
 }
 
+function getPicPromptMatches(messageText, regex) {
+    if (!messageText || !regex) {
+        return []
+    }
+
+    return regex.global
+        ? [...messageText.matchAll(regex)]
+        : messageText.match(regex)
+          ? [messageText.match(regex)]
+          : []
+}
+
+function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
+    const fallback = typeof originalPrompt === 'string' ? originalPrompt : ''
+    if (typeof rewrittenText !== 'string') {
+        return fallback
+    }
+
+    let cleaned = rewrittenText.trim()
+    if (!cleaned) {
+        return fallback
+    }
+
+    cleaned = cleaned.replace(/^['"`]+|['"`]+$/g, '').trim()
+
+    if (regex) {
+        const matches = getPicPromptMatches(cleaned, regex)
+        if (matches.length && typeof matches[0]?.[1] === 'string') {
+            return matches[0][1].trim()
+        }
+    }
+
+    const promptAttr = cleaned.match(/prompt\s*=\s*"([^"]+)"/i)
+    if (promptAttr?.[1]) {
+        return promptAttr[1].trim()
+    }
+
+    cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '')
+    cleaned = cleaned.replace(/<[^>]+>/g, '')
+    cleaned = cleaned.trim()
+
+    const firstLine = cleaned.split(/\r?\n/).find((line) => line.trim())
+    return firstLine?.trim() || cleaned || fallback
+}
+
+async function cleanupRewriteMessages(startLength) {
+    const ctx = getCtx()
+    const chat = ctx.chat || []
+    if (!Number.isFinite(startLength) || chat.length <= startLength) {
+        return
+    }
+
+    let removed = 0
+    for (let index = chat.length - 1; index >= startLength; index -= 1) {
+        const message = chat[index]
+        if (message?.is_user) {
+            continue
+        }
+        chat.splice(index, 1)
+        ctx.eventSource?.emit(ctx.eventTypes.MESSAGE_DELETED, index)
+        if (typeof window.deleteMessageBlock === 'function') {
+            window.deleteMessageBlock(index)
+        }
+        removed += 1
+    }
+
+    if (removed > 0) {
+        await ctx.saveChat?.()
+        if (typeof window.updateChat === 'function') {
+            window.updateChat()
+        }
+        log('Removed rewrite chat messages', { removed })
+    }
+}
+
 function escapeHtmlAttribute(value) {
     return String(value)
         .replace(/&/g, '&amp;')
@@ -339,6 +478,7 @@ function startUnifiedProgress({
     swipesPerImage,
     insertType,
 }) {
+    state.abortInProgress = false
     const unified = state.unifiedProgress
     const swipeMultiplier =
         insertType === INSERT_TYPE.NEW_MESSAGE ? totalImages : 0
@@ -641,11 +781,17 @@ async function buildSettingsPanel() {
     const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_regex')
     )
+    const promptRewriteEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_rewrite_enabled')
+    )
     const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_prompt_position')
     )
     const promptDepthInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_prompt_depth')
+    )
+    const debugModeInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_debug_mode')
     )
     const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_pic_count_mode')
@@ -687,8 +833,10 @@ async function buildSettingsPanel() {
             promptLimitInput &&
             promptLimitTypeSelect &&
             promptRegexInput &&
+            promptRewriteEnabledInput &&
             promptPositionSelect &&
             promptDepthInput &&
+            debugModeInput &&
             picCountModeSelect &&
             picCountExactInput &&
             picCountMinInput &&
@@ -802,6 +950,13 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
+    promptRewriteEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptRewrite.enabled =
+            promptRewriteEnabledInput.checked
+        saveSettings()
+    })
+
     promptPositionSelect?.addEventListener('change', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.position =
@@ -817,6 +972,12 @@ async function buildSettingsPanel() {
         promptDepthInput.value = String(
             current.autoGeneration.promptInjection.depth,
         )
+        saveSettings()
+    })
+
+    debugModeInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.debugMode = debugModeInput.checked
         saveSettings()
     })
 
@@ -898,8 +1059,10 @@ async function buildSettingsPanel() {
         promptLimitInput,
         promptLimitTypeSelect,
         promptRegexInput,
+        promptRewriteEnabledInput,
         promptPositionSelect,
         promptDepthInput,
+        debugModeInput,
         picCountModeSelect,
         picCountExactInput,
         picCountMinInput,
@@ -1053,6 +1216,18 @@ function getSdModelOptions() {
         .filter((option) => option.value)
 }
 
+function getActiveSdModelLabel() {
+    const select = document.getElementById('sd_model')
+    if (!(select instanceof HTMLSelectElement)) {
+        return 'active SD model'
+    }
+
+    const value = select.value || ''
+    const selectedOption = select.options[select.selectedIndex]
+    const label = selectedOption?.textContent?.trim()
+    return label || getModelLabel(value)
+}
+
 function getModelLabel(value) {
     if (!value) {
         return 'the active SD model'
@@ -1125,9 +1300,30 @@ function handleDocumentChange(event) {
     }
 }
 
+function shouldShowPromptRewriteButton(message) {
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+    if (!settings.enabled || !autoSettings?.enabled) {
+        return false
+    }
+
+    if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
+        return false
+    }
+
+    const text = message?.mes || ''
+    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
+    const hasPicPrompts =
+        !!regex && !!text ? getPicPromptMatches(text, regex).length > 0 : false
+    const hasImages = hasGeneratedMedia(message)
+
+    return hasPicPrompts || hasImages
+}
+
 function syncUiFromSettings() {
     if (!state.ui) return
     const settings = getSettings()
+    patchToastrForDebug()
     state.ui.enabledInput.checked = settings.enabled
     state.ui.countInput.value = String(settings.targetCount)
     state.ui.delayInput.value = String(settings.delayMs)
@@ -1184,6 +1380,10 @@ function syncUiFromSettings() {
         state.ui.promptRegexInput.value =
             settings.autoGeneration.promptInjection.regex
     }
+    if (state.ui.promptRewriteEnabledInput) {
+        state.ui.promptRewriteEnabledInput.checked =
+            settings.autoGeneration.promptRewrite.enabled
+    }
     if (state.ui.promptPositionSelect) {
         state.ui.promptPositionSelect.value =
             settings.autoGeneration.promptInjection.position
@@ -1192,6 +1392,9 @@ function syncUiFromSettings() {
         state.ui.promptDepthInput.value = String(
             clampDepth(settings.autoGeneration.promptInjection.depth),
         )
+    }
+    if (state.ui.debugModeInput) {
+        state.ui.debugModeInput.checked = settings.debugMode
     }
     if (state.ui.picCountModeSelect) {
         state.ui.picCountModeSelect.value =
@@ -1328,7 +1531,9 @@ function ensureGlobalProgressElement(messageId) {
         )
         stopButton?.addEventListener('click', () => {
             state.chatToken += 1
+            state.abortInProgress = true
             log('Auto swipe queue aborted manually.')
+            clearProgress()
         })
     }
 
@@ -1349,10 +1554,18 @@ function ensureGlobalProgressElement(messageId) {
     ) {
         container.style.removeProperty('--auto-multi-global-progress-top')
         lastMessage.after(container)
-    } else if (!lastMessage && chatRoot && container.parentElement !== chatRoot) {
+    } else if (
+        !lastMessage &&
+        chatRoot &&
+        container.parentElement !== chatRoot
+    ) {
         container.style.removeProperty('--auto-multi-global-progress-top')
         chatRoot.appendChild(container)
-    } else if (!lastMessage && !chatRoot && container.parentElement !== ctxHost) {
+    } else if (
+        !lastMessage &&
+        !chatRoot &&
+        container.parentElement !== ctxHost
+    ) {
         container.style.removeProperty('--auto-multi-global-progress-top')
         ctxHost.appendChild(container)
     }
@@ -1374,16 +1587,20 @@ function ensureGlobalProgressElement(messageId) {
 }
 
 function updateProgressUi(messageId, current, target, waiting, labelText = '') {
+    if (state.abortInProgress) {
+        return
+    }
     const entry = ensureGlobalProgressElement(messageId)
     const safeTarget = Math.max(1, target)
     const clampedCurrent = Math.max(0, Math.min(current, safeTarget))
+    const displayCurrent = Math.min(clampedCurrent + 1, safeTarget)
     const descriptor =
         labelText ||
         (waiting ? 'Preparing swipe queue…' : 'Image Generation Autopilot')
 
     entry.container.classList.toggle('waiting', !!waiting)
     entry.statusLabel.textContent = descriptor
-    entry.ratioLabel.textContent = `${clampedCurrent} / ${safeTarget}`
+    entry.ratioLabel.textContent = `${displayCurrent} / ${safeTarget}`
     entry.progressBar.value = clampedCurrent
     entry.progressBar.max = safeTarget
 }
@@ -1528,12 +1745,143 @@ async function callSdSlash(prompt, quiet) {
     }
 }
 
+function normalizeRewriteResponse(result) {
+    if (!result) {
+        return ''
+    }
+
+    if (typeof result === 'string') {
+        return result.trim()
+    }
+
+    const candidates = [
+        result.text,
+        result.content,
+        result.reply,
+        result.message?.content,
+        result.output,
+    ]
+
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+            return candidate.trim()
+        }
+    }
+
+    try {
+        return JSON.stringify(result).trim()
+    } catch (error) {
+        return ''
+    }
+}
+
+function buildPromptRewriteSystem(injection) {
+    const chunks = [
+        'You are a prompt rewriter for Stable Diffusion prompts.',
+        'Rewrite the prompt to be concise, focused, and high quality.',
+        'Preserve the subject and key details from the original prompt.',
+        'Return only the rewritten prompt with no extra text or quotes.',
+    ]
+
+    if (injection?.mainPrompt?.trim()) {
+        chunks.push(`Global guidance: ${injection.mainPrompt.trim()}`)
+    }
+
+    if (injection?.instructionsPositive?.trim()) {
+        chunks.push(
+            `Positive constraints: ${injection.instructionsPositive.trim()}`,
+        )
+    }
+
+    if (injection?.instructionsNegative?.trim()) {
+        chunks.push(
+            `Negative constraints: ${injection.instructionsNegative.trim()}`,
+        )
+    }
+
+    if (injection?.examplePrompt?.trim()) {
+        chunks.push(`Example style: ${injection.examplePrompt.trim()}`)
+    }
+
+    const limitValue = clampPromptLimit(injection?.lengthLimit)
+    if (limitValue > 0 && injection?.lengthLimitType !== 'none') {
+        const limitLabel =
+            injection.lengthLimitType === 'words' ? 'words' : 'characters'
+        chunks.push(`Keep the prompt within ${limitValue} ${limitLabel}.`)
+    }
+
+    return chunks.join('\n')
+}
+
+function buildPromptRewriteUser(originalPrompt) {
+    return `Rewrite this prompt:\n${originalPrompt}`
+}
+
+async function callChatRewrite(originalPrompt, injection) {
+    const systemPrompt = buildPromptRewriteSystem(injection)
+    const userPrompt = buildPromptRewriteUser(originalPrompt)
+    const ctx = getCtx()
+    const startLength = ctx.chat?.length || 0
+
+    const attempts = [
+        async () => {
+            if (typeof ctx.generateText === 'function') {
+                return ctx.generateText(`${systemPrompt}\n\n${userPrompt}`)
+            }
+            return null
+        },
+        async () => {
+            if (typeof ctx.generateRaw === 'function') {
+                return ctx.generateRaw([
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                ])
+            }
+            return null
+        },
+        async () => {
+            if (typeof ctx.generate === 'function') {
+                return ctx.generate({
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userPrompt },
+                    ],
+                    quiet: true,
+                })
+            }
+            return null
+        },
+    ]
+
+    for (const attempt of attempts) {
+        try {
+            const result = await attempt()
+            const rewritten = normalizeRewriteResponse(result)
+            if (rewritten) {
+                await cleanupRewriteMessages(startLength)
+                return rewritten
+            }
+        } catch (error) {
+            console.warn(
+                '[AutoMultiImage] Prompt rewrite attempt failed',
+                error,
+            )
+        } finally {
+            await cleanupRewriteMessages(startLength)
+        }
+    }
+
+    return ''
+}
+
 async function handleIncomingMessage(messageId) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     if (!autoSettings?.enabled) {
         return
     }
+
+    const token = state.chatToken
 
     if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
         return
@@ -1556,11 +1904,7 @@ async function handleIncomingMessage(messageId) {
         return
     }
 
-    const matches = regex.global
-        ? [...message.mes.matchAll(regex)]
-        : message.mes.match(regex)
-          ? [message.mes.match(regex)]
-          : []
+    const matches = getPicPromptMatches(message.mes, regex)
 
     if (!matches.length) {
         return
@@ -1570,6 +1914,8 @@ async function handleIncomingMessage(messageId) {
     let completedImages = 0
     let failedImages = 0
     const swipesPerImage = getSwipeTotal(settings)
+    const modelLabel = getActiveSdModelLabel()
+    const modelSuffix = modelLabel ? ` • ${modelLabel}` : ''
     const unified = startUnifiedProgress({
         messageId: resolvedId,
         totalImages,
@@ -1578,31 +1924,42 @@ async function handleIncomingMessage(messageId) {
     })
 
     if (unified.active) {
-        updateUnifiedProgress(resolvedId, true, formatUnifiedImageLabel(1))
+        updateUnifiedProgress(
+            resolvedId,
+            true,
+            `${formatUnifiedImageLabel(1)}${modelSuffix}`,
+        )
     } else {
         updateProgressUi(
             resolvedId,
             0,
             totalImages,
             true,
-            `Starting SD image generation (1/${totalImages})`,
+            `Starting SD image generation (1/${totalImages})${modelSuffix}`,
         )
     }
 
     state.autoGenMessages.add(resolvedId)
     setTimeout(async () => {
         for (let index = 0; index < matches.length; index += 1) {
+            if (token !== state.chatToken) {
+                break
+            }
             const match = matches[index]
             const prompt = typeof match?.[1] === 'string' ? match[1] : ''
             if (!prompt.trim()) {
                 continue
             }
 
+            const rewriteEnabled =
+                !!autoSettings?.promptRewrite?.enabled &&
+                !!autoSettings?.promptInjection
+
             if (
                 !updateUnifiedProgress(
                     resolvedId,
                     true,
-                    formatUnifiedImageLabel(index + 1),
+                    `${formatUnifiedImageLabel(index + 1)}${modelSuffix}`,
                 )
             ) {
                 updateProgressUi(
@@ -1610,13 +1967,93 @@ async function handleIncomingMessage(messageId) {
                     completedImages,
                     Math.max(1, totalImages - failedImages),
                     true,
-                    `Generating image ${index + 1}/${totalImages}`,
+                    `Generating image ${index + 1}/${totalImages}${modelSuffix}`,
                 )
             }
 
             if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
-                const result = await callSdSlash(prompt, false)
+                if (token !== state.chatToken) {
+                    break
+                }
+                let result = await callSdSlash(prompt, false)
+                let finalPrompt = prompt
+
+                if (!result && rewriteEnabled) {
+                    const rewriteLabel = `Rewriting prompt ${index + 1}/${totalImages}`
+                    if (
+                        !updateUnifiedProgress(
+                            resolvedId,
+                            true,
+                            `${rewriteLabel}${modelSuffix}`,
+                        )
+                    ) {
+                        updateProgressUi(
+                            resolvedId,
+                            completedImages,
+                            Math.max(1, totalImages - failedImages),
+                            true,
+                            `${rewriteLabel}${modelSuffix}`,
+                        )
+                    }
+
+                    const rewritten = await callChatRewrite(
+                        prompt,
+                        autoSettings.promptInjection,
+                    )
+                    if (rewritten) {
+                        finalPrompt = normalizeRewrittenPrompt(
+                            prompt,
+                            rewritten,
+                            regex,
+                        )
+                        if (token !== state.chatToken) {
+                            break
+                        }
+                        result = await callSdSlash(finalPrompt, false)
+                    }
+                }
+
                 if (!result) {
+                    let placeholderMessageId = null
+                    if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
+                        placeholderMessageId =
+                            await createPlaceholderImageMessage(finalPrompt)
+                        if (Number.isFinite(placeholderMessageId)) {
+                            const button = await waitForPaintbrush(
+                                placeholderMessageId,
+                                3000,
+                            )
+                            if (button) {
+                                queueAutoFill(placeholderMessageId, button)
+                            } else {
+                                log('Placeholder created without paintbrush', {
+                                    placeholderMessageId,
+                                })
+                            }
+
+                            completedImages += 1
+                            state.unifiedProgress.completedImages =
+                                completedImages
+                            if (
+                                !updateUnifiedProgress(
+                                    resolvedId,
+                                    false,
+                                    `${formatUnifiedSwipeLabel(index + 1, 'Queued swipes')}${modelSuffix}`,
+                                )
+                            ) {
+                                updateProgressUi(
+                                    resolvedId,
+                                    completedImages,
+                                    Math.max(1, totalImages - failedImages),
+                                    false,
+                                    `Queued swipes for failed image ${index + 1}/${totalImages}${modelSuffix}`,
+                                )
+                            }
+
+                            continue
+                        }
+                    }
+
                     failedImages += 1
                     state.unifiedProgress.failedImages = failedImages
                     if (
@@ -1634,7 +2071,7 @@ async function handleIncomingMessage(messageId) {
                         !updateUnifiedProgress(
                             resolvedId,
                             false,
-                            formatUnifiedSwipeLabel(index + 1, 'Failed image'),
+                            `${formatUnifiedSwipeLabel(index + 1, 'Failed image')}${modelSuffix}`,
                         )
                     ) {
                         updateProgressUi(
@@ -1642,7 +2079,7 @@ async function handleIncomingMessage(messageId) {
                             completedImages,
                             Math.max(1, totalImages - failedImages),
                             false,
-                            `Failed image ${index + 1}/${totalImages}`,
+                            `Failed image ${index + 1}/${totalImages}${modelSuffix}`,
                         )
                     }
                 } else {
@@ -1652,10 +2089,7 @@ async function handleIncomingMessage(messageId) {
                         !updateUnifiedProgress(
                             resolvedId,
                             false,
-                            formatUnifiedSwipeLabel(
-                                index + 1,
-                                'Completed image',
-                            ),
+                            `${formatUnifiedSwipeLabel(index + 1, 'Completed image')}${modelSuffix}`,
                         )
                     ) {
                         updateProgressUi(
@@ -1663,14 +2097,49 @@ async function handleIncomingMessage(messageId) {
                             completedImages,
                             Math.max(1, totalImages - failedImages),
                             false,
-                            `Completed image ${index + 1}/${totalImages}`,
+                            `Completed image ${index + 1}/${totalImages}${modelSuffix}`,
                         )
                     }
                 }
                 continue
             }
 
-            const imageUrl = await callSdSlash(prompt, true)
+            let imageUrl = await callSdSlash(prompt, true)
+            let finalPrompt = prompt
+            if ((!imageUrl || typeof imageUrl !== 'string') && rewriteEnabled) {
+                const rewriteLabel = `Rewriting prompt ${index + 1}/${totalImages}`
+                if (
+                    !updateUnifiedProgress(
+                        promptMessageId,
+                        true,
+                        `${rewriteLabel}${modelSuffix}`,
+                    )
+                ) {
+                    updateProgressUi(
+                        promptMessageId,
+                        completedImages,
+                        Math.max(1, totalImages - failedImages),
+                        true,
+                        `${rewriteLabel}${modelSuffix}`,
+                    )
+                }
+
+                const rewritten = await callChatRewrite(
+                    prompt,
+                    autoSettings.promptInjection,
+                )
+                if (rewritten) {
+                    finalPrompt = normalizeRewrittenPrompt(
+                        prompt,
+                        rewritten,
+                        regex,
+                    )
+                    if (token !== state.chatToken) {
+                        break
+                    }
+                    imageUrl = await callSdSlash(finalPrompt, true)
+                }
+            }
             if (!imageUrl || typeof imageUrl !== 'string') {
                 failedImages += 1
                 state.unifiedProgress.failedImages = failedImages
@@ -1688,7 +2157,7 @@ async function handleIncomingMessage(messageId) {
                     !updateUnifiedProgress(
                         resolvedId,
                         false,
-                        formatUnifiedSwipeLabel(index + 1, 'Failed image'),
+                        `${formatUnifiedSwipeLabel(index + 1, 'Failed image')}${modelSuffix}`,
                     )
                 ) {
                     updateProgressUi(
@@ -1696,7 +2165,7 @@ async function handleIncomingMessage(messageId) {
                         completedImages,
                         Math.max(1, totalImages - failedImages),
                         false,
-                        `Failed image ${index + 1}/${totalImages}`,
+                        `Failed image ${index + 1}/${totalImages}${modelSuffix}`,
                     )
                 }
                 continue
@@ -1707,19 +2176,7 @@ async function handleIncomingMessage(messageId) {
             }
 
             if (autoSettings.insertType === INSERT_TYPE.INLINE) {
-                if (!Array.isArray(message.extra.image_swipes)) {
-                    message.extra.image_swipes = []
-                }
-                if (
-                    message.extra.image &&
-                    !message.extra.image_swipes.includes(message.extra.image)
-                ) {
-                    message.extra.image_swipes.push(message.extra.image)
-                }
-                message.extra.image_swipes.push(imageUrl)
-                message.extra.image = imageUrl
-                message.extra.title = prompt
-                message.extra.inline_image = true
+                appendGeneratedMedia(message, imageUrl, finalPrompt, true)
             }
 
             if (autoSettings.insertType === INSERT_TYPE.REPLACE) {
@@ -1727,18 +2184,35 @@ async function handleIncomingMessage(messageId) {
                     typeof match?.[0] === 'string' ? match[0] : ''
                 if (originalTag) {
                     const escapedUrl = escapeHtmlAttribute(imageUrl)
-                    const escapedPrompt = escapeHtmlAttribute(prompt)
+                    const escapedPrompt = escapeHtmlAttribute(finalPrompt)
                     const newTag = `<img src="${escapedUrl}" title="${escapedPrompt}" alt="${escapedPrompt}">`
                     message.mes = message.mes.replace(originalTag, newTag)
                 }
+                appendGeneratedMedia(message, imageUrl, finalPrompt, true)
             }
 
             if (typeof window.appendMediaToMessage === 'function') {
-                const messageElement = document.querySelector(
+                let messageElement = document.querySelector(
                     `.mes[mesid="${resolvedId}"]`,
                 )
+                if (!messageElement) {
+                    messageElement = await waitForMessageElement(
+                        resolvedId,
+                        2000,
+                    )
+                }
+                sanitizeMessageMediaState(message)
+                log('Append media to message', {
+                    messageId: resolvedId,
+                    state: getMessageSwipeState(resolvedId),
+                })
                 window.appendMediaToMessage(message, messageElement)
             } else if (typeof window.updateMessageBlock === 'function') {
+                sanitizeMessageMediaState(message)
+                log('Update message block', {
+                    messageId: resolvedId,
+                    state: getMessageSwipeState(resolvedId),
+                })
                 window.updateMessageBlock(resolvedId, message)
             }
 
@@ -1753,7 +2227,7 @@ async function handleIncomingMessage(messageId) {
                 !updateUnifiedProgress(
                     resolvedId,
                     false,
-                    formatUnifiedSwipeLabel(index + 1, 'Completed image'),
+                    `${formatUnifiedSwipeLabel(index + 1, 'Completed image')}${modelSuffix}`,
                 )
             ) {
                 updateProgressUi(
@@ -1761,7 +2235,7 @@ async function handleIncomingMessage(messageId) {
                     completedImages,
                     Math.max(1, totalImages - failedImages),
                     false,
-                    `Completed image ${index + 1}/${totalImages}`,
+                    `Completed image ${index + 1}/${totalImages}${modelSuffix}`,
                 )
             }
         }
@@ -1778,24 +2252,473 @@ async function handleIncomingMessage(messageId) {
     }, 0)
 }
 
+async function handleManualPromptRewrite(messageId) {
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+    log('Rewrite button invoked', { messageId })
+    if (!autoSettings?.enabled) {
+        log('Rewrite ignored (auto generation disabled)')
+        return
+    }
+
+    const token = state.chatToken
+
+    if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
+        log('Rewrite ignored (insert mode disabled)')
+        return
+    }
+
+    const context = getCtx()
+    let chat = context.chat || []
+    let resolvedId = typeof messageId === 'number' ? messageId : chat.length - 1
+    const message = chat?.[resolvedId]
+    if (!message || message.is_user || !message.mes) {
+        log('Rewrite ignored (invalid message)', { resolvedId })
+        return
+    }
+
+    const lastImageMessageId = findLastGeneratedImageMessageId()
+    if (Number.isFinite(lastImageMessageId)) {
+        log('Deleting last generated image message', { lastImageMessageId })
+        const deleted = await deleteMessageById(lastImageMessageId)
+        log('Delete result', { lastImageMessageId, deleted })
+        if (!deleted) {
+            log('Rewrite aborted (image message not deleted)', {
+                lastImageMessageId,
+            })
+            return
+        }
+
+        const deleteDeadline = performance.now() + 2000
+        while (performance.now() < deleteDeadline) {
+            const chatStillHas = !!getCtx().chat?.[lastImageMessageId]
+            const domStillHas = !!document.querySelector(
+                `.mes[mesid="${lastImageMessageId}"]`,
+            )
+            if (!chatStillHas && !domStillHas) {
+                break
+            }
+            await sleep(100)
+        }
+
+        log('Hammer action complete (images message deleted)', {
+            lastImageMessageId,
+        })
+        return
+    }
+
+    log('Hammer action ignored (no generated image message found)')
+    return
+}
+
 function shouldAutoFill(message) {
     if (!message || message.is_user) {
         return false
     }
 
+    if (!hasGeneratedMedia(message)) {
+        return false
+    }
+
+    const mode = (message.extra?.media_display || '').toLowerCase()
+    const allowedModes = ['gallery', 'grid', 'carousel', 'stack']
+    const isGallery =
+        !mode || allowedModes.some((token) => mode.includes(token))
+    return isGallery
+}
+
+function hasGeneratedMedia(message) {
     const mediaList = message?.extra?.media
     if (!Array.isArray(mediaList) || mediaList.length === 0) {
         return false
     }
 
-    const hasGeneratedMedia = mediaList.some(
-        (item) => item?.source === 'generated',
+    return mediaList.some((item) => item?.source === 'generated')
+}
+
+function ensureMessageMediaList(message) {
+    if (!message) {
+        return []
+    }
+
+    const ctx = getCtx()
+    if (typeof ctx.ensureMessageMediaIsArray === 'function') {
+        ctx.ensureMessageMediaIsArray(message)
+    }
+
+    if (!message.extra) {
+        message.extra = {}
+    }
+
+    if (!Array.isArray(message.extra.media)) {
+        message.extra.media = []
+    }
+
+    return message.extra.media
+}
+
+function appendGeneratedMedia(message, url, prompt, inline = true) {
+    if (!message || !url) {
+        return
+    }
+
+    const mediaList = ensureMessageMediaList(message)
+    const mediaAttachment = {
+        url,
+        type: 'image',
+        title: prompt,
+        source: 'generated',
+    }
+
+    mediaList.push(mediaAttachment)
+    message.extra.media_index = Number.isFinite(mediaList.length - 1)
+        ? mediaList.length - 1
+        : 0
+    if (typeof message.extra.media_display !== 'string') {
+        message.extra.media_display = 'gallery'
+    }
+    message.extra.inline_image = inline ? true : !!message.extra.inline_image
+    message.extra.title = prompt
+}
+
+function sanitizeMessageMediaState(message) {
+    if (!message?.extra) {
+        return
+    }
+
+    if (!Array.isArray(message.extra.media)) {
+        message.extra.media = []
+    }
+
+    const count = message.extra.media.length
+    const rawIndex = Number(message.extra.media_index)
+    if (!Number.isFinite(rawIndex) || rawIndex < 0 || rawIndex >= count) {
+        message.extra.media_index = count > 0 ? 0 : 0
+    } else {
+        message.extra.media_index = rawIndex
+    }
+
+    if (typeof message.extra.media_display !== 'string') {
+        message.extra.media_display = 'gallery'
+    }
+}
+
+function getMessageSwipeState(messageId) {
+    const ctx = getCtx()
+    const message = ctx.chat?.[messageId]
+    return {
+        messageId,
+        hasMessage: !!message,
+        swipeId: message?.swipe_id,
+        swipesCount: Array.isArray(message?.swipes)
+            ? message.swipes.length
+            : null,
+        mediaIndex: message?.extra?.media_index,
+        mediaCount: Array.isArray(message?.extra?.media)
+            ? message.extra.media.length
+            : null,
+        mediaDisplay: message?.extra?.media_display,
+        inlineImage: message?.extra?.inline_image,
+    }
+}
+
+async function createPlaceholderImageMessage(prompt) {
+    const ctx = getCtx()
+    const name = ctx.groupId
+        ? ctx.systemUserName || ctx.name2 || 'System'
+        : ctx.name2 || 'Assistant'
+
+    const message = {
+        name,
+        is_user: false,
+        is_system: false,
+        send_date: Date.now(),
+        mes: prompt || '',
+        extra: {
+            media: [],
+            media_display: 'gallery',
+            media_index: 0,
+            inline_image: false,
+            title: prompt || '',
+        },
+    }
+
+    if (!Array.isArray(ctx.chat)) {
+        return null
+    }
+
+    ctx.chat.push(message)
+    const messageId = ctx.chat.length - 1
+    log('Placeholder message created', {
+        prompt: prompt?.slice?.(0, 200) || '',
+        state: getMessageSwipeState(messageId),
+    })
+    ctx.eventSource?.emit(
+        ctx.eventTypes.MESSAGE_RECEIVED,
+        messageId,
+        'extension',
     )
-    const mode = (message.extra?.media_display || '').toLowerCase()
-    const allowedModes = ['gallery', 'grid', 'carousel', 'stack']
-    const isGallery =
-        !mode || allowedModes.some((token) => mode.includes(token))
-    return hasGeneratedMedia && isGallery
+    ctx.addOneMessage?.(message)
+    ctx.eventSource?.emit(
+        ctx.eventTypes.CHARACTER_MESSAGE_RENDERED,
+        messageId,
+        'extension',
+    )
+    await ctx.saveChat?.()
+    return messageId
+}
+
+function findLastGeneratedImageMessageId() {
+    const chat = getCtx().chat || []
+    for (let index = chat.length - 1; index >= 0; index -= 1) {
+        if (hasGeneratedMedia(chat[index])) {
+            return index
+        }
+    }
+    return null
+}
+
+async function deleteMediaUrlsFromServer(urls) {
+    if (!Array.isArray(urls) || urls.length === 0) {
+        return false
+    }
+
+    const ctx = getCtx()
+    let deletedAny = false
+    const uniqueUrls = [
+        ...new Set(urls.filter((url) => typeof url === 'string' && url.trim())),
+    ]
+
+    for (const url of uniqueUrls) {
+        try {
+            if (typeof ctx.deleteMediaFromServer === 'function') {
+                deletedAny =
+                    (await ctx.deleteMediaFromServer(url, true)) || deletedAny
+                continue
+            }
+
+            if (typeof window.deleteMediaFromServer === 'function') {
+                deletedAny =
+                    (await window.deleteMediaFromServer(url, true)) ||
+                    deletedAny
+                continue
+            }
+
+            const headers = (typeof ctx.getRequestHeaders === 'function'
+                ? ctx.getRequestHeaders()
+                : typeof window.getRequestHeaders === 'function'
+                  ? window.getRequestHeaders()
+                  : { 'Content-Type': 'application/json' }) || {
+                'Content-Type': 'application/json',
+            }
+
+            const response = await fetch('/api/images/delete', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ path: url }),
+            })
+
+            if (response.ok) {
+                deletedAny = true
+            } else {
+                log('Media delete failed', {
+                    url,
+                    status: response.status,
+                })
+            }
+        } catch (error) {
+            log('Media delete error', { url, error })
+        }
+    }
+
+    return deletedAny
+}
+
+function collectMessageMediaUrls(message) {
+    if (!message?.extra) {
+        return []
+    }
+
+    const urls = []
+
+    if (Array.isArray(message.extra.media)) {
+        for (const media of message.extra.media) {
+            if (media?.url) {
+                urls.push(media.url)
+            }
+        }
+    }
+
+    return urls
+}
+
+async function deleteMessageById(messageId, options = {}) {
+    if (!Number.isFinite(messageId)) {
+        return false
+    }
+
+    const ctx = getCtx()
+    const message = ctx.chat?.[messageId]
+    let handled = false
+
+    const deleteCommands = [
+        `/delmsg ${messageId} --delete_attachments`,
+        `/delmsg ${messageId} --delete_attachments true`,
+        `/delmsg ${messageId} --delete_attachments=1`,
+        `/delmsg ${messageId} --delete_media`,
+        `/delmsg ${messageId} --delete_files`,
+        `/delmsg ${messageId} --delete_images`,
+        `/delmsg ${messageId} --delete_uploads`,
+    ]
+
+    try {
+        if (message && hasGeneratedMedia(message)) {
+            const mediaUrls = collectMessageMediaUrls(message)
+            if (mediaUrls.length) {
+                const deletedMedia = await deleteMediaUrlsFromServer(mediaUrls)
+                log('Media delete attempted', {
+                    messageId,
+                    count: mediaUrls.length,
+                    deletedMedia,
+                })
+            }
+
+            if (
+                Array.isArray(ctx.chat) &&
+                messageId >= 0 &&
+                messageId < ctx.chat.length
+            ) {
+                ctx.chat.splice(messageId, 1)
+                ctx.eventSource?.emit(ctx.eventTypes.MESSAGE_DELETED, messageId)
+                if (typeof window.deleteMessageBlock === 'function') {
+                    window.deleteMessageBlock(messageId)
+                } else if (typeof window.updateChat === 'function') {
+                    window.updateChat()
+                }
+                handled = true
+                await ctx.saveChat?.()
+                if (!options.skipReload) {
+                    if (typeof ctx.reloadCurrentChat === 'function') {
+                        await ctx.reloadCurrentChat()
+                    } else if (typeof window.reloadCurrentChat === 'function') {
+                        await window.reloadCurrentChat()
+                    }
+                }
+                return handled
+            }
+        }
+
+        if (message) {
+            const rawSwipeId = Number(message.swipe_id)
+            if (!Number.isFinite(rawSwipeId)) {
+                delete message.swipe_id
+            } else if (
+                Array.isArray(message.swipes) &&
+                message.swipes.length > 0
+            ) {
+                message.swipe_id = Math.max(
+                    0,
+                    Math.min(rawSwipeId, message.swipes.length - 1),
+                )
+            } else {
+                message.swipe_id = Math.max(0, rawSwipeId)
+            }
+        }
+
+        if (typeof ctx.deleteMessage === 'function') {
+            await ctx.deleteMessage(messageId, { deleteAttachments: true })
+            handled = true
+        } else if (typeof ctx.deleteMessageById === 'function') {
+            await ctx.deleteMessageById(messageId, { deleteAttachments: true })
+            handled = true
+        } else if (typeof window.deleteMessage === 'function') {
+            await window.deleteMessage(messageId, { deleteAttachments: true })
+            handled = true
+        } else if (typeof window.deleteMessageById === 'function') {
+            await window.deleteMessageById(messageId, {
+                deleteAttachments: true,
+            })
+            handled = true
+        }
+
+        if (
+            !handled &&
+            typeof ctx.executeSlashCommandsWithOptions === 'function'
+        ) {
+            for (const commandText of deleteCommands) {
+                try {
+                    await ctx.executeSlashCommandsWithOptions(commandText)
+                    handled = true
+                    break
+                } catch (error) {
+                    log('Delete slash command failed', { commandText, error })
+                }
+            }
+        }
+
+        if (!handled) {
+            const parser = await resolveSlashCommandParser()
+            const command =
+                parser?.commands?.delmsg ||
+                parser?.commands?.deletemsg ||
+                parser?.commands?.del
+            if (command?.callback) {
+                await command.callback({}, String(messageId))
+                handled = true
+            }
+        }
+
+        if (!handled && Array.isArray(ctx.chat)) {
+            if (messageId >= 0 && messageId < ctx.chat.length) {
+                ctx.chat.splice(messageId, 1)
+                ctx.eventSource?.emit(ctx.eventTypes.MESSAGE_DELETED, messageId)
+                if (typeof window.deleteMessageBlock === 'function') {
+                    window.deleteMessageBlock(messageId)
+                } else if (typeof window.updateChat === 'function') {
+                    window.updateChat()
+                }
+                handled = true
+            }
+        }
+
+        if (handled) {
+            await ctx.saveChat?.()
+        }
+
+        const stillExists = !!ctx.chat?.[messageId]
+        if (stillExists) {
+            log('Delete did not remove message, applying fallback', {
+                messageId,
+            })
+            if (
+                Array.isArray(ctx.chat) &&
+                messageId >= 0 &&
+                messageId < ctx.chat.length
+            ) {
+                ctx.chat.splice(messageId, 1)
+                ctx.eventSource?.emit(ctx.eventTypes.MESSAGE_DELETED, messageId)
+                if (typeof window.deleteMessageBlock === 'function') {
+                    window.deleteMessageBlock(messageId)
+                } else if (typeof window.updateChat === 'function') {
+                    window.updateChat()
+                }
+                handled = true
+                await ctx.saveChat?.()
+            }
+
+            if (!options.skipReload) {
+                if (typeof ctx.reloadCurrentChat === 'function') {
+                    await ctx.reloadCurrentChat()
+                } else if (typeof window.reloadCurrentChat === 'function') {
+                    await window.reloadCurrentChat()
+                }
+            }
+        }
+    } catch (error) {
+        console.warn('[AutoMultiImage] Failed to delete message', error)
+    }
+
+    return handled
 }
 
 async function waitForPaintbrush(messageId, timeoutMs = 2000) {
@@ -1809,6 +2732,19 @@ async function waitForPaintbrush(messageId, timeoutMs = 2000) {
     }
 
     return button
+}
+
+async function waitForMessageElement(messageId, timeoutMs = 2000) {
+    const selector = `.mes[mesid="${messageId}"]`
+    const deadline = performance.now() + timeoutMs
+    let element = document.querySelector(selector)
+
+    while (!element && performance.now() < deadline) {
+        await sleep(100)
+        element = document.querySelector(selector)
+    }
+
+    return element
 }
 
 function findMessageActionBar(messageId) {
@@ -1849,17 +2785,25 @@ function injectReswipeButtonTemplate() {
         return
     }
 
-    if (target.querySelector('.auto-multi-reswipe')) {
-        return
+    if (!target.querySelector('.auto-multi-reswipe')) {
+        const button = document.createElement('div')
+        button.className =
+            'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
+        button.title = 'run image auto-swipe'
+        button.setAttribute('tabindex', '0')
+        button.style.display = 'none'
+        target.prepend(button)
     }
 
-    const button = document.createElement('div')
-    button.className =
-        'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-    button.title = 'run image auto-swipe'
-    button.setAttribute('tabindex', '0')
-    button.style.display = 'none'
-    target.prepend(button)
+    if (!target.querySelector('.auto-multi-rewrite')) {
+        const button = document.createElement('div')
+        button.className =
+            'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
+        button.title = 'rewrite <pic> prompts and regenerate images'
+        button.setAttribute('tabindex', '0')
+        button.style.display = 'none'
+        target.prepend(button)
+    }
 }
 
 function ensureReswipeButton(messageId, shouldShow = true) {
@@ -1891,6 +2835,35 @@ function ensureReswipeButton(messageId, shouldShow = true) {
     bar.appendChild(button)
 }
 
+function ensureRewriteButton(messageId, shouldShow = true) {
+    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
+    if (!root) {
+        return
+    }
+
+    const existing = root.querySelector('.auto-multi-rewrite')
+    if (existing) {
+        existing.style.display = shouldShow ? '' : 'none'
+        return
+    }
+
+    if (!shouldShow) {
+        return
+    }
+
+    const bar = findMessageActionBar(messageId)
+    if (!bar) {
+        return
+    }
+
+    const button = document.createElement('div')
+    button.className =
+        'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
+    button.title = 'rewrite <pic> prompts and regenerate images'
+    button.setAttribute('tabindex', '0')
+    bar.appendChild(button)
+}
+
 function refreshReswipeButtons() {
     const settings = getSettings()
     const chat = getCtx().chat || []
@@ -1906,6 +2879,9 @@ function refreshReswipeButtons() {
         const hasMedia = getMediaCount(message) > 0
         const shouldShow = settings.enabled && hasMedia
         ensureReswipeButton(messageId, shouldShow)
+
+        const shouldShowRewrite = shouldShowPromptRewriteButton(message)
+        ensureRewriteButton(messageId, shouldShowRewrite)
     })
 }
 
@@ -2040,6 +3016,8 @@ async function requestSwipe(button, messageId) {
 }
 
 async function autoFillMessage(messageId, button, token) {
+    state.abortInProgress = false
+    log('Auto-fill start', { state: getMessageSwipeState(messageId) })
     const initialSettings = getSettings()
     const plan = getSwipePlan(initialSettings)
     const totalSwipes = plan.reduce((sum, entry) => sum + entry.count, 0)
@@ -2050,7 +3028,7 @@ async function autoFillMessage(messageId, button, token) {
 
     const swipeLabels = buildSwipeLabels(plan, totalSwipes)
     const initialLabel = swipeLabels[0]
-        ? `Generating swipe ${formatUnifiedSwipeLabel(1, '')}`
+        ? `Generating ${swipeLabels[0]}`
         : 'Preparing swipe queue…'
 
     if (!updateUnifiedProgress(messageId, true, initialLabel)) {
@@ -2133,7 +3111,7 @@ async function runSequentialSwipePlan(
                         messageId,
                         true,
                         pendingLabel
-                            ? `Generating swipe ${formatUnifiedSwipeLabel(completed + 1, '')}`
+                            ? `Generating ${pendingLabel}`
                             : modelLabel,
                     )
                 ) {
@@ -2153,6 +3131,7 @@ async function runSequentialSwipePlan(
                     swipeIndex: swipeIndex + 1,
                     totalForModel: entry.count,
                     completedSoFar: completed,
+                    state: getMessageSwipeState(messageId),
                 })
 
                 const success = await requestSwipe(button, messageId)
@@ -2293,6 +3272,7 @@ async function runBurstSwipePlan(
                     swipeIndex: swipeIndex + 1,
                     totalForModel: entry.count,
                     issuedSoFar: issued,
+                    state: getMessageSwipeState(messageId),
                 })
 
                 if (!dispatchSwipe(button)) {
@@ -2344,7 +3324,9 @@ async function runBurstSwipePlan(
                     !updateUnifiedProgress(
                         messageId,
                         true,
-                        `Generating swipe ${formatUnifiedSwipeLabel(issued, '')}`,
+                        issuedLabel
+                            ? `Generating ${issuedLabel}`
+                            : 'Generating swipe',
                     )
                 ) {
                     updateProgressUi(
@@ -2509,6 +3491,7 @@ async function handleMessageRendered(messageId, origin) {
     const message = getCtx().chat?.[messageId]
     const hasMedia = getMediaCount(message) > 0
     ensureReswipeButton(messageId, hasMedia)
+    ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
 
     if (!shouldAutoFill(message)) {
         return
@@ -2541,20 +3524,24 @@ async function init() {
     }
 
     ensureSettings()
+    patchToastrForDebug()
     await buildSettingsPanel()
     injectReswipeButtonTemplate()
     refreshReswipeButtons()
 
     const chat = document.getElementById('chat')
     chat?.addEventListener('click', async (event) => {
-        const target = event.target.closest('.auto-multi-reswipe')
-        if (!target) {
+        const reswipeTarget = event.target.closest('.auto-multi-reswipe')
+        const rewriteTarget = event.target.closest('.auto-multi-rewrite')
+
+        if (!reswipeTarget && !rewriteTarget) {
             return
         }
 
         event.preventDefault()
         event.stopPropagation()
 
+        const target = reswipeTarget || rewriteTarget
         const messageElement = target.closest('.mes')
         const messageId = Number(messageElement?.getAttribute('mesid'))
         if (!Number.isFinite(messageId)) {
@@ -2563,6 +3550,11 @@ async function init() {
 
         const settings = getSettings()
         if (!settings.enabled) {
+            return
+        }
+
+        if (rewriteTarget) {
+            await handleManualPromptRewrite(messageId)
             return
         }
 

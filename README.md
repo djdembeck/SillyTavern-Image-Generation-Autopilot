@@ -11,6 +11,10 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 
 ---
 
+## Changelog
+
+- **1.1.2** — 2026-01-18 — Small fixes: improve deletion behavior to avoid "Invalid swipe ID" toasts, ensure the progress HUD hides immediately when stopping queues, and add a placeholder message when the first image generation fails so subsequent swipes continue.
+
 ## ✨ What it does
 
 - **Auto image generation** from `<pic prompt>` tags (inline, replace, or new message).
