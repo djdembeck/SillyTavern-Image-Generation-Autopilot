@@ -254,7 +254,7 @@ function clampPromptLimit(value) {
     if (Number.isNaN(numeric)) {
         return 0
     }
-    return Math.max(0, Math.min(500, Math.round(numeric)))
+    return Math.max(0, Math.round(numeric))
 }
 
 function clampPicCount(value, fallback = 1) {
