@@ -4,6 +4,7 @@
 This extension guides the assistant to emit `<pic prompt="...">` tags, triggers SD generation automatically, and then queues extra swipes so every reply yields a predictable batch of images.
 
 **Badges:**
+
 - ✅ SillyTavern v1.12.0+
 - ✅ Requires built-in stable-diffusion extension
 - ✅ Works with NanoGPT and other SD providers
@@ -48,15 +49,15 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 
 ## ⚙️ Key settings (quick map)
 
-| Area | Purpose |
-| --- | --- |
-| **Enable auto image generation** | Turns the `<pic prompt>` automation on/off. |
-| **Insert mode** | Inline, replace marker, or new message. |
-| **Enable auto-swipes** | Triggers swipe queues on SD-generated messages. |
-| **Default swipes per model** | Baseline count when the model queue is empty. |
-| **Model queue** | Run multiple SD models with per-model counts. |
-| **Delay between swipes** | Protects against provider throttles. |
-| **Prompt injection** | Main prompt, positive/negative rules, example prompt, and count rules. |
+| Area                             | Purpose                                                                |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| **Enable auto image generation** | Turns the `<pic prompt>` automation on/off.                            |
+| **Insert mode**                  | Inline, replace marker, or new message.                                |
+| **Enable auto-swipes**           | Triggers swipe queues on SD-generated messages.                        |
+| **Default swipes per model**     | Baseline count when the model queue is empty.                          |
+| **Model queue**                  | Run multiple SD models with per-model counts.                          |
+| **Delay between swipes**         | Protects against provider throttles.                                   |
+| **Prompt injection**             | Main prompt, positive/negative rules, example prompt, and count rules. |
 
 ---
 

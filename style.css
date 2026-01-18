@@ -30,12 +30,11 @@
 .auto-multi-image-settings .auto-multi-drawer__toggle {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     padding: 18px 20px;
-    background:
-        linear-gradient(
-            120deg,
-            rgba(123, 125, 255, 0.15),
-            rgba(12, 15, 35, 0.6)
-        );
+    background: linear-gradient(
+        120deg,
+        rgba(123, 125, 255, 0.15),
+        rgba(12, 15, 35, 0.6)
+    );
     backdrop-filter: blur(8px);
 }
 
@@ -405,8 +404,7 @@
 }
 
 .auto-multi-global-progress {
-    position: sticky;
-    bottom: 12px;
+    position: relative;
     margin: 12px;
     padding: 10px 14px;
     border-radius: 10px;
