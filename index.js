@@ -52,6 +52,17 @@ const state = {
         progressBar: null,
     },
     modelLabels: new Map(),
+    unifiedProgress: {
+        active: false,
+        sourceMessageId: null,
+        totalImages: 0,
+        failedImages: 0,
+        completedImages: 0,
+        completedSwipes: 0,
+        expectedSwipes: 0,
+        swipesPerImage: 0,
+        insertType: INSERT_TYPE.DISABLED,
+    },
 }
 
 function resolveTemplateRoot() {
@@ -255,6 +266,127 @@ function clampPromptLimit(value) {
         return 0
     }
     return Math.max(0, Math.round(numeric))
+}
+
+function getSwipeTotal(settings) {
+    if (!settings?.enabled) {
+        return 0
+    }
+
+    const plan = getSwipePlan(settings)
+    return plan.reduce((sum, entry) => sum + entry.count, 0)
+}
+
+function formatOrdinal(value) {
+    const number = Math.abs(Math.trunc(value))
+    const mod100 = number % 100
+    if (mod100 >= 11 && mod100 <= 13) {
+        return `${number}th`
+    }
+
+    switch (number % 10) {
+        case 1:
+            return `${number}st`
+        case 2:
+            return `${number}nd`
+        case 3:
+            return `${number}rd`
+        default:
+            return `${number}th`
+    }
+}
+
+function getUnifiedCounts() {
+    const totals = getUnifiedTotals()
+    if (!totals) {
+        return null
+    }
+
+    return {
+        completed: totals.completed,
+        total: totals.total,
+    }
+}
+
+function formatUnifiedImageLabel(index) {
+    const totals = getUnifiedCounts()
+    if (!totals) {
+        return `Generating image ${index}`
+    }
+
+    const ordinal = formatOrdinal(index)
+    return `Generating ${ordinal} image ${totals.completed + 1}/${totals.total}`
+}
+
+function formatUnifiedSwipeLabel(index, prefix) {
+    const totals = getUnifiedCounts()
+    if (!totals) {
+        return prefix
+    }
+
+    const label = prefix ? `${prefix} ` : ''
+    return `${label}${totals.completed + 1}/${totals.total}`
+}
+
+function startUnifiedProgress({
+    messageId,
+    totalImages,
+    swipesPerImage,
+    insertType,
+}) {
+    const unified = state.unifiedProgress
+    const swipeMultiplier =
+        insertType === INSERT_TYPE.NEW_MESSAGE ? totalImages : 0
+    const expectedSwipes = Math.max(0, swipesPerImage * swipeMultiplier)
+
+    unified.active = expectedSwipes > 0
+    unified.sourceMessageId = messageId
+    unified.totalImages = Math.max(0, totalImages)
+    unified.failedImages = 0
+    unified.completedImages = 0
+    unified.completedSwipes = 0
+    unified.expectedSwipes = expectedSwipes
+    unified.swipesPerImage = Math.max(0, swipesPerImage)
+    unified.insertType = insertType
+
+    return unified
+}
+
+function getUnifiedTotals() {
+    const unified = state.unifiedProgress
+    if (!unified?.active) {
+        return null
+    }
+
+    const remainingImages = Math.max(0, unified.totalImages - unified.failedImages)
+    const total = Math.max(1, remainingImages + unified.expectedSwipes)
+    const completed = unified.completedImages + unified.completedSwipes
+    return { total, completed }
+}
+
+function updateUnifiedProgress(messageId, waiting, label) {
+    const totals = getUnifiedTotals()
+    if (!totals) {
+        return false
+    }
+
+    updateProgressUi(messageId, totals.completed, totals.total, waiting, label)
+    return true
+}
+
+function finalizeUnifiedProgress() {
+    const unified = state.unifiedProgress
+    const totals = getUnifiedTotals()
+    if (!unified?.active || !totals) {
+        return false
+    }
+
+    if (totals.completed >= totals.total) {
+        unified.active = false
+        return true
+    }
+
+    return false
 }
 
 function clampPicCount(value, fallback = 1) {
@@ -1242,6 +1374,7 @@ function resetPerChatState() {
     state.autoGenMessages.clear()
     state.runningMessages.clear()
     clearProgress()
+    setTimeout(() => refreshReswipeButtons(), 0)
 }
 
 function getPromptRole(position) {
@@ -1374,13 +1507,29 @@ async function handleIncomingMessage(messageId) {
     const totalImages = matches.length
     let completedImages = 0
     let failedImages = 0
-    updateProgressUi(
-        resolvedId,
-        0,
+    const swipesPerImage = getSwipeTotal(settings)
+    const unified = startUnifiedProgress({
+        messageId: resolvedId,
         totalImages,
-        true,
-        `Starting SD image generation (1/${totalImages})`,
-    )
+        swipesPerImage,
+        insertType: autoSettings.insertType,
+    })
+
+    if (unified.active) {
+        updateUnifiedProgress(
+            resolvedId,
+            true,
+            formatUnifiedImageLabel(1),
+        )
+    } else {
+        updateProgressUi(
+            resolvedId,
+            0,
+            totalImages,
+            true,
+            `Starting SD image generation (1/${totalImages})`,
+        )
+    }
 
     state.autoGenMessages.add(resolvedId)
     setTimeout(async () => {
@@ -1391,34 +1540,65 @@ async function handleIncomingMessage(messageId) {
                 continue
             }
 
-            updateProgressUi(
+            if (!updateUnifiedProgress(
                 resolvedId,
-                completedImages,
-                Math.max(1, totalImages - failedImages),
                 true,
-                `Generating image ${index + 1}/${totalImages}`,
-            )
+                formatUnifiedImageLabel(index + 1),
+            )) {
+                updateProgressUi(
+                    resolvedId,
+                    completedImages,
+                    Math.max(1, totalImages - failedImages),
+                    true,
+                    `Generating image ${index + 1}/${totalImages}`,
+                )
+            }
 
             if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
                 const result = await callSdSlash(prompt, false)
                 if (!result) {
                     failedImages += 1
-                    updateProgressUi(
+                    state.unifiedProgress.failedImages = failedImages
+                    if (
+                        state.unifiedProgress.active &&
+                        state.unifiedProgress.insertType ===
+                            INSERT_TYPE.NEW_MESSAGE
+                    ) {
+                        state.unifiedProgress.expectedSwipes = Math.max(
+                            0,
+                            state.unifiedProgress.expectedSwipes -
+                                state.unifiedProgress.swipesPerImage,
+                        )
+                    }
+                    if (!updateUnifiedProgress(
                         resolvedId,
-                        completedImages,
-                        Math.max(1, totalImages - failedImages),
                         false,
-                        `Failed image ${index + 1}/${totalImages}`,
-                    )
+                        formatUnifiedSwipeLabel(index + 1, 'Failed image'),
+                    )) {
+                        updateProgressUi(
+                            resolvedId,
+                            completedImages,
+                            Math.max(1, totalImages - failedImages),
+                            false,
+                            `Failed image ${index + 1}/${totalImages}`,
+                        )
+                    }
                 } else {
                     completedImages += 1
-                    updateProgressUi(
+                    state.unifiedProgress.completedImages = completedImages
+                    if (!updateUnifiedProgress(
                         resolvedId,
-                        completedImages,
-                        Math.max(1, totalImages - failedImages),
                         false,
-                        `Completed image ${index + 1}/${totalImages}`,
-                    )
+                        formatUnifiedSwipeLabel(index + 1, 'Completed image'),
+                    )) {
+                        updateProgressUi(
+                            resolvedId,
+                            completedImages,
+                            Math.max(1, totalImages - failedImages),
+                            false,
+                            `Completed image ${index + 1}/${totalImages}`,
+                        )
+                    }
                 }
                 continue
             }
@@ -1426,13 +1606,31 @@ async function handleIncomingMessage(messageId) {
             const imageUrl = await callSdSlash(prompt, true)
             if (!imageUrl || typeof imageUrl !== 'string') {
                 failedImages += 1
-                updateProgressUi(
+                state.unifiedProgress.failedImages = failedImages
+                if (
+                    state.unifiedProgress.active &&
+                    state.unifiedProgress.insertType ===
+                        INSERT_TYPE.NEW_MESSAGE
+                ) {
+                    state.unifiedProgress.expectedSwipes = Math.max(
+                        0,
+                        state.unifiedProgress.expectedSwipes -
+                            state.unifiedProgress.swipesPerImage,
+                    )
+                }
+                if (!updateUnifiedProgress(
                     resolvedId,
-                    completedImages,
-                    Math.max(1, totalImages - failedImages),
                     false,
-                    `Failed image ${index + 1}/${totalImages}`,
-                )
+                    formatUnifiedSwipeLabel(index + 1, 'Failed image'),
+                )) {
+                    updateProgressUi(
+                        resolvedId,
+                        completedImages,
+                        Math.max(1, totalImages - failedImages),
+                        false,
+                        `Failed image ${index + 1}/${totalImages}`,
+                    )
+                }
                 continue
             }
 
@@ -1478,17 +1676,27 @@ async function handleIncomingMessage(messageId) {
             )
             await context.saveChat?.()
             completedImages += 1
-            updateProgressUi(
+            state.unifiedProgress.completedImages = completedImages
+            if (!updateUnifiedProgress(
                 resolvedId,
-                completedImages,
-                Math.max(1, totalImages - failedImages),
                 false,
-                `Completed image ${index + 1}/${totalImages}`,
-            )
+                formatUnifiedSwipeLabel(index + 1, 'Completed image'),
+            )) {
+                updateProgressUi(
+                    resolvedId,
+                    completedImages,
+                    Math.max(1, totalImages - failedImages),
+                    false,
+                    `Completed image ${index + 1}/${totalImages}`,
+                )
+            }
         }
 
         setTimeout(() => {
-            clearProgress(resolvedId)
+            if (!state.unifiedProgress.active || state.unifiedProgress.expectedSwipes === 0) {
+                clearProgress(resolvedId)
+            }
+            finalizeUnifiedProgress()
         }, 1200)
     }, 0)
 }
@@ -1524,6 +1732,104 @@ async function waitForPaintbrush(messageId, timeoutMs = 2000) {
     }
 
     return button
+}
+
+function findMessageActionBar(messageId) {
+    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
+    if (!root) {
+        return null
+    }
+
+    const candidates = [
+        '.mes_buttons .extraMesButtons',
+        '.mes_buttons',
+        '.mes_buttons_container',
+        '.mes_buttons_block',
+        '.mes_buttons_holder',
+        '.mes_buttons_wrapper',
+        '.message_actions',
+        '.mes_actions',
+    ]
+
+    for (const selector of candidates) {
+        const bar = root.querySelector(selector)
+        if (bar) {
+            return bar
+        }
+    }
+
+    return null
+}
+
+function injectReswipeButtonTemplate() {
+    const template = document.querySelector(
+        '#message_template .mes_buttons .extraMesButtons',
+    )
+    const fallback = document.querySelector('#message_template .mes_buttons')
+    const target = template || fallback
+    if (!target) {
+        console.warn('[AutoMultiImage] Message toolbar template not found')
+        return
+    }
+
+    if (target.querySelector('.auto-multi-reswipe')) {
+        return
+    }
+
+    const button = document.createElement('div')
+    button.className =
+        'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
+    button.title = 'Generate another swipe batch'
+    button.setAttribute('tabindex', '0')
+    button.style.display = 'none'
+    target.prepend(button)
+}
+
+function ensureReswipeButton(messageId, shouldShow = true) {
+    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
+    if (!root) {
+        return
+    }
+
+    const existing = root.querySelector('.auto-multi-reswipe')
+    if (existing) {
+        existing.style.display = shouldShow ? '' : 'none'
+        return
+    }
+
+    if (!shouldShow) {
+        return
+    }
+
+    const bar = findMessageActionBar(messageId)
+    if (!bar) {
+        return
+    }
+
+    const button = document.createElement('div')
+    button.className =
+        'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
+    button.title = 'Generate another swipe batch'
+    button.setAttribute('tabindex', '0')
+    bar.appendChild(button)
+}
+
+function refreshReswipeButtons() {
+    const settings = getSettings()
+    const chat = getCtx().chat || []
+    const messageElements = document.querySelectorAll('.mes[mesid]')
+
+    messageElements.forEach((element) => {
+        const messageId = Number(element.getAttribute('mesid'))
+        if (!Number.isFinite(messageId)) {
+            return
+        }
+
+        const message = chat[messageId]
+        const hasMedia = getMediaCount(message) > 0
+        const shouldShow = settings.enabled && hasMedia
+        ensureReswipeButton(messageId, shouldShow)
+    })
 }
 
 function dispatchSwipe(button) {
@@ -1667,10 +1973,12 @@ async function autoFillMessage(messageId, button, token) {
 
     const swipeLabels = buildSwipeLabels(plan, totalSwipes)
     const initialLabel = swipeLabels[0]
-        ? `Waiting on ${swipeLabels[0]}`
+        ? `Generating swipe ${formatUnifiedSwipeLabel(1, '')}`
         : 'Preparing swipe queue…'
 
-    updateProgressUi(messageId, 0, totalSwipes, true, initialLabel)
+    if (!updateUnifiedProgress(messageId, true, initialLabel)) {
+        updateProgressUi(messageId, 0, totalSwipes, true, initialLabel)
+    }
 
     if (initialSettings.burstMode) {
         await runBurstSwipePlan(
@@ -1743,13 +2051,21 @@ async function runSequentialSwipePlan(
                 }
 
                 const pendingLabel = swipeLabels?.[completed]
-                updateProgressUi(
+                if (!updateUnifiedProgress(
                     messageId,
-                    completed,
-                    effectiveTarget,
                     true,
-                    pendingLabel ? `Waiting on ${pendingLabel}` : modelLabel,
-                )
+                    pendingLabel
+                        ? `Generating swipe ${formatUnifiedSwipeLabel(completed + 1, '')}`
+                        : modelLabel,
+                )) {
+                    updateProgressUi(
+                        messageId,
+                        completed,
+                        effectiveTarget,
+                        true,
+                        pendingLabel ? `Waiting on ${pendingLabel}` : modelLabel,
+                    )
+                }
                 log('Dispatching sequential swipe', {
                     messageId,
                     modelId: entry.id,
@@ -1767,29 +2083,54 @@ async function runSequentialSwipePlan(
                     failed += 1
                     effectiveTarget = Math.max(1, totalSwipes - failed)
                     const failedLabel = swipeLabels?.[completed]
-                    updateProgressUi(
+                    if (state.unifiedProgress.active) {
+                        state.unifiedProgress.expectedSwipes = Math.max(
+                            0,
+                            state.unifiedProgress.expectedSwipes - 1,
+                        )
+                    }
+                    if (!updateUnifiedProgress(
                         messageId,
-                        completed,
-                        effectiveTarget,
                         false,
                         failedLabel
                             ? `Failed ${failedLabel}`
                             : `${modelLabel} swipe failed`,
-                    )
+                    )) {
+                        updateProgressUi(
+                            messageId,
+                            completed,
+                            effectiveTarget,
+                            false,
+                            failedLabel
+                                ? `Failed ${failedLabel}`
+                                : `${modelLabel} swipe failed`,
+                        )
+                    }
                     continue
                 }
 
                 const completedLabel = swipeLabels?.[completed]
                 completed += 1
-                updateProgressUi(
+                if (state.unifiedProgress.active) {
+                    state.unifiedProgress.completedSwipes += 1
+                }
+                if (!updateUnifiedProgress(
                     messageId,
-                    completed,
-                    effectiveTarget,
                     false,
                     completedLabel
                         ? `Completed ${completedLabel}`
                         : modelLabel,
-                )
+                )) {
+                    updateProgressUi(
+                        messageId,
+                        completed,
+                        effectiveTarget,
+                        false,
+                        completedLabel
+                            ? `Completed ${completedLabel}`
+                            : modelLabel,
+                    )
+                }
 
                 if (settings.delayMs > 0 && completed < effectiveTarget) {
                     await sleep(settings.delayMs)
@@ -1878,27 +2219,50 @@ async function runBurstSwipePlan(
                     effectiveTarget = Math.max(1, totalSwipes - failedDispatches)
                     const failedLabel = swipeLabels?.[issued]
                     issued += 1
-                    updateProgressUi(
+                    if (state.unifiedProgress.active) {
+                        state.unifiedProgress.expectedSwipes = Math.max(
+                            0,
+                            state.unifiedProgress.expectedSwipes - 1,
+                        )
+                    }
+                    if (!updateUnifiedProgress(
                         messageId,
-                        issued,
-                        effectiveTarget,
                         false,
                         failedLabel
                             ? `Failed ${failedLabel}`
                             : `${label} swipe failed`,
-                    )
+                    )) {
+                        updateProgressUi(
+                            messageId,
+                            issued,
+                            effectiveTarget,
+                            false,
+                            failedLabel
+                                ? `Failed ${failedLabel}`
+                                : `${label} swipe failed`,
+                        )
+                    }
                     continue
                 }
 
                 const issuedLabel = swipeLabels?.[issued]
                 issued += 1
-                updateProgressUi(
+                if (state.unifiedProgress.active) {
+                    state.unifiedProgress.completedSwipes += 1
+                }
+                if (!updateUnifiedProgress(
                     messageId,
-                    issued,
-                    effectiveTarget,
                     true,
-                    issuedLabel ? `Queued ${issuedLabel}` : label,
-                )
+                    `Generating swipe ${formatUnifiedSwipeLabel(issued, '')}`,
+                )) {
+                    updateProgressUi(
+                        messageId,
+                        issued,
+                        effectiveTarget,
+                        true,
+                        issuedLabel ? `Queued ${issuedLabel}` : label,
+                    )
+                }
 
                 if (issued < effectiveTarget) {
                     if (throttleMs > 0) {
@@ -1953,15 +2317,30 @@ async function monitorBurstCompletion(
         const delivered = Math.max(0, attachments - baselineCount)
         lastDelivered = delivered
         const pendingLabel = swipeLabels?.[delivered]
-        updateProgressUi(
-            messageId,
-            Math.min(delivered, effectiveTarget),
-            effectiveTarget,
-            delivered < effectiveTarget,
-            pendingLabel
-                ? `Waiting on ${pendingLabel}`
-                : 'Waiting for swipes',
-        )
+        if (state.unifiedProgress.active) {
+            const baseCompleted = state.unifiedProgress.completedSwipes - lastDelivered
+            state.unifiedProgress.completedSwipes = Math.max(
+                0,
+                baseCompleted + delivered,
+            )
+            updateUnifiedProgress(
+                messageId,
+                delivered < effectiveTarget,
+                pendingLabel
+                    ? `Waiting on ${pendingLabel}`
+                    : 'Waiting for swipes',
+            )
+        } else {
+            updateProgressUi(
+                messageId,
+                Math.min(delivered, effectiveTarget),
+                effectiveTarget,
+                delivered < effectiveTarget,
+                pendingLabel
+                    ? `Waiting on ${pendingLabel}`
+                    : 'Waiting for swipes',
+            )
+        }
 
         if (attachments >= targetCount) {
             return
@@ -1976,15 +2355,29 @@ async function monitorBurstCompletion(
     )
 
     const timeoutDelivered = Math.min(lastDelivered, effectiveTarget)
-    updateProgressUi(
-        messageId,
-        timeoutDelivered,
-        Math.max(1, timeoutDelivered),
-        false,
-        timeoutDelivered > 0
-            ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
-            : 'Timed out waiting for swipes',
-    )
+    if (state.unifiedProgress.active) {
+        state.unifiedProgress.completedSwipes = Math.max(
+            0,
+            state.unifiedProgress.completedSwipes - lastDelivered + timeoutDelivered,
+        )
+        updateUnifiedProgress(
+            messageId,
+            false,
+            timeoutDelivered > 0
+                ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
+                : 'Timed out waiting for swipes',
+        )
+    } else {
+        updateProgressUi(
+            messageId,
+            timeoutDelivered,
+            Math.max(1, timeoutDelivered),
+            false,
+            timeoutDelivered > 0
+                ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
+                : 'Timed out waiting for swipes',
+        )
+    }
 }
 
 function queueAutoFill(messageId, button) {
@@ -1999,7 +2392,14 @@ function queueAutoFill(messageId, button) {
         )
         .finally(() => {
             state.runningMessages.delete(messageId)
-            clearProgress(messageId)
+            if (finalizeUnifiedProgress()) {
+                clearProgress(messageId)
+                return
+            }
+
+            if (!state.unifiedProgress.active) {
+                clearProgress(messageId)
+            }
         })
 
     state.runningMessages.set(messageId, job)
@@ -2011,16 +2411,19 @@ async function handleMessageRendered(messageId, origin) {
         return
     }
 
+    const message = getCtx().chat?.[messageId]
+    const hasMedia = getMediaCount(message) > 0
+    ensureReswipeButton(messageId, hasMedia)
+
+    if (!shouldAutoFill(message)) {
+        return
+    }
+
     if (origin !== 'extension') {
         return
     }
 
     if (state.seenMessages.has(messageId)) {
-        return
-    }
-
-    const message = getCtx().chat?.[messageId]
-    if (!shouldAutoFill(message)) {
         return
     }
 
@@ -2044,10 +2447,53 @@ async function init() {
 
     ensureSettings()
     await buildSettingsPanel()
+    injectReswipeButtonTemplate()
+    refreshReswipeButtons()
+
+    const chat = document.getElementById('chat')
+    chat?.addEventListener('click', async (event) => {
+        const target = event.target.closest('.auto-multi-reswipe')
+        if (!target) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+
+        const messageElement = target.closest('.mes')
+        const messageId = Number(messageElement?.getAttribute('mesid'))
+        if (!Number.isFinite(messageId)) {
+            return
+        }
+
+        const settings = getSettings()
+        if (!settings.enabled) {
+            return
+        }
+
+        const message = getCtx().chat?.[messageId]
+        if (!shouldAutoFill(message)) {
+            return
+        }
+
+        const paintbrush = await waitForPaintbrush(messageId)
+        if (!paintbrush) {
+            console.warn(
+                '[AutoMultiImage] No SD control found for message',
+                messageId,
+            )
+            return
+        }
+
+        queueAutoFill(messageId, paintbrush)
+    })
 
     const { eventSource, eventTypes } = getCtx()
     eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, handleMessageRendered)
     eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
+    if (eventTypes.MORE_MESSAGES_LOADED) {
+        eventSource.on(eventTypes.MORE_MESSAGES_LOADED, refreshReswipeButtons)
+    }
     eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
     if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
         eventSource.on(
