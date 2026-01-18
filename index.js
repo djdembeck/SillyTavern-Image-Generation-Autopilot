@@ -14,6 +14,7 @@ const defaultSettings = Object.freeze({
     burstMode: false,
     burstThrottleMs: 250,
     modelQueue: [],
+    modelQueueEnabled: true,
     swipeModel: '',
     autoGeneration: {
         enabled: false,
@@ -222,6 +223,11 @@ function ensureSettings() {
         settings.modelQueue = []
     }
 
+    settings.modelQueueEnabled = normalizeModelQueueEnabled(
+        settings.modelQueueEnabled,
+        defaultSettings.modelQueueEnabled,
+    )
+
     if (settings.burstMode) {
         settings.burstMode = false
     }
@@ -252,6 +258,34 @@ function saveSettings() {
     syncUiFromSettings()
 }
 
+function setQueueControlsEnabled(panel, enabled) {
+    if (!panel) {
+        return
+    }
+    const controls = panel.querySelectorAll('input, select, textarea, button')
+    controls.forEach((control) => {
+        if (
+            control instanceof HTMLInputElement ||
+            control instanceof HTMLSelectElement ||
+            control instanceof HTMLTextAreaElement ||
+            control instanceof HTMLButtonElement
+        ) {
+            if (control.id === 'auto_multi_model_queue_enabled') {
+                return
+            }
+            control.disabled = !enabled || control.hasAttribute('disabled')
+        }
+    })
+}
+
+function applyQueueEnabledState(queueEnabled) {
+    if (!state.ui?.queuePanel) {
+        return
+    }
+    state.ui.queuePanel.classList.toggle('is-queue-disabled', !queueEnabled)
+    setQueueControlsEnabled(state.ui.queuePanel, queueEnabled)
+}
+
 function clampCount(value) {
     const numeric = Number(value)
     if (Number.isNaN(numeric)) {
@@ -266,6 +300,28 @@ function clampDelay(value) {
         return defaultSettings.delayMs
     }
     return Math.max(0, Math.min(10000, Math.round(numeric)))
+}
+
+function normalizeModelQueueEnabled(
+    value,
+    fallback = defaultSettings.modelQueueEnabled,
+) {
+    if (typeof value === 'boolean') {
+        return value
+    }
+    if (typeof value === 'number') {
+        return value !== 0
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim().toLowerCase()
+        if (trimmed === 'true' || trimmed === '1') {
+            return true
+        }
+        if (trimmed === 'false' || trimmed === '0') {
+            return false
+        }
+    }
+    return fallback
 }
 
 function clampBurstThrottle(value) {
@@ -658,7 +714,13 @@ function sanitizeModelQueue(
 
 function getSwipePlan(settings) {
     const fallbackCount = clampCount(settings?.targetCount)
-    const queue = sanitizeModelQueue(settings?.modelQueue, fallbackCount)
+    const queueEnabled = normalizeModelQueueEnabled(
+        settings?.modelQueueEnabled,
+        defaultSettings.modelQueueEnabled,
+    )
+    const queue = queueEnabled
+        ? sanitizeModelQueue(settings?.modelQueue, fallbackCount)
+        : []
 
     if (queue.length > 0) {
         return queue
@@ -714,6 +776,9 @@ async function buildSettingsPanel() {
 
     const enabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_image_enabled')
+    )
+    const modelQueueEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_model_queue_enabled')
     )
     const countInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_image_target')
@@ -850,6 +915,13 @@ async function buildSettingsPanel() {
         const current = getSettings()
         current.enabled = enabledInput.checked
         saveSettings()
+    })
+
+    modelQueueEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.modelQueueEnabled = modelQueueEnabledInput.checked
+        saveSettings()
+        applyQueueEnabledState(modelQueueEnabledInput.checked)
     })
 
     countInput.addEventListener('change', () => {
@@ -1041,6 +1113,7 @@ async function buildSettingsPanel() {
     state.ui = {
         container,
         enabledInput,
+        modelQueueEnabledInput,
         countInput,
         delayInput,
         burstThrottleInput,
@@ -1230,7 +1303,7 @@ function getActiveSdModelLabel() {
 
 function getModelLabel(value) {
     if (!value) {
-        return 'the active SD model'
+        return getActiveSdModelLabel()
     }
 
     if (state.modelLabels.has(value)) {
@@ -1291,11 +1364,25 @@ function syncModelSelectOptions(showFeedback = false) {
 }
 
 function handleDocumentChange(event) {
-    if (!(event?.target instanceof HTMLSelectElement)) {
+    const target = event?.target
+    if (target instanceof HTMLInputElement) {
+        if (target.id === 'auto_multi_model_queue_enabled') {
+            const current = getSettings()
+            current.modelQueueEnabled = normalizeModelQueueEnabled(
+                target.checked,
+                defaultSettings.modelQueueEnabled,
+            )
+            saveSettings()
+            applyQueueEnabledState(current.modelQueueEnabled)
+        }
         return
     }
 
-    if (event.target.id === 'sd_model') {
+    if (!(target instanceof HTMLSelectElement)) {
+        return
+    }
+
+    if (target.id === 'sd_model') {
         syncModelSelectOptions()
     }
 }
@@ -1454,6 +1541,13 @@ function syncUiFromSettings() {
     setPanelEnabled(state.ui.queuePanel, settings.enabled)
     setPanelEnabled(state.ui.cadencePanel, settings.enabled)
     setPanelEnabled(state.ui.autoGenPanel, settings.autoGeneration.enabled)
+    const queueEnabled = normalizeModelQueueEnabled(
+        settings.modelQueueEnabled,
+        defaultSettings.modelQueueEnabled,
+    )
+    if (state.ui.modelQueueEnabledInput) {
+        state.ui.modelQueueEnabledInput.checked = queueEnabled
+    }
     const configuredQueue = sanitizeModelQueue(
         settings.modelQueue,
         clampCount(settings.targetCount),
@@ -1461,6 +1555,9 @@ function syncUiFromSettings() {
     settings.modelQueue = configuredQueue
     renderModelQueueRows(configuredQueue)
     syncModelSelectOptions()
+    if (settings.enabled) {
+        applyQueueEnabledState(queueEnabled)
+    }
 
     if (!settings.enabled) {
         state.ui.summary.textContent = 'Automation is disabled.'
@@ -1487,9 +1584,15 @@ function syncUiFromSettings() {
         segments.push(`auto image gen (${insertLabel}, ${injectionLabel})`)
     }
 
-    const strategyBlurb = settings.burstMode
+    const baseStrategyBlurb = settings.burstMode
         ? 'Burst mode is deprecated and has been disabled.'
         : 'Swipes run sequentially with pacing between requests.'
+    const queueBlurb = !queueEnabled
+        ? 'Model queue disabled; using default swipes per model.'
+        : ''
+    const strategyBlurb = [baseStrategyBlurb, queueBlurb]
+        .filter(Boolean)
+        .join(' ')
     state.ui.summary.textContent = `Will queue ${segments.join(', ')} with ${settings.delayMs} ms between swipes. ${strategyBlurb}`
 }
 
