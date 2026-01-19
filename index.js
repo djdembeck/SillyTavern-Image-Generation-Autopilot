@@ -1,4 +1,4 @@
-const MODULE_NAME = 'autoMultiImageSwipes'
+const MODULE_NAME = 'Image-Generation-Autopilot'
 const INSERT_TYPE = Object.freeze({
     DISABLED: 'disabled',
     INLINE: 'inline',
@@ -18,19 +18,11 @@ const defaultSettings = Object.freeze({
     swipeModel: '',
     perCharacter: {
         enabled: false,
-        fields: {
-            mainPrompt: true,
-            promptPositive: true,
-            promptNegative: true,
-            examplePrompt: true,
-            modelQueue: true,
-            imageCount: true,
-        },
         globalDefaults: {},
     },
     autoGeneration: {
         enabled: false,
-        insertType: INSERT_TYPE.DISABLED,
+        insertType: INSERT_TYPE.NEW_MESSAGE,
         promptRewrite: {
             enabled: false,
         },
@@ -127,7 +119,15 @@ const BURST_MODEL_SETTLE_MS = 120
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const log = (...args) => {
     if (!getSettings().debugMode) return
-    console.log('[AutoMultiImage]', ...args)
+    console.log('[Image-Generation-Autopilot]', ...args)
+}
+
+function logPerCharacter(action, payload) {
+    const settings = getSettings()
+    if (!settings?.debugMode && !settings?.perCharacter?.enabled) {
+        return
+    }
+    console.log('[Image-Generation-Autopilot][PerCharacter]', action, payload)
 }
 
 function patchToastrForDebug() {
@@ -150,7 +150,7 @@ function patchToastrForDebug() {
                     message.includes('Invalid swipe ID')
                 ) {
                     console.groupCollapsed(
-                        '[AutoMultiImage] Invalid swipe ID toast',
+                        '[Image-Generation-Autopilot] Invalid swipe ID toast',
                     )
                     console.log('message:', message)
                     console.log('title:', title)
@@ -158,7 +158,10 @@ function patchToastrForDebug() {
                     console.groupEnd()
                 }
             } catch (error) {
-                console.warn('[AutoMultiImage] Toast debug failed', error)
+                console.warn(
+                    '[Image-Generation-Autopilot] Toast debug failed',
+                    error,
+                )
             }
 
             return fn?.call?.(window.toastr, message, title, options)
@@ -243,26 +246,12 @@ function ensureSettings() {
     if (!settings.perCharacter) {
         settings.perCharacter = {
             ...defaultSettings.perCharacter,
-            fields: { ...defaultSettings.perCharacter.fields },
             globalDefaults: {},
         }
     }
 
     if (typeof settings.perCharacter.enabled !== 'boolean') {
         settings.perCharacter.enabled = defaultSettings.perCharacter.enabled
-    }
-
-    if (!settings.perCharacter.fields) {
-        settings.perCharacter.fields = {
-            ...defaultSettings.perCharacter.fields,
-        }
-    }
-
-    for (const key of Object.keys(defaultSettings.perCharacter.fields)) {
-        if (typeof settings.perCharacter.fields[key] !== 'boolean') {
-            settings.perCharacter.fields[key] =
-                defaultSettings.perCharacter.fields[key]
-        }
     }
 
     if (!settings.perCharacter.globalDefaults) {
@@ -399,7 +388,8 @@ const PER_CHARACTER_FIELDS = Object.freeze({
         label: 'Image count rule + values',
         get: (settings) => ({
             picCountMode: settings.autoGeneration.promptInjection.picCountMode,
-            picCountExact: settings.autoGeneration.promptInjection.picCountExact,
+            picCountExact:
+                settings.autoGeneration.promptInjection.picCountExact,
             picCountMin: settings.autoGeneration.promptInjection.picCountMin,
             picCountMax: settings.autoGeneration.promptInjection.picCountMax,
         }),
@@ -413,53 +403,199 @@ const PER_CHARACTER_FIELDS = Object.freeze({
             }
             settings.autoGeneration.promptInjection.picCountExact =
                 clampPicCount(value.picCountExact, 1)
-            settings.autoGeneration.promptInjection.picCountMin =
-                clampPicCount(value.picCountMin, 1)
-            settings.autoGeneration.promptInjection.picCountMax =
-                clampPicCount(
-                    value.picCountMax,
-                    Math.max(settings.autoGeneration.promptInjection.picCountMin, 1),
-                )
+            settings.autoGeneration.promptInjection.picCountMin = clampPicCount(
+                value.picCountMin,
+                1,
+            )
+            settings.autoGeneration.promptInjection.picCountMax = clampPicCount(
+                value.picCountMax,
+                Math.max(
+                    settings.autoGeneration.promptInjection.picCountMin,
+                    1,
+                ),
+            )
         },
     },
 })
 
-function normalizePerCharacterFields(fields) {
-    const normalized = {}
-    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
-        normalized[key] = !!fields?.[key]
+function buildShareableSettingsSnapshot(settings) {
+    if (!settings || typeof settings !== 'object') {
+        return {}
     }
-    return normalized
+    let snapshot
+    try {
+        snapshot = JSON.parse(JSON.stringify(settings))
+    } catch (error) {
+        snapshot = { ...settings }
+    }
+
+    if (snapshot?.perCharacter) {
+        delete snapshot.perCharacter.globalDefaults
+        delete snapshot.perCharacter.fields
+    }
+
+    return snapshot
 }
 
-function getActiveCharacter() {
-    const ctx = getCtx()
-    if (typeof ctx?.characterId === 'number') {
-        if (Array.isArray(ctx.characters)) {
-            return ctx.characters[ctx.characterId] || null
-        }
-        if (ctx.characters && ctx.characters[ctx.characterId]) {
-            return ctx.characters[ctx.characterId]
-        }
+function applySettingsSnapshot(target, snapshot) {
+    if (!target || typeof target !== 'object') {
+        return
     }
-    if (ctx?.character && typeof ctx.character === 'object') {
-        return ctx.character
+    if (!snapshot || typeof snapshot !== 'object') {
+        return
     }
-    if (typeof ctx?.getCharacter === 'function') {
-        try {
-            return ctx.getCharacter()
-        } catch (error) {
-            return null
+    const cloned = buildShareableSettingsSnapshot(snapshot)
+    for (const key of Object.keys(target)) {
+        delete target[key]
+    }
+    Object.assign(target, cloned)
+}
+
+function resolveCharacterById(ctx, id) {
+    if (!ctx?.characters || typeof id === 'undefined' || id === null) {
+        return null
+    }
+
+    if (Array.isArray(ctx.characters)) {
+        if (Number.isInteger(Number(id))) {
+            const byIndex = ctx.characters[Number(id)]
+            if (byIndex) {
+                return byIndex
+            }
         }
+
+        return (
+            ctx.characters.find(
+                (char) =>
+                    char?.id === id ||
+                    char?.data?.id === id ||
+                    char?.avatar === id ||
+                    char?.data?.avatar === id,
+            ) || null
+        )
     }
+
+    if (ctx.characters && ctx.characters[id]) {
+        return ctx.characters[id]
+    }
+
     return null
+}
+
+function resolveCharacterByName(ctx, name) {
+    if (!ctx?.characters || !name) {
+        return null
+    }
+    const needle = String(name).trim().toLowerCase()
+    if (!needle) {
+        return null
+    }
+
+    if (Array.isArray(ctx.characters)) {
+        return (
+            ctx.characters.find((char) => {
+                const label =
+                    char?.data?.name || char?.name || char?.data?.displayName
+                return label && String(label).trim().toLowerCase() === needle
+            }) || null
+        )
+    }
+
+    return null
+}
+
+function normalizeCharacterId(value) {
+    if (typeof value === 'undefined' || value === null) {
+        return null
+    }
+    if (typeof value === 'number' && Number.isInteger(value)) {
+        return value
+    }
+    const asNumber = Number(value)
+    if (Number.isInteger(asNumber)) {
+        return asNumber
+    }
+    return value
+}
+
+function getCharacterRecord() {
+    const ctx = getCtx()
+    let character = null
+    let source = 'unknown'
+    let characterId = null
+
+    const idCandidates = [
+        ctx?.characterId,
+        ctx?.chat_metadata?.character_id,
+        ctx?.chatMetadata?.character_id,
+        ctx?.chat_metadata?.characterId,
+        ctx?.chatMetadata?.characterId,
+        ctx?.selectedCharacterId,
+    ].filter((value) => typeof value !== 'undefined' && value !== null)
+    for (const candidate of idCandidates) {
+        const normalizedCandidate = normalizeCharacterId(candidate)
+        characterId = normalizedCandidate
+        character = resolveCharacterById(ctx, normalizedCandidate)
+        if (character) {
+            source = 'id'
+            break
+        }
+    }
+
+    if (!character && ctx?.character && typeof ctx.character === 'object') {
+        character = ctx.character
+        source = 'character'
+    }
+
+    if (!character && typeof ctx?.getCurrentCharacter === 'function') {
+        try {
+            character = ctx.getCurrentCharacter()
+            source = 'getCurrentCharacter'
+        } catch (error) {
+            character = null
+        }
+    }
+
+    if (!character && typeof ctx?.getCharacter === 'function') {
+        try {
+            character = ctx.getCharacter()
+            source = 'getCharacter'
+        } catch (error) {
+            return { character: null, source: 'error', characterId }
+        }
+    }
+
+    if (!character) {
+        const nameCandidate = ctx?.name2 || ctx?.character_name
+        const resolvedByName = resolveCharacterByName(ctx, nameCandidate)
+        if (resolvedByName) {
+            character = resolvedByName
+            source = 'name'
+        }
+    }
+
+    return { character, source, characterId }
+}
+
+function getCharacterIdentity(character) {
+    if (!character || typeof character !== 'object') {
+        return 'unknown'
+    }
+    const dataHost = character.data || character
+    const name = dataHost?.name || character?.name || 'unnamed'
+    const id =
+        dataHost?.id || character?.id || dataHost?.avatar || character?.avatar
+    return id ? `${name} (${id})` : name
 }
 
 function getCharacterExtensionStore(character) {
     if (!character || typeof character !== 'object') {
         return null
     }
-    const dataHost = character.data || character
+    if (!character.data) {
+        character.data = {}
+    }
+    const dataHost = character.data
     if (!dataHost.extensions) {
         dataHost.extensions = {}
     }
@@ -469,83 +605,202 @@ function getCharacterExtensionStore(character) {
     return dataHost.extensions[MODULE_NAME]
 }
 
-function ensurePerCharacterDefaults(settings) {
+function ensurePerCharacterDefaults(settings, forceSnapshot = false) {
     const perCharacter = settings.perCharacter
     const defaults = perCharacter.globalDefaults || {}
-    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
-        if (typeof defaults[key] === 'undefined') {
-            defaults[key] = PER_CHARACTER_FIELDS[key].get(settings)
+    const hasDefaults = Object.keys(defaults).length > 0
+
+    if (!forceSnapshot) {
+        if (!hasDefaults) {
+            perCharacter.globalDefaults = defaults
         }
+        return defaults
     }
-    perCharacter.globalDefaults = defaults
-    return defaults
+
+    const snapshot = buildShareableSettingsSnapshot(settings)
+    perCharacter.globalDefaults = snapshot
+    return snapshot
 }
 
 function applyPerCharacterOverrides() {
+    console.info('[Image-Generation-Autopilot][PerCharacter] apply invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
+        console.info(
+            '[Image-Generation-Autopilot][PerCharacter] apply skipped',
+            {
+                reason: 'disabled',
+            },
+        )
         return
     }
-    const character = getActiveCharacter()
-    if (!character) {
-        return
-    }
-    const store = getCharacterExtensionStore(character)
-    const saved = store?.perCharacter
-    const fields = normalizePerCharacterFields(
-        saved?.fields || perCharacter.fields,
-    )
-    const defaults = ensurePerCharacterDefaults(settings)
-    const values = saved?.values || {}
-
-    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
-        const definition = PER_CHARACTER_FIELDS[key]
-        if (fields[key] && typeof values[key] !== 'undefined') {
-            definition.set(settings, values[key])
-        } else if (typeof defaults[key] !== 'undefined') {
-            definition.set(settings, defaults[key])
+    const ctx = getCtx()
+    const record = getCharacterRecord()
+    const character = record.character
+    const canonical = resolveCharacterById(ctx, record.characterId)
+    if (!character && !canonical) {
+        const defaults = ensurePerCharacterDefaults(settings)
+        if (Object.keys(defaults).length) {
+            applySettingsSnapshot(settings, defaults)
         }
+        console.info(
+            '[Image-Generation-Autopilot][PerCharacter] apply skipped',
+            {
+                reason: 'no-character',
+                characterId: record.characterId,
+                source: record.source,
+                name2: getCtx()?.name2,
+                groupId: getCtx()?.groupId,
+                chatCharacterId: getCtx()?.chat_metadata?.character_id,
+            },
+        )
+        syncUiFromSettings()
+        return
     }
+    const store = getCharacterExtensionStore(canonical || character)
+    const savedSettings = store?.settings
+    let defaults = ensurePerCharacterDefaults(settings)
+
+    if (!Object.keys(defaults).length) {
+        defaults = ensurePerCharacterDefaults(settings, true)
+    }
+
+    if (!perCharacter.enabled) {
+        if (Object.keys(defaults).length) {
+            applySettingsSnapshot(settings, defaults)
+        }
+        logPerCharacter('apply', {
+            character: getCharacterIdentity(canonical || character),
+            source: record.source,
+            characterId: record.characterId,
+            enabled: perCharacter.enabled,
+            hasSaved: !!savedSettings,
+        })
+        syncUiFromSettings()
+        return
+    }
+
+    if (Object.keys(defaults).length) {
+        applySettingsSnapshot(settings, defaults)
+    }
+
+    if (savedSettings) {
+        applySettingsSnapshot(settings, savedSettings)
+    }
+
+    if (settings.perCharacter) {
+        settings.perCharacter.enabled = true
+        settings.perCharacter.globalDefaults = defaults
+    }
+
+    logPerCharacter('apply', {
+        character: getCharacterIdentity(canonical || character),
+        source: record.source,
+        characterId: record.characterId,
+        enabled: perCharacter.enabled,
+        hasSaved: !!savedSettings,
+    })
 
     syncUiFromSettings()
 }
 
 function syncPerCharacterStorage() {
+    console.info('[Image-Generation-Autopilot][PerCharacter] save invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
+        console.info(
+            '[Image-Generation-Autopilot][PerCharacter] save skipped',
+            {
+                reason: 'disabled',
+            },
+        )
         return
     }
-    const character = getActiveCharacter()
-    if (!character) {
-        return
-    }
-    const store = getCharacterExtensionStore(character)
-    const fields = normalizePerCharacterFields(perCharacter.fields)
-    const defaults = ensurePerCharacterDefaults(settings)
-    const values = {}
-
-    for (const key of Object.keys(PER_CHARACTER_FIELDS)) {
-        const definition = PER_CHARACTER_FIELDS[key]
-        if (fields[key]) {
-            values[key] = definition.get(settings)
-        } else {
-            defaults[key] = definition.get(settings)
-        }
-    }
-
-    store.perCharacter = {
-        fields,
-        values,
-    }
-
     const ctx = getCtx()
-    if (typeof ctx.saveCharacterDebounced === 'function') {
-        ctx.saveCharacterDebounced()
-    } else if (typeof ctx.saveCharacter === 'function') {
-        ctx.saveCharacter()
+    const record = getCharacterRecord()
+    const character = record.character
+    const canonical = resolveCharacterById(ctx, record.characterId)
+    if (!character && !canonical) {
+        console.info(
+            '[Image-Generation-Autopilot][PerCharacter] save skipped',
+            {
+                reason: 'no-character',
+                characterId: record.characterId,
+                source: record.source,
+                name2: getCtx()?.name2,
+                groupId: getCtx()?.groupId,
+                chatCharacterId: getCtx()?.chat_metadata?.character_id,
+            },
+        )
+        return
     }
+    const store = getCharacterExtensionStore(canonical || character)
+    const snapshot = buildShareableSettingsSnapshot(settings)
+    store.settings = snapshot
+
+    if (canonical && canonical !== character) {
+        const canonicalStore = getCharacterExtensionStore(canonical)
+        canonicalStore.settings = snapshot
+    }
+    if (character && character !== canonical) {
+        const localStore = getCharacterExtensionStore(character)
+        localStore.settings = snapshot
+    }
+    if (
+        ctx.character &&
+        ctx.character !== character &&
+        ctx.character !== canonical
+    ) {
+        const currentStore = getCharacterExtensionStore(ctx.character)
+        currentStore.settings = snapshot
+    }
+
+    logPerCharacter('save', {
+        character: getCharacterIdentity(canonical || character),
+        source: record.source,
+        characterId: record.characterId,
+        savedKeys: Object.keys(snapshot || {}),
+    })
+
+    if (typeof ctx.writeExtensionField === 'function') {
+        const writeId = normalizeCharacterId(record.characterId)
+        if (Number.isInteger(writeId)) {
+            const payload = {
+                settings: snapshot,
+            }
+            Promise.resolve(
+                ctx.writeExtensionField(writeId, MODULE_NAME, payload),
+            )
+                .then(() => {
+                    logPerCharacter('writeExtensionField', {
+                        character: getCharacterIdentity(canonical || character),
+                        characterId: writeId,
+                        savedKeys: Object.keys(snapshot || {}),
+                    })
+                })
+                .catch((error) => {
+                    console.warn(
+                        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField failed',
+                        error,
+                    )
+                })
+            return
+        }
+
+        console.warn(
+            '[Image-Generation-Autopilot][PerCharacter] writeExtensionField skipped (no characterId)',
+            {
+                characterId: record.characterId,
+                source: record.source,
+            },
+        )
+    }
+
+    console.warn(
+        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField unavailable',
+    )
 }
 
 function clampCount(value) {
@@ -625,7 +880,10 @@ function parseRegexFromString(raw) {
                 flags.includes('g') ? flags : `${flags}g`,
             )
         } catch (error) {
-            console.warn('[AutoMultiImage] Invalid regex string', error)
+            console.warn(
+                '[Image-Generation-Autopilot] Invalid regex string',
+                error,
+            )
             return null
         }
     }
@@ -633,7 +891,7 @@ function parseRegexFromString(raw) {
     try {
         return new RegExp(source, 'g')
     } catch (error) {
-        console.warn('[AutoMultiImage] Invalid regex string', error)
+        console.warn('[Image-Generation-Autopilot] Invalid regex string', error)
         return null
     }
 }
@@ -1002,7 +1260,7 @@ async function buildSettingsPanel() {
         document.getElementById('extensions_settings')
     if (!root) {
         console.warn(
-            '[AutoMultiImage] Could not find extension settings container.',
+            '[Image-Generation-Autopilot] Could not find extension settings container.',
         )
         return
     }
@@ -1020,7 +1278,7 @@ async function buildSettingsPanel() {
         )
     } catch (error) {
         console.error(
-            '[AutoMultiImage] Failed to load settings template',
+            '[Image-Generation-Autopilot] Failed to load settings template',
             error,
         )
         return
@@ -1030,7 +1288,7 @@ async function buildSettingsPanel() {
     template.innerHTML = html.trim()
     const container = template.content.firstElementChild
     if (!container) {
-        console.warn('[AutoMultiImage] Settings template empty')
+        console.warn('[Image-Generation-Autopilot] Settings template empty')
         return
     }
 
@@ -1080,24 +1338,6 @@ async function buildSettingsPanel() {
     )
     const characterEnabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_character_enabled')
-    )
-    const characterFieldMainInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_character_field_main')
-    )
-    const characterFieldPositiveInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_character_field_positive')
-    )
-    const characterFieldNegativeInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_character_field_negative')
-    )
-    const characterFieldExampleInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_character_field_example')
-    )
-    const characterFieldModelQueueInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_character_field_model_queue')
-    )
-    const characterFieldImageCountInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_character_field_image_count')
     )
     const cadencePanel = /** @type {HTMLElement | null} */ (
         container.querySelector('#auto_multi_cadence_panel')
@@ -1168,7 +1408,9 @@ async function buildSettingsPanel() {
             burstModeInput
         )
     ) {
-        console.warn('[AutoMultiImage] Settings template missing inputs')
+        console.warn(
+            '[Image-Generation-Autopilot] Settings template missing inputs',
+        )
         return
     }
 
@@ -1194,7 +1436,9 @@ async function buildSettingsPanel() {
             picCountMaxInput
         )
     ) {
-        console.warn('[AutoMultiImage] Auto-generation inputs missing')
+        console.warn(
+            '[Image-Generation-Autopilot] Auto-generation inputs missing',
+        )
     }
 
     enabledInput.addEventListener('change', () => {
@@ -1213,50 +1457,14 @@ async function buildSettingsPanel() {
     characterEnabledInput?.addEventListener('change', () => {
         const current = getSettings()
         current.perCharacter.enabled = characterEnabledInput.checked
+        if (characterEnabledInput.checked) {
+            ensurePerCharacterDefaults(current, true)
+        }
+        console.info('[Image-Generation-Autopilot][PerCharacter] toggle', {
+            enabled: characterEnabledInput.checked,
+        })
         saveSettings()
         applyPerCharacterOverrides()
-    })
-
-    characterFieldMainInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.perCharacter.fields.mainPrompt =
-            characterFieldMainInput.checked
-        saveSettings()
-    })
-
-    characterFieldPositiveInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.perCharacter.fields.promptPositive =
-            characterFieldPositiveInput.checked
-        saveSettings()
-    })
-
-    characterFieldNegativeInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.perCharacter.fields.promptNegative =
-            characterFieldNegativeInput.checked
-        saveSettings()
-    })
-
-    characterFieldExampleInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.perCharacter.fields.examplePrompt =
-            characterFieldExampleInput.checked
-        saveSettings()
-    })
-
-    characterFieldModelQueueInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.perCharacter.fields.modelQueue =
-            characterFieldModelQueueInput.checked
-        saveSettings()
-    })
-
-    characterFieldImageCountInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.perCharacter.fields.imageCount =
-            characterFieldImageCountInput.checked
-        saveSettings()
     })
 
     countInput.addEventListener('change', () => {
@@ -1481,12 +1689,6 @@ async function buildSettingsPanel() {
         cadencePanel,
         characterPanel,
         characterEnabledInput,
-        characterFieldMainInput,
-        characterFieldPositiveInput,
-        characterFieldNegativeInput,
-        characterFieldExampleInput,
-        characterFieldModelQueueInput,
-        characterFieldImageCountInput,
     }
     syncModelSelectOptions()
     syncUiFromSettings()
@@ -1718,6 +1920,21 @@ function handleDocumentChange(event) {
             saveSettings()
             applyQueueEnabledState(current.modelQueueEnabled)
         }
+        if (target.id === 'auto_multi_character_enabled') {
+            const current = getSettings()
+            current.perCharacter.enabled = target.checked
+            if (target.checked) {
+                ensurePerCharacterDefaults(current, true)
+            }
+            console.info(
+                '[Image-Generation-Autopilot][PerCharacter] toggle (doc)',
+                {
+                    enabled: target.checked,
+                },
+            )
+            saveSettings()
+            applyPerCharacterOverrides()
+        }
         return
     }
 
@@ -1830,30 +2047,6 @@ function syncUiFromSettings() {
         state.ui.characterEnabledInput.checked =
             settings.perCharacter?.enabled || false
     }
-    if (state.ui.characterFieldMainInput) {
-        state.ui.characterFieldMainInput.checked =
-            settings.perCharacter?.fields?.mainPrompt ?? true
-    }
-    if (state.ui.characterFieldPositiveInput) {
-        state.ui.characterFieldPositiveInput.checked =
-            settings.perCharacter?.fields?.promptPositive ?? true
-    }
-    if (state.ui.characterFieldNegativeInput) {
-        state.ui.characterFieldNegativeInput.checked =
-            settings.perCharacter?.fields?.promptNegative ?? true
-    }
-    if (state.ui.characterFieldExampleInput) {
-        state.ui.characterFieldExampleInput.checked =
-            settings.perCharacter?.fields?.examplePrompt ?? true
-    }
-    if (state.ui.characterFieldModelQueueInput) {
-        state.ui.characterFieldModelQueueInput.checked =
-            settings.perCharacter?.fields?.modelQueue ?? true
-    }
-    if (state.ui.characterFieldImageCountInput) {
-        state.ui.characterFieldImageCountInput.checked =
-            settings.perCharacter?.fields?.imageCount ?? true
-    }
     if (state.ui.picCountModeSelect) {
         state.ui.picCountModeSelect.value =
             settings.autoGeneration.promptInjection.picCountMode
@@ -1958,14 +2151,20 @@ function syncUiFromSettings() {
 
     const baseStrategyBlurb = settings.burstMode
         ? 'Burst mode is deprecated and has been disabled.'
-        : 'Swipes run sequentially with pacing between requests.'
+        : settings.delayMs <= 0
+          ? 'Swipes run sequentially without pacing between requests.'
+          : 'Swipes run sequentially with pacing between requests.'
     const queueBlurb = !queueEnabled
         ? 'Model queue disabled; using default swipes per model.'
         : ''
     const strategyBlurb = [baseStrategyBlurb, queueBlurb]
         .filter(Boolean)
         .join(' ')
-    state.ui.summary.textContent = `Will queue ${segments.join(', ')} with ${settings.delayMs} ms between swipes. ${strategyBlurb}`
+    const delayBlurb =
+        settings.delayMs <= 0
+            ? 'with no delay between swipes.'
+            : `with ${settings.delayMs} ms between swipes.`
+    state.ui.summary.textContent = `Will queue ${segments.join(', ')} ${delayBlurb} ${strategyBlurb}`
 }
 
 function ensureGlobalProgressElement(messageId) {
@@ -2193,7 +2392,7 @@ async function resolveSlashCommandParser() {
         }
     } catch (error) {
         console.warn(
-            '[AutoMultiImage] Failed to import SlashCommandParser',
+            '[Image-Generation-Autopilot] Failed to import SlashCommandParser',
             error,
         )
     }
@@ -2205,7 +2404,9 @@ async function callSdSlash(prompt, quiet) {
     const parser = await resolveSlashCommandParser()
     const command = parser?.commands?.sd
     if (!command?.callback) {
-        console.warn('[AutoMultiImage] SlashCommandParser sd not available')
+        console.warn(
+            '[Image-Generation-Autopilot] SlashCommandParser sd not available',
+        )
         return null
     }
 
@@ -2215,7 +2416,10 @@ async function callSdSlash(prompt, quiet) {
             prompt,
         )
     } catch (error) {
-        console.error('[AutoMultiImage] Slash command sd failed', error)
+        console.error(
+            '[Image-Generation-Autopilot] Slash command sd failed',
+            error,
+        )
         return null
     }
 }
@@ -2338,7 +2542,7 @@ async function callChatRewrite(originalPrompt, injection) {
             }
         } catch (error) {
             console.warn(
-                '[AutoMultiImage] Prompt rewrite attempt failed',
+                '[Image-Generation-Autopilot] Prompt rewrite attempt failed',
                 error,
             )
         } finally {
@@ -3190,7 +3394,10 @@ async function deleteMessageById(messageId, options = {}) {
             }
         }
     } catch (error) {
-        console.warn('[AutoMultiImage] Failed to delete message', error)
+        console.warn(
+            '[Image-Generation-Autopilot] Failed to delete message',
+            error,
+        )
     }
 
     return handled
@@ -3256,7 +3463,9 @@ function injectReswipeButtonTemplate() {
     const fallback = document.querySelector('#message_template .mes_buttons')
     const target = template || fallback
     if (!target) {
-        console.warn('[AutoMultiImage] Message toolbar template not found')
+        console.warn(
+            '[Image-Generation-Autopilot] Message toolbar template not found',
+        )
         return
     }
 
@@ -3573,7 +3782,7 @@ async function runSequentialSwipePlan(
                     button = await waitForPaintbrush(messageId)
                     if (!button) {
                         console.warn(
-                            '[AutoMultiImage] Unable to locate paintbrush button for message',
+                            '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
                             messageId,
                         )
                         break outer
@@ -3612,7 +3821,7 @@ async function runSequentialSwipePlan(
                 const success = await requestSwipe(button, messageId)
                 if (!success) {
                     console.warn(
-                        '[AutoMultiImage] Swipe request timed out or failed for message',
+                        '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
                         messageId,
                     )
                     failed += 1
@@ -3734,7 +3943,7 @@ async function runBurstSwipePlan(
                     button = await waitForPaintbrush(messageId)
                     if (!button) {
                         console.warn(
-                            '[AutoMultiImage] Unable to locate paintbrush button for message',
+                            '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
                             messageId,
                         )
                         return
@@ -3752,7 +3961,7 @@ async function runBurstSwipePlan(
 
                 if (!dispatchSwipe(button)) {
                     console.warn(
-                        '[AutoMultiImage] Failed to dispatch swipe click for message',
+                        '[Image-Generation-Autopilot] Failed to dispatch swipe click for message',
                         messageId,
                     )
                     failedDispatches += 1
@@ -3900,7 +4109,7 @@ async function monitorBurstCompletion(
     }
 
     console.warn(
-        '[AutoMultiImage] Burst swipe completion timed out for message',
+        '[Image-Generation-Autopilot] Burst swipe completion timed out for message',
         messageId,
     )
 
@@ -3940,7 +4149,10 @@ function queueAutoFill(messageId, button) {
     const token = state.chatToken
     const job = autoFillMessage(messageId, button, token)
         .catch((error) =>
-            console.error('[AutoMultiImage] Failed to auto-fill images', error),
+            console.error(
+                '[Image-Generation-Autopilot] Failed to auto-fill images',
+                error,
+            ),
         )
         .finally(() => {
             state.runningMessages.delete(messageId)
@@ -3984,7 +4196,7 @@ async function handleMessageRendered(messageId, origin) {
     const button = await waitForPaintbrush(messageId)
     if (!button) {
         console.warn(
-            '[AutoMultiImage] No SD control found for message',
+            '[Image-Generation-Autopilot] No SD control found for message',
             messageId,
         )
         return
@@ -3999,6 +4211,9 @@ async function init() {
     }
 
     ensureSettings()
+    console.info('[Image-Generation-Autopilot] init', {
+        perCharacterEnabled: getSettings()?.perCharacter?.enabled,
+    })
     patchToastrForDebug()
     await buildSettingsPanel()
     applyPerCharacterOverrides()
@@ -4042,7 +4257,7 @@ async function init() {
         const paintbrush = await waitForPaintbrush(messageId)
         if (!paintbrush) {
             console.warn(
-                '[AutoMultiImage] No SD control found for message',
+                '[Image-Generation-Autopilot] No SD control found for message',
                 messageId,
             )
             return
@@ -4055,6 +4270,17 @@ async function init() {
     eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, handleMessageRendered)
     eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
     eventSource.on(eventTypes.CHAT_CHANGED, applyPerCharacterOverrides)
+    const characterEvents = [
+        'CHARACTER_SELECTED',
+        'CHARACTER_CHANGED',
+        'CHARACTER_LOADED',
+    ]
+    characterEvents.forEach((eventName) => {
+        const eventType = eventTypes?.[eventName]
+        if (eventType) {
+            eventSource.on(eventType, applyPerCharacterOverrides)
+        }
+    })
     if (eventTypes.MORE_MESSAGES_LOADED) {
         eventSource.on(eventTypes.MORE_MESSAGES_LOADED, refreshReswipeButtons)
     }

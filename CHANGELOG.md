@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.1] - 2026-01-19
+
+### Added
+
+- Persist full extension settings to Character Cards V2 via `writeExtensionField` so settings are shareable when exporting characters.
+
+### Changed
+
+- Save and restore full extension snapshots per-character (removed per-field checklist).
+- Use `MODULE_NAME` consistently for settings and character metadata keys; updated log prefixes accordingly.
+- Remove local cache fallback and legacy save methods; `writeExtensionField` is the single persistence path.
+- Restore global defaults when no character is active so shareable settings don't leak to the homepage.
+- Improve UI summary wording for zero delay between swipes.
+
+### Notes
+
+- This release requires SillyTavern host support for `writeExtensionField` to persist character-card data; without it the extension will log the attempt and continue to operate in-session.
+
 ## [1.2.0] - 2026-01-18
 
 ### Added
