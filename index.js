@@ -1339,6 +1339,9 @@ async function buildSettingsPanel() {
     const characterEnabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_character_enabled')
     )
+    const characterResetButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_character_reset')
+    )
     const cadencePanel = /** @type {HTMLElement | null} */ (
         container.querySelector('#auto_multi_cadence_panel')
     )
@@ -1465,6 +1468,11 @@ async function buildSettingsPanel() {
         })
         saveSettings()
         applyPerCharacterOverrides()
+    })
+
+    characterResetButton?.addEventListener('click', (event) => {
+        event.preventDefault()
+        resetPerCharacterSettingsToDefaults()
     })
 
     countInput.addEventListener('change', () => {
@@ -1689,9 +1697,105 @@ async function buildSettingsPanel() {
         cadencePanel,
         characterPanel,
         characterEnabledInput,
+        characterResetButton,
     }
     syncModelSelectOptions()
     syncUiFromSettings()
+}
+
+function resetPerCharacterSettingsToDefaults() {
+    console.info('[Image-Generation-Autopilot][PerCharacter] reset invoked')
+    const settings = getSettings()
+    const perCharacter = settings.perCharacter
+    if (!perCharacter?.enabled) {
+        console.info(
+            '[Image-Generation-Autopilot][PerCharacter] reset skipped',
+            {
+                reason: 'disabled',
+            },
+        )
+        return
+    }
+    const ctx = getCtx()
+    const record = getCharacterRecord()
+    const character = record.character
+    const canonical = resolveCharacterById(ctx, record.characterId)
+    if (!character && !canonical) {
+        console.warn(
+            '[Image-Generation-Autopilot][PerCharacter] reset skipped (no character)',
+            {
+                characterId: record.characterId,
+                source: record.source,
+            },
+        )
+        return
+    }
+
+    const seenStores = new WeakSet()
+    const stores = []
+    const collectStore = (target) => {
+        if (!target || typeof target !== 'object') {
+            return
+        }
+        const store = getCharacterExtensionStore(target)
+        if (!store || seenStores.has(store)) {
+            return
+        }
+        seenStores.add(store)
+        stores.push(store)
+    }
+
+    collectStore(canonical || character)
+    collectStore(character)
+    collectStore(ctx.character)
+
+    let cleared = 0
+    stores.forEach((store) => {
+        if (store && Object.prototype.hasOwnProperty.call(store, 'settings')) {
+            delete store.settings
+            cleared += 1
+        }
+    })
+
+    logPerCharacter('reset', {
+        character: getCharacterIdentity(canonical || character),
+        characterId: record.characterId,
+        clearedStores: cleared,
+    })
+
+    if (typeof ctx.writeExtensionField === 'function') {
+        const writeId = normalizeCharacterId(record.characterId)
+        if (Number.isInteger(writeId)) {
+            const payload = {
+                settings: null,
+            }
+            Promise.resolve(
+                ctx.writeExtensionField(writeId, MODULE_NAME, payload),
+            )
+                .then(() => {
+                    logPerCharacter('writeExtensionField reset', {
+                        character: getCharacterIdentity(canonical || character),
+                        characterId: writeId,
+                    })
+                })
+                .catch((error) => {
+                    console.warn(
+                        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField reset failed',
+                        error,
+                    )
+                })
+        } else {
+            console.warn(
+                '[Image-Generation-Autopilot][PerCharacter] writeExtensionField reset skipped (no characterId)',
+                {
+                    characterId: record.characterId,
+                    source: record.source,
+                },
+            )
+        }
+    }
+
+    applyPerCharacterOverrides()
 }
 
 function handleAddModelRow() {
@@ -2046,6 +2150,11 @@ function syncUiFromSettings() {
     if (state.ui.characterEnabledInput) {
         state.ui.characterEnabledInput.checked =
             settings.perCharacter?.enabled || false
+    }
+    const canResetCharacter =
+        settings.enabled && settings.perCharacter?.enabled
+    if (state.ui.characterResetButton) {
+        state.ui.characterResetButton.disabled = !canResetCharacter
     }
     if (state.ui.picCountModeSelect) {
         state.ui.picCountModeSelect.value =
