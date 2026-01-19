@@ -1796,6 +1796,17 @@ function resetPerCharacterSettingsToDefaults() {
     }
 
     applyPerCharacterOverrides()
+    
+    const characterName = getCharacterIdentity(canonical || character)
+    console.info(
+        `[Image-Generation-Autopilot][PerCharacter] Reset complete for ${characterName}`,
+    )
+    if (typeof window.toastr === 'object' && typeof window.toastr.success === 'function') {
+        window.toastr.success(
+            `Character settings reset to global defaults for ${characterName}`,
+            'Settings Reset',
+        )
+    }
 }
 
 function handleAddModelRow() {
@@ -2151,8 +2162,7 @@ function syncUiFromSettings() {
         state.ui.characterEnabledInput.checked =
             settings.perCharacter?.enabled || false
     }
-    const canResetCharacter =
-        settings.enabled && settings.perCharacter?.enabled
+    const canResetCharacter = settings.enabled && settings.perCharacter?.enabled
     if (state.ui.characterResetButton) {
         state.ui.characterResetButton.disabled = !canResetCharacter
     }

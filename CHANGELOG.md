@@ -20,6 +20,17 @@ All notable changes to this project are documented in this file.
 
 - This release requires SillyTavern host support for `writeExtensionField` to persist character-card data; without it the extension will log the attempt and continue to operate in-session.
 
+## [1.2.2] - 2026-01-19
+
+### Added
+
+- Per-character reset control: a button in the settings panel to clear saved character snapshots and restore global defaults. When supported by the host, the character card is updated via `writeExtensionField`.
+
+### Fixed
+
+- Improve feedback and logging around per-character reset operations; show a toast on successful reset when `toastr` is available.
+
+
 ## [1.2.0] - 2026-01-18
 
 ### Added
