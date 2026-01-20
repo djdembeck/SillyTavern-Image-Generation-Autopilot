@@ -803,6 +803,78 @@ function syncPerCharacterStorage() {
     )
 }
 
+// ==================== PRESET CHARACTER INTEGRATION ====================
+
+function applyPresetToCharacter(presetId) {
+    const preset = getPreset(presetId)
+    if (!preset) {
+        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        return false
+    }
+
+    const settings = getSettings()
+    const mergedSettings = { ...settings, ...preset.settings }
+
+    // Update settings
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        ctx.extensionSettings[MODULE_NAME] = mergedSettings
+    }
+
+    // Save to character if per-character is enabled
+    if (settings.perCharacter?.enabled) {
+        syncPerCharacterStorage()
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function savePresetToCharacter(presetId) {
+    const preset = getPreset(presetId)
+    if (!preset) {
+        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        return false
+    }
+
+    const settings = getSettings()
+    const mergedSettings = { ...settings, ...preset.settings }
+
+    // Update settings
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        ctx.extensionSettings[MODULE_NAME] = mergedSettings
+    }
+
+    // Save to character if per-character is enabled
+    if (settings.perCharacter?.enabled) {
+        syncPerCharacterStorage()
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function loadPresetToCharacter(presetId) {
+    const success = loadPreset(presetId)
+    if (success) {
+        // Also save to character if per-character is enabled
+        const settings = getSettings()
+        if (settings.perCharacter?.enabled) {
+            syncPerCharacterStorage()
+        }
+        console.info(
+            '[Image-Generation-Autopilot] Preset loaded to character',
+            { presetId },
+        )
+    }
+    return success
+}
+
+// ==================== END PRESET CHARACTER INTEGRATION ====================
+
 function clampCount(value) {
     const numeric = Number(value)
     if (Number.isNaN(numeric)) {
@@ -1475,6 +1547,34 @@ async function buildSettingsPanel() {
         resetPerCharacterSettingsToDefaults()
     })
 
+    // Character preset functionality
+    const characterPresetSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_character_preset_select')
+    )
+    const characterPresetApplyButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_character_apply_preset')
+    )
+
+    characterPresetSelect?.addEventListener('change', () => {
+        if (characterPresetSelect.value) {
+            handleLoadPresetToCharacter(characterPresetSelect.value)
+        }
+    })
+
+    characterPresetApplyButton?.addEventListener('click', (event) => {
+        event.preventDefault()
+        if (characterPresetSelect?.value) {
+            handleLoadPresetToCharacter(characterPresetSelect.value)
+        }
+    })
+
+    // Store references
+    state.ui.characterPresetSelect = characterPresetSelect
+    state.ui.characterPresetApplyButton = characterPresetApplyButton
+
+    // Update preset dropdown when presets change
+    syncUiFromSettings()
+
     countInput.addEventListener('change', () => {
         const current = getSettings()
         current.targetCount = clampCount(countInput.value)
@@ -1698,9 +1798,182 @@ async function buildSettingsPanel() {
         characterPanel,
         characterEnabledInput,
         characterResetButton,
+        presetSaveButton: null,
+        presetNameInput: null,
+        presetListContainer: null,
     }
+
+    // Get preset UI elements
+    const presetSaveButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_save_preset_button')
+    )
+    const presetNameInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_new_preset_name')
+    )
+    const presetListContainer = /** @type {HTMLDivElement | null} */ (
+        container.querySelector('#auto_multi_preset_list')
+    )
+
+    // Store references
+    state.ui.presetSaveButton = presetSaveButton
+    state.ui.presetNameInput = presetNameInput
+    state.ui.presetListContainer = presetListContainer
+
+    // Add preset management event listeners
+    presetSaveButton?.addEventListener('click', handleSavePreset)
+    presetNameInput?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            handleSavePreset()
+        }
+    })
+
+    // Initial render of presets
+    renderPresets()
+
     syncModelSelectOptions()
     syncUiFromSettings()
+}
+
+// ==================== PRESET UI HANDLERS ====================
+
+function handleSavePreset() {
+    const name = state.ui.presetNameInput?.value?.trim()
+    if (!name) {
+        console.warn('[Image-Generation-Autopilot] Preset name is required')
+        return
+    }
+
+    const currentSettings = getCurrentSettingsSnapshot()
+    const id = 'preset_' + Date.now()
+
+    savePreset(id, name, currentSettings)
+
+    // Clear input and re-render
+    state.ui.presetNameInput.value = ''
+    renderPresets()
+
+    console.info('[Image-Generation-Autopilot] Preset saved', { id, name })
+}
+
+function handleLoadPreset(id) {
+    const success = loadPreset(id)
+    if (success) {
+        renderPresets()
+        console.info('[Image-Generation-Autopilot] Preset loaded', { id })
+    }
+}
+
+function handleDeletePreset(id) {
+    if (!confirm('Are you sure you want to delete this preset?')) {
+        return
+    }
+
+    deletePreset(id)
+    renderPresets()
+    console.info('[Image-Generation-Autopilot] Preset deleted', { id })
+}
+
+function renderPresets() {
+    const presets = listPresets()
+    const container = state.ui.presetListContainer
+
+    if (!container) {
+        return
+    }
+
+    if (presets.length === 0) {
+        container.innerHTML = `
+            <p class="caption auto-multi-preset-empty" style="text-align: center; padding: 20px;">
+                No presets saved yet. Click "Save as preset" to create your first preset.
+            </p>
+        `
+        return
+    }
+
+    container.innerHTML = presets
+        .map((preset) => {
+            const createdAt = new Date(preset.createdAt).toLocaleString()
+            return `
+            <div class="auto-multi-preset-item" data-preset-id="${preset.id}">
+                <div class="auto-multi-preset-info">
+                    <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
+                    <div class="auto-multi-preset-date">${createdAt}</div>
+                </div>
+                <div class="auto-multi-preset-actions flex-container flexGap5">
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-load"
+                        title="Load this preset"
+                    >
+                        <span class="fa-solid fa-check"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-delete"
+                        title="Delete this preset"
+                    >
+                        <span class="fa-solid fa-trash"></span>
+                    </button>
+                </div>
+            </div>
+        `
+        })
+        .join('')
+
+    // Add event listeners to preset buttons
+    container.querySelectorAll('.auto-multi-preset-load').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleLoadPreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-delete').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleDeletePreset(presetId)
+            }
+        })
+    })
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
+}
+
+function updateCharacterPresetDropdown() {
+    const select = state.ui.characterPresetSelect
+    if (!select) {
+        return
+    }
+
+    const presets = listPresets()
+
+    // Save current selection
+    const currentValue = select.value
+
+    // Clear existing options
+    select.innerHTML = '<option value="">-- Select a preset --</option>'
+
+    // Add presets to dropdown
+    presets.forEach((preset) => {
+        const option = document.createElement('option')
+        option.value = preset.id
+        option.textContent = preset.name
+        select.appendChild(option)
+    })
+
+    // Restore selection if it still exists
+    if (currentValue && presets.some((p) => p.id === currentValue)) {
+        select.value = currentValue
+    }
 }
 
 function resetPerCharacterSettingsToDefaults() {
@@ -1796,12 +2069,15 @@ function resetPerCharacterSettingsToDefaults() {
     }
 
     applyPerCharacterOverrides()
-    
+
     const characterName = getCharacterIdentity(canonical || character)
     console.info(
         `[Image-Generation-Autopilot][PerCharacter] Reset complete for ${characterName}`,
     )
-    if (typeof window.toastr === 'object' && typeof window.toastr.success === 'function') {
+    if (
+        typeof window.toastr === 'object' &&
+        typeof window.toastr.success === 'function'
+    ) {
         window.toastr.success(
             `Character settings reset to global defaults for ${characterName}`,
             'Settings Reset',
@@ -2199,6 +2475,9 @@ function syncUiFromSettings() {
         state.ui.container,
         settings.autoGeneration.promptInjection.picCountMode,
     )
+
+    // Update preset dropdown in character panel
+    updateCharacterPresetDropdown()
 
     const setPanelEnabled = (panel, enabled) => {
         if (!panel) {
@@ -4323,6 +4602,90 @@ async function handleMessageRendered(messageId, origin) {
 
     queueAutoFill(messageId, button)
 }
+
+// ==================== PRESET MANAGEMENT ====================
+
+const PRESET_STORAGE_KEY = 'auto_multi_presets'
+
+function getPresetStorage() {
+    const ctx = getCtx()
+    if (!ctx) return {}
+    return ctx.storage?.get(PRESET_STORAGE_KEY) || {}
+}
+
+function savePresetToStorage(presets) {
+    const ctx = getCtx()
+    if (ctx?.storage) {
+        ctx.storage.set(PRESET_STORAGE_KEY, presets)
+    }
+}
+
+function getAllPresets() {
+    return getPresetStorage()
+}
+
+function getPreset(id) {
+    const presets = getAllPresets()
+    return presets[id] || null
+}
+
+function savePreset(id, name, settings) {
+    const presets = getAllPresets()
+    presets[id] = {
+        id,
+        name,
+        settings: JSON.parse(JSON.stringify(settings)),
+        createdAt: new Date().toISOString(),
+    }
+    savePresetToStorage(presets)
+    return presets[id]
+}
+
+function deletePreset(id) {
+    const presets = getAllPresets()
+    delete presets[id]
+    savePresetToStorage(presets)
+}
+
+function loadPreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        console.warn('[Image-Generation-Autopilot] Preset not found:', id)
+        return false
+    }
+
+    const currentSettings = getSettings()
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
+
+    // Merge settings, preserving structure
+    const mergedSettings = { ...currentSettings, ...newSettings }
+
+    // Update settings
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        ctx.extensionSettings[MODULE_NAME] = mergedSettings
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function listPresets() {
+    const presets = getAllPresets()
+    return Object.values(presets).sort((a, b) => {
+        // Sort by name, then by creation date
+        if (a.name < b.name) return -1
+        if (a.name > b.name) return 1
+        return new Date(b.createdAt) - new Date(a.createdAt)
+    })
+}
+
+function getCurrentSettingsSnapshot() {
+    return JSON.parse(JSON.stringify(getSettings()))
+}
+
+// ==================== END PRESET MANAGEMENT ====================
 
 async function init() {
     if (state.initialized) {
