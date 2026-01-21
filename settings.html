@@ -386,6 +386,45 @@
                 </p>
             </section>
 
+            <section class="auto-multi-panel auto-multi-panel--presets" id="auto_multi_presets_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-bookmark"></i> Preset profiles
+                        </p>
+                        <h5>Save and apply preset settings</h5>
+                    </div>
+                    <p class="caption">
+                        Create and manage presets to quickly apply specific image generation configurations.
+                    </p>
+                </header>
+                
+                <div class="auto-multi-preset-actions flex-container flexGap10">
+                    <button
+                        type="button"
+                        id="auto_multi_save_preset_button"
+                        class="menu_button auto-multi-save-preset"
+                        title="Save current settings as a new preset"
+                    >
+                        <span class="fa-solid fa-floppy-disk"></span>
+                        <span>Save as preset</span>
+                    </button>
+                    <input
+                        type="text"
+                        id="auto_multi_new_preset_name"
+                        class="text_pole auto-multi-new-preset-name"
+                        placeholder="Enter preset name..."
+                        style="width: 250px;"
+                    />
+                </div>
+
+                <div class="auto-multi-preset-list" id="auto_multi_preset_list">
+                    <!-- Presets will be dynamically inserted here -->
+                    <p class="caption auto-multi-preset-empty" style="text-align: center; padding: 20px;">
+                        No presets saved yet. Click "Save as preset" to create your first preset.
+                    </p>
+                </div>
+            </section>
 
             <section class="auto-multi-panel" id="auto_multi_character_panel">
                 <header>
@@ -439,46 +478,6 @@
                     <input type="checkbox" id="auto_multi_debug_mode" />
                     <span>Debug mode</span>
                 </label>
-            </section>
-
-            <section class="auto-multi-panel auto-multi-panel--presets" id="auto_multi_presets_panel">
-                <header>
-                    <div>
-                        <p class="eyebrow">
-                            <i class="fa-solid fa-bookmark"></i> Preset profiles
-                        </p>
-                        <h5>Save and apply preset settings</h5>
-                    </div>
-                    <p class="caption">
-                        Create and manage presets to quickly apply specific image generation configurations.
-                    </p>
-                </header>
-                
-                <div class="auto-multi-preset-actions flex-container flexGap10">
-                    <button
-                        type="button"
-                        id="auto_multi_save_preset_button"
-                        class="menu_button auto-multi-save-preset"
-                        title="Save current settings as a new preset"
-                    >
-                        <span class="fa-solid fa-floppy-disk"></span>
-                        <span>Save as preset</span>
-                    </button>
-                    <input
-                        type="text"
-                        id="auto_multi_new_preset_name"
-                        class="text_pole auto-multi-new-preset-name"
-                        placeholder="Enter preset name..."
-                        style="width: 250px;"
-                    />
-                </div>
-
-                <div class="auto-multi-preset-list" id="auto_multi_preset_list">
-                    <!-- Presets will be dynamically inserted here -->
-                    <p class="caption auto-multi-preset-empty" style="text-align: center; padding: 20px;">
-                        No presets saved yet. Click "Save as preset" to create your first preset.
-                    </p>
-                </div>
             </section>
         </div>
     </div>
