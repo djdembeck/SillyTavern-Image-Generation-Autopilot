@@ -1553,6 +1553,51 @@ async function buildSettingsPanel() {
         )
     }
 
+    // Initialize state.ui object early to avoid null reference errors
+    state.ui = {
+        container,
+        enabledInput,
+        modelQueueEnabledInput,
+        countInput,
+        delayInput,
+        burstThrottleInput,
+        summary,
+        modelRowsContainer,
+        burstModeInput,
+        addModelButton,
+        refreshModelsButton,
+        autoGenEnabledInput,
+        autoGenInsertSelect,
+        promptInjectionEnabledInput,
+        promptMainInput,
+        promptPositiveInput,
+        promptNegativeInput,
+        promptExampleInput,
+        promptLimitInput,
+        promptLimitTypeSelect,
+        promptRegexInput,
+        promptRewriteEnabledInput,
+        promptPositionSelect,
+        promptDepthInput,
+        debugModeInput,
+        picCountModeSelect,
+        picCountExactInput,
+        picCountMinInput,
+        picCountMaxInput,
+        summaryPanel,
+        autoGenPanel,
+        queuePanel,
+        cadencePanel,
+        characterPanel,
+        characterEnabledInput,
+        characterResetButton,
+        characterPresetSelect: null,
+        characterPresetApplyButton: null,
+        presetSaveButton: null,
+        presetNameInput: null,
+        presetListContainer: null,
+    }
+
     enabledInput.addEventListener('change', () => {
         const current = getSettings()
         current.enabled = enabledInput.checked
@@ -1605,12 +1650,9 @@ async function buildSettingsPanel() {
         }
     })
 
-    // Store references
+    // Store character preset references
     state.ui.characterPresetSelect = characterPresetSelect
     state.ui.characterPresetApplyButton = characterPresetApplyButton
-
-    // Update preset dropdown when presets change
-    syncUiFromSettings()
 
     countInput.addEventListener('change', () => {
         const current = getSettings()
@@ -1797,48 +1839,6 @@ async function buildSettingsPanel() {
         event.preventDefault()
         syncModelSelectOptions(true)
     })
-
-    state.ui = {
-        container,
-        enabledInput,
-        modelQueueEnabledInput,
-        countInput,
-        delayInput,
-        burstThrottleInput,
-        summary,
-        modelRowsContainer,
-        burstModeInput,
-        addModelButton,
-        refreshModelsButton,
-        autoGenEnabledInput,
-        autoGenInsertSelect,
-        promptInjectionEnabledInput,
-        promptMainInput,
-        promptPositiveInput,
-        promptNegativeInput,
-        promptExampleInput,
-        promptLimitInput,
-        promptLimitTypeSelect,
-        promptRegexInput,
-        promptRewriteEnabledInput,
-        promptPositionSelect,
-        promptDepthInput,
-        debugModeInput,
-        picCountModeSelect,
-        picCountExactInput,
-        picCountMinInput,
-        picCountMaxInput,
-        summaryPanel,
-        autoGenPanel,
-        queuePanel,
-        cadencePanel,
-        characterPanel,
-        characterEnabledInput,
-        characterResetButton,
-        presetSaveButton: null,
-        presetNameInput: null,
-        presetListContainer: null,
-    }
 
     // Get preset UI elements
     const presetSaveButton = /** @type {HTMLButtonElement | null} */ (
