@@ -210,6 +210,14 @@ function ensureSettings() {
             }
         }
         const settings = extensionSettings[MODULE_NAME]
+        
+        // One-time migration: Clear presets from settings object
+        // Presets should only be managed through preset storage functions, not stored in settings
+        if (settings.presets && Object.keys(settings.presets).length > 0) {
+            console.log('[Image-Generation-Autopilot] Clearing presets from settings object (one-time migration)')
+            delete settings.presets
+            settings.presets = {}
+        }
 
         if (!settings.autoGeneration) {
             settings.autoGeneration = { ...defaultSettings.autoGeneration }
