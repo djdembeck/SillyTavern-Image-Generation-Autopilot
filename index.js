@@ -1986,12 +1986,16 @@ function renderPresets() {
                         <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
                         <div class="auto-multi-preset-date">${createdAt}</div>
                     </div>
-                    <span
-                        class="fa-solid fa-download auto-multi-preset-load-icon"
-                        aria-hidden="true"
-                    ></span>
                 </button>
                 <div class="auto-multi-preset-actions">
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-load"
+                        title="Load this preset"
+                        aria-label="Load preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-download" aria-hidden="true"></span>
+                    </button>
                     <button
                         type="button"
                         class="menu_button auto-multi-preset-rename"
@@ -2016,6 +2020,16 @@ function renderPresets() {
 
     // Add event listeners to preset buttons
     container.querySelectorAll('.auto-multi-preset-body').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleLoadPreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-load').forEach((btn) => {
         btn.addEventListener('click', () => {
             const presetId = btn.closest('.auto-multi-preset-item')?.dataset
                 .presetId
