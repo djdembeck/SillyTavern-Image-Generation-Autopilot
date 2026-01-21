@@ -205,7 +205,10 @@ function ensureSettings() {
         }
 
         for (const [key, value] of Object.entries(defaultSettings)) {
-            if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
+            if (key === 'presets') {
+                // Always initialize presets as empty object to avoid restoring deleted presets
+                extensionSettings[MODULE_NAME][key] = {}
+            } else if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
                 extensionSettings[MODULE_NAME][key] = value
             }
         }
