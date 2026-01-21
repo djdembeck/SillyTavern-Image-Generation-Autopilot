@@ -44,7 +44,6 @@ const defaultSettings = Object.freeze({
             depth: 0,
         },
     },
-    presets: {},
 })
 
 const state = {
@@ -210,16 +209,55 @@ function ensureSettings() {
             }
         }
         const settings = extensionSettings[MODULE_NAME]
-        
-        // Migration: Clear old presets that contain embedded presets property
-        // This indicates they were saved before the fix and need to be cleared
+
+        // Migration: Clear old presets that contain circular references
+        // Only delete presets that have actual circular references (preset.settings.presets === the preset itself)
         if (settings.presets && Object.keys(settings.presets).length > 0) {
-            const hasOldPresets = Object.values(settings.presets).some(preset =>
-                preset.settings && preset.settings.presets
-            )
-            if (hasOldPresets) {
-                console.log('[Image-Generation-Autopilot] Clearing old presets that contain embedded presets')
-                settings.presets = {}
+            const presetsWithCircularRefs = []
+            for (const [presetId, preset] of Object.entries(settings.presets)) {
+                if (preset.settings && preset.settings.presets) {
+                    // Check if this is a circular reference (the presets property contains the preset itself)
+                    if (preset.settings.presets[presetId] === preset) {
+                        presetsWithCircularRefs.push(presetId)
+                        console.log(
+                            '[Image-Generation-Autopilot] Found preset with circular reference:',
+                            { presetId, presetName: preset.name },
+                        )
+                    }
+                }
+            }
+            if (presetsWithCircularRefs.length > 0) {
+                console.log(
+                    '[Image-Generation-Autopilot] Clearing presets with circular references:',
+                    presetsWithCircularRefs,
+                )
+                for (const presetId of presetsWithCircularRefs) {
+                    delete settings.presets[presetId]
+                }
+            }
+        }
+
+        // Migration: Move presets from old location to separate storage key
+        // This fixes the race condition between saveSettings() and savePresetToStorage()
+        if (settings.presets && Object.keys(settings.presets).length > 0) {
+            if (!extensionSettings[PRESET_STORAGE_KEY]) {
+                extensionSettings[PRESET_STORAGE_KEY] = {}
+            }
+            // Only migrate if the new storage is empty or has fewer presets
+            if (
+                Object.keys(extensionSettings[PRESET_STORAGE_KEY]).length <
+                Object.keys(settings.presets).length
+            ) {
+                console.log(
+                    '[Image-Generation-Autopilot] Migrating presets from old location to separate storage key',
+                )
+                extensionSettings[PRESET_STORAGE_KEY] = JSON.parse(
+                    JSON.stringify(settings.presets),
+                )
+                // Clear the old location after successful migration
+                delete settings.presets
+                // Save the migrated presets to persist the changes
+                ctx.saveSettingsDebounced()
             }
         }
 
@@ -327,16 +365,7 @@ function saveSettings() {
     try {
         const ctx = getCtx()
         if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
-            // Temporarily remove presets from settings before saving
-            // Presets should only be managed through preset storage functions
-            const settings = ctx.extensionSettings[MODULE_NAME]
-            const presets = settings.presets
-            delete settings.presets
-            
             ctx.saveSettingsDebounced()
-            
-            // Restore presets after saving
-            settings.presets = presets
         }
         syncUiFromSettings()
         syncPerCharacterStorage()
@@ -491,6 +520,11 @@ function buildShareableSettingsSnapshot(settings) {
     if (snapshot?.perCharacter) {
         delete snapshot.perCharacter.globalDefaults
         delete snapshot.perCharacter.fields
+    }
+
+    // Exclude 'presets' property from snapshot to prevent embedded presets in character-specific settings
+    if (snapshot?.presets) {
+        delete snapshot.presets
     }
 
     return snapshot
@@ -873,18 +907,17 @@ function applyPresetToCharacter(presetId) {
 
     const settings = getSettings()
     const newSettings = JSON.parse(JSON.stringify(preset.settings))
-    
-    // Exclude 'presets' property from loaded preset settings to avoid overwriting current presets
+
+    // Exclude 'presets' property from loaded preset settings
     const { presets: _, ...newSettingsWithoutPresets } = newSettings
 
-    // Update settings - merge but preserve 'presets' and other metadata
+    // Update settings - merge but exclude 'presets' property
     const ctx = getCtx()
     if (ctx?.extensionSettings?.[MODULE_NAME]) {
         const { presets, ...settingsWithoutPresets } = settings
         ctx.extensionSettings[MODULE_NAME] = {
             ...settingsWithoutPresets,
             ...newSettingsWithoutPresets,
-            presets: presets || {}  // Always preserve current presets
         }
     }
 
@@ -907,18 +940,17 @@ function savePresetToCharacter(presetId) {
 
     const settings = getSettings()
     const newSettings = JSON.parse(JSON.stringify(preset.settings))
-    
-    // Exclude 'presets' property from loaded preset settings to avoid overwriting current presets
+
+    // Exclude 'presets' property from loaded preset settings
     const { presets: _, ...newSettingsWithoutPresets } = newSettings
 
-    // Update settings - merge but preserve 'presets' and other metadata
+    // Update settings - merge but exclude 'presets' property
     const ctx = getCtx()
     if (ctx?.extensionSettings?.[MODULE_NAME]) {
         const { presets, ...settingsWithoutPresets } = settings
         ctx.extensionSettings[MODULE_NAME] = {
             ...settingsWithoutPresets,
             ...newSettingsWithoutPresets,
-            presets: presets || {}  // Always preserve current presets
         }
     }
 
@@ -2001,13 +2033,21 @@ function renderPresets() {
             e.preventDefault()
             e.stopPropagation()
             const presetItem = btn.closest('.auto-multi-preset-item')
-            console.log('[Image-Generation-Autopilot] Rename button clicked, presetItem:', presetItem)
+            console.log(
+                '[Image-Generation-Autopilot] Rename button clicked, presetItem:',
+                presetItem,
+            )
             const presetId = presetItem?.dataset.presetId
-            console.log('[Image-Generation-Autopilot] Rename button clicked, presetId:', presetId)
+            console.log(
+                '[Image-Generation-Autopilot] Rename button clicked, presetId:',
+                presetId,
+            )
             if (presetId) {
                 handleRenamePreset(presetId)
             } else {
-                console.error('[Image-Generation-Autopilot] Could not get presetId from rename button')
+                console.error(
+                    '[Image-Generation-Autopilot] Could not get presetId from rename button',
+                )
             }
         })
     })
@@ -4645,7 +4685,7 @@ async function handleMessageRendered(messageId, origin) {
 
 // ==================== PRESET MANAGEMENT ====================
 
-const PRESET_STORAGE_KEY = 'auto_multi_presets'
+const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
 
 function getPresetStorage() {
     try {
@@ -4656,14 +4696,13 @@ function getPresetStorage() {
             )
             return {}
         }
-        if (!ctx.extensionSettings[MODULE_NAME]) {
-            ctx.extensionSettings[MODULE_NAME] = {}
-        }
-        if (!ctx.extensionSettings[MODULE_NAME].presets) {
-            ctx.extensionSettings[MODULE_NAME].presets = {}
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
         }
         // Return a deep copy to avoid reference issues
-        const presets = JSON.parse(JSON.stringify(ctx.extensionSettings[MODULE_NAME].presets))
+        const presets = JSON.parse(
+            JSON.stringify(ctx.extensionSettings[PRESET_STORAGE_KEY]),
+        )
         console.log(
             '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
             presets,
@@ -4687,8 +4726,8 @@ function savePresetToStorage(presets) {
             )
             return
         }
-        if (!ctx.extensionSettings[MODULE_NAME]) {
-            ctx.extensionSettings[MODULE_NAME] = {}
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
         }
         console.log(
             '[Image-Generation-Autopilot] Saving presets to extension settings:',
@@ -4696,7 +4735,7 @@ function savePresetToStorage(presets) {
         )
         // Create a deep copy to avoid reference issues
         const presetsCopy = JSON.parse(JSON.stringify(presets))
-        ctx.extensionSettings[MODULE_NAME].presets = presetsCopy
+        ctx.extensionSettings[PRESET_STORAGE_KEY] = presetsCopy
         ctx.saveSettingsDebounced()
         console.log('[Image-Generation-Autopilot] Presets saved successfully')
     } catch (error) {
@@ -4778,18 +4817,17 @@ function loadPreset(id) {
 
     const currentSettings = getSettings()
     const newSettings = JSON.parse(JSON.stringify(preset.settings))
-    
-    // Exclude 'presets' property from loaded preset settings to avoid overwriting current presets
+
+    // Exclude 'presets' property from loaded preset settings
     const { presets: _, ...newSettingsWithoutPresets } = newSettings
 
-    // Update settings - merge but preserve 'presets' and other metadata
+    // Update settings - merge but exclude 'presets' property
     const ctx = getCtx()
     if (ctx?.extensionSettings?.[MODULE_NAME]) {
         const { presets, ...settingsWithoutPresets } = currentSettings
         ctx.extensionSettings[MODULE_NAME] = {
             ...settingsWithoutPresets,
             ...newSettingsWithoutPresets,
-            presets: presets || {}  // Always preserve current presets
         }
     }
 
