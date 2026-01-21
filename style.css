@@ -583,11 +583,12 @@
     color: rgba(255, 255, 255, 0.5);
 }
 
-.auto-multi-image-settings .auto-multi-preset-actions {
+.auto-multi-image-settings .auto-multi-preset-item .auto-multi-preset-actions {
     display: flex;
     gap: 6px;
     flex-shrink: 0;
     align-items: center;
+    margin-left: 12px;
 }
 
 .auto-multi-image-settings .auto-multi-preset-load,
