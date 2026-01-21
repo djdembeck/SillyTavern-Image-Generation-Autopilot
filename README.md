@@ -16,6 +16,7 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 - **Auto image generation** from `<pic prompt>` tags (inline, replace, or new message).
 - **Auto swipes** on each generated image message (per-model counts).
 - **Prompt injection + regex matching** to guide consistent image tags.
+- **Preset profiles** to save, load, rename, and delete preset configurations for quick switching between different image generation setups.
 - **Global progress HUD** with a stop button.
 - **Message toolbar action** to re-run auto-swipes on image messages.
 - **Rate-limit friendly** with configurable delay.
@@ -59,6 +60,7 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 | **Model queue**                  | Run multiple SD models with per-model counts.                          |
 | **Delay between swipes**         | Protects against provider throttles.                                   |
 | **Prompt injection**             | Main prompt, positive/negative rules, example prompt, and count rules. |
+| **Preset profiles**              | Save, load, rename, and delete preset configurations.                  |
 
 ---
 

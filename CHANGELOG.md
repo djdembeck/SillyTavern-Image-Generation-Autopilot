@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.0] - 2026-01-21
+
+### Added
+
+- **Preset profiles**: save, load, rename, and delete preset configurations for quick switching between different image generation setups.
+- Preset profiles card with responsive UI that works at all window sizes and mobile devices.
+
+### Changed
+
+- Presets stored in separate extension storage key to prevent race conditions and avoid circular references.
+- Presets excluded from character-specific settings to avoid data bloat.
+
 ## [1.2.1] - 2026-01-19
 
 ### Added
