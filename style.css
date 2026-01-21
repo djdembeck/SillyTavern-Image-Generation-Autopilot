@@ -553,7 +553,7 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     transition: all 0.2s ease;
     min-width: 0;
-    gap: 12px;
+    gap: 8px;
 }
 
 .auto-multi-image-settings .auto-multi-preset-item:hover {
@@ -585,20 +585,21 @@
 
 .auto-multi-image-settings .auto-multi-preset-item .auto-multi-preset-actions {
     display: flex;
-    gap: 6px;
+    gap: 4px;
     flex-shrink: 0;
     align-items: center;
 }
 
 .auto-multi-image-settings .auto-multi-preset-load,
 .auto-multi-image-settings .auto-multi-preset-delete {
-    padding: 8px 12px;
-    min-width: 40px;
-    min-height: 36px;
+    padding: 6px 10px;
+    min-width: 32px;
+    min-height: 32px;
+    max-width: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: 6px;
     transition: all 0.2s ease;
     white-space: nowrap;
 }
