@@ -2271,12 +2271,12 @@ function getActiveSdModelLabel() {
     const value = select.value || ''
     const selectedOption = select.options[select.selectedIndex]
     const label = selectedOption?.textContent?.trim()
-    return label || getModelLabel(value)
+    return label || value || 'active SD model'
 }
 
 function getModelLabel(value) {
     if (!value) {
-        return getActiveSdModelLabel()
+        return 'active SD model'
     }
 
     if (state.modelLabels.has(value)) {
