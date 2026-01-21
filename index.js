@@ -178,105 +178,132 @@ function patchToastrForDebug() {
 }
 
 function getCtx() {
+    if (
+        typeof SillyTavern === 'undefined' ||
+        typeof SillyTavern.getContext !== 'function'
+    ) {
+        throw new Error(
+            '[Image-Generation-Autopilot] SillyTavern context not available',
+        )
+    }
     return SillyTavern.getContext()
 }
 
 function ensureSettings() {
-    const { extensionSettings } = getCtx()
-    if (!extensionSettings[MODULE_NAME]) {
-        extensionSettings[MODULE_NAME] = { ...defaultSettings }
-    }
-
-    for (const [key, value] of Object.entries(defaultSettings)) {
-        if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
-            extensionSettings[MODULE_NAME][key] = value
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            console.warn(
+                '[Image-Generation-Autopilot] Extension settings not available, using defaults',
+            )
+            return { ...defaultSettings }
         }
-    }
-    const settings = extensionSettings[MODULE_NAME]
-
-    if (!settings.autoGeneration) {
-        settings.autoGeneration = { ...defaultSettings.autoGeneration }
-    }
-
-    if (typeof settings.autoGeneration.enabled !== 'boolean') {
-        settings.autoGeneration.enabled = false
-    }
-
-    if (
-        !Object.values(INSERT_TYPE).includes(settings.autoGeneration.insertType)
-    ) {
-        settings.autoGeneration.insertType = INSERT_TYPE.DISABLED
-    }
-
-    if (!settings.autoGeneration.promptRewrite) {
-        settings.autoGeneration.promptRewrite = {
-            ...defaultSettings.autoGeneration.promptRewrite,
+        const { extensionSettings } = ctx
+        if (!extensionSettings[MODULE_NAME]) {
+            extensionSettings[MODULE_NAME] = { ...defaultSettings }
         }
-    }
 
-    if (typeof settings.autoGeneration.promptRewrite.enabled !== 'boolean') {
-        settings.autoGeneration.promptRewrite.enabled =
-            defaultSettings.autoGeneration.promptRewrite.enabled
-    }
-
-    if (!settings.autoGeneration.promptInjection) {
-        settings.autoGeneration.promptInjection = {
-            ...defaultSettings.autoGeneration.promptInjection,
+        for (const [key, value] of Object.entries(defaultSettings)) {
+            if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
+                extensionSettings[MODULE_NAME][key] = value
+            }
         }
-    }
+        const settings = extensionSettings[MODULE_NAME]
 
-    const promptInjection = settings.autoGeneration.promptInjection
-    for (const [key, value] of Object.entries(
-        defaultSettings.autoGeneration.promptInjection,
-    )) {
-        if (typeof promptInjection[key] === 'undefined') {
-            promptInjection[key] = value
+        if (!settings.autoGeneration) {
+            settings.autoGeneration = { ...defaultSettings.autoGeneration }
         }
-    }
 
-    if (!Array.isArray(settings.modelQueue)) {
-        settings.modelQueue = []
-    }
-
-    settings.modelQueueEnabled = normalizeModelQueueEnabled(
-        settings.modelQueueEnabled,
-        defaultSettings.modelQueueEnabled,
-    )
-
-    if (!settings.perCharacter) {
-        settings.perCharacter = {
-            ...defaultSettings.perCharacter,
-            globalDefaults: {},
+        if (typeof settings.autoGeneration.enabled !== 'boolean') {
+            settings.autoGeneration.enabled = false
         }
-    }
 
-    if (typeof settings.perCharacter.enabled !== 'boolean') {
-        settings.perCharacter.enabled = defaultSettings.perCharacter.enabled
-    }
+        if (
+            !Object.values(INSERT_TYPE).includes(
+                settings.autoGeneration.insertType,
+            )
+        ) {
+            settings.autoGeneration.insertType = INSERT_TYPE.DISABLED
+        }
 
-    if (!settings.perCharacter.globalDefaults) {
-        settings.perCharacter.globalDefaults = {}
-    }
+        if (!settings.autoGeneration.promptRewrite) {
+            settings.autoGeneration.promptRewrite = {
+                ...defaultSettings.autoGeneration.promptRewrite,
+            }
+        }
 
-    if (settings.burstMode) {
-        settings.burstMode = false
-    }
+        if (
+            typeof settings.autoGeneration.promptRewrite.enabled !== 'boolean'
+        ) {
+            settings.autoGeneration.promptRewrite.enabled =
+                defaultSettings.autoGeneration.promptRewrite.enabled
+        }
 
-    if (settings.swipeModel?.trim() && settings.modelQueue.length === 0) {
-        settings.modelQueue = [
-            {
-                id: settings.swipeModel.trim(),
-                count: clampCount(settings.targetCount),
-            },
-        ]
-        settings.swipeModel = ''
-    }
+        if (!settings.autoGeneration.promptInjection) {
+            settings.autoGeneration.promptInjection = {
+                ...defaultSettings.autoGeneration.promptInjection,
+            }
+        }
 
-    settings.modelQueue = sanitizeModelQueue(
-        settings.modelQueue,
-        clampCount(settings.targetCount),
-    )
-    return settings
+        const promptInjection = settings.autoGeneration.promptInjection
+        for (const [key, value] of Object.entries(
+            defaultSettings.autoGeneration.promptInjection,
+        )) {
+            if (typeof promptInjection[key] === 'undefined') {
+                promptInjection[key] = value
+            }
+        }
+
+        if (!Array.isArray(settings.modelQueue)) {
+            settings.modelQueue = []
+        }
+
+        settings.modelQueueEnabled = normalizeModelQueueEnabled(
+            settings.modelQueueEnabled,
+            defaultSettings.modelQueueEnabled,
+        )
+
+        if (!settings.perCharacter) {
+            settings.perCharacter = {
+                ...defaultSettings.perCharacter,
+                globalDefaults: {},
+            }
+        }
+
+        if (typeof settings.perCharacter.enabled !== 'boolean') {
+            settings.perCharacter.enabled = defaultSettings.perCharacter.enabled
+        }
+
+        if (!settings.perCharacter.globalDefaults) {
+            settings.perCharacter.globalDefaults = {}
+        }
+
+        if (settings.burstMode) {
+            settings.burstMode = false
+        }
+
+        if (settings.swipeModel?.trim() && settings.modelQueue.length === 0) {
+            settings.modelQueue = [
+                {
+                    id: settings.swipeModel.trim(),
+                    count: clampCount(settings.targetCount),
+                },
+            ]
+            settings.swipeModel = ''
+        }
+
+        settings.modelQueue = sanitizeModelQueue(
+            settings.modelQueue,
+            clampCount(settings.targetCount),
+        )
+        return settings
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to ensure settings:',
+            error,
+        )
+        return { ...defaultSettings }
+    }
 }
 
 function getSettings() {
@@ -284,9 +311,19 @@ function getSettings() {
 }
 
 function saveSettings() {
-    getCtx().saveSettingsDebounced()
-    syncUiFromSettings()
-    syncPerCharacterStorage()
+    try {
+        const ctx = getCtx()
+        if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
+            ctx.saveSettingsDebounced()
+        }
+        syncUiFromSettings()
+        syncPerCharacterStorage()
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to save settings:',
+            error,
+        )
+    }
 }
 
 function setQueueControlsEnabled(panel, enabled) {
@@ -4608,15 +4645,30 @@ async function handleMessageRendered(messageId, origin) {
 const PRESET_STORAGE_KEY = 'auto_multi_presets'
 
 function getPresetStorage() {
-    const ctx = getCtx()
-    if (!ctx) return {}
-    return ctx.storage?.get(PRESET_STORAGE_KEY) || {}
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.storage) return {}
+        return ctx.storage.get(PRESET_STORAGE_KEY) || {}
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to get preset storage:',
+            error,
+        )
+        return {}
+    }
 }
 
 function savePresetToStorage(presets) {
-    const ctx = getCtx()
-    if (ctx?.storage) {
-        ctx.storage.set(PRESET_STORAGE_KEY, presets)
+    try {
+        const ctx = getCtx()
+        if (ctx?.storage) {
+            ctx.storage.set(PRESET_STORAGE_KEY, presets)
+        }
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to save preset storage:',
+            error,
+        )
     }
 }
 
@@ -4692,98 +4744,125 @@ async function init() {
         return
     }
 
-    ensureSettings()
-    console.info('[Image-Generation-Autopilot] init', {
-        perCharacterEnabled: getSettings()?.perCharacter?.enabled,
-    })
-    patchToastrForDebug()
-    await buildSettingsPanel()
-    applyPerCharacterOverrides()
-    injectReswipeButtonTemplate()
-    refreshReswipeButtons()
+    try {
+        ensureSettings()
+        console.info('[Image-Generation-Autopilot] init', {
+            perCharacterEnabled: getSettings()?.perCharacter?.enabled,
+        })
+        patchToastrForDebug()
+        await buildSettingsPanel()
+        applyPerCharacterOverrides()
+        injectReswipeButtonTemplate()
+        refreshReswipeButtons()
 
-    const chat = document.getElementById('chat')
-    chat?.addEventListener('click', async (event) => {
-        const reswipeTarget = event.target.closest('.auto-multi-reswipe')
-        const rewriteTarget = event.target.closest('.auto-multi-rewrite')
+        const chat = document.getElementById('chat')
+        chat?.addEventListener('click', async (event) => {
+            const reswipeTarget = event.target.closest('.auto-multi-reswipe')
+            const rewriteTarget = event.target.closest('.auto-multi-rewrite')
 
-        if (!reswipeTarget && !rewriteTarget) {
-            return
-        }
+            if (!reswipeTarget && !rewriteTarget) {
+                return
+            }
 
-        event.preventDefault()
-        event.stopPropagation()
+            event.preventDefault()
+            event.stopPropagation()
 
-        const target = reswipeTarget || rewriteTarget
-        const messageElement = target.closest('.mes')
-        const messageId = Number(messageElement?.getAttribute('mesid'))
-        if (!Number.isFinite(messageId)) {
-            return
-        }
+            const target = reswipeTarget || rewriteTarget
+            const messageElement = target.closest('.mes')
+            const messageId = Number(messageElement?.getAttribute('mesid'))
+            if (!Number.isFinite(messageId)) {
+                return
+            }
 
-        const settings = getSettings()
-        if (!settings.enabled) {
-            return
-        }
+            const settings = getSettings()
+            if (!settings.enabled) {
+                return
+            }
 
-        if (rewriteTarget) {
-            await handleManualPromptRewrite(messageId)
-            return
-        }
+            if (rewriteTarget) {
+                await handleManualPromptRewrite(messageId)
+                return
+            }
 
-        const message = getCtx().chat?.[messageId]
-        if (!shouldAutoFill(message)) {
-            return
-        }
+            const message = getCtx().chat?.[messageId]
+            if (!shouldAutoFill(message)) {
+                return
+            }
 
-        const paintbrush = await waitForPaintbrush(messageId)
-        if (!paintbrush) {
-            console.warn(
-                '[Image-Generation-Autopilot] No SD control found for message',
-                messageId,
-            )
-            return
-        }
+            const paintbrush = await waitForPaintbrush(messageId)
+            if (!paintbrush) {
+                console.warn(
+                    '[Image-Generation-Autopilot] No SD control found for message',
+                    messageId,
+                )
+                return
+            }
 
-        queueAutoFill(messageId, paintbrush)
-    })
+            queueAutoFill(messageId, paintbrush)
+        })
 
-    const { eventSource, eventTypes } = getCtx()
-    eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, handleMessageRendered)
-    eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
-    eventSource.on(eventTypes.CHAT_CHANGED, applyPerCharacterOverrides)
-    const characterEvents = [
-        'CHARACTER_SELECTED',
-        'CHARACTER_CHANGED',
-        'CHARACTER_LOADED',
-    ]
-    characterEvents.forEach((eventName) => {
-        const eventType = eventTypes?.[eventName]
-        if (eventType) {
-            eventSource.on(eventType, applyPerCharacterOverrides)
-        }
-    })
-    if (eventTypes.MORE_MESSAGES_LOADED) {
-        eventSource.on(eventTypes.MORE_MESSAGES_LOADED, refreshReswipeButtons)
-    }
-    eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
-    if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
+        const { eventSource, eventTypes } = getCtx()
         eventSource.on(
-            eventTypes.CHAT_COMPLETION_PROMPT_READY,
-            handlePromptInjection,
+            eventTypes.CHARACTER_MESSAGE_RENDERED,
+            handleMessageRendered,
         )
-    }
-    if (eventTypes.MESSAGE_RECEIVED) {
-        eventSource.on(eventTypes.MESSAGE_RECEIVED, handleIncomingMessage)
-    }
+        eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
+        eventSource.on(eventTypes.CHAT_CHANGED, applyPerCharacterOverrides)
+        const characterEvents = [
+            'CHARACTER_SELECTED',
+            'CHARACTER_CHANGED',
+            'CHARACTER_LOADED',
+        ]
+        characterEvents.forEach((eventName) => {
+            const eventType = eventTypes?.[eventName]
+            if (eventType) {
+                eventSource.on(eventType, applyPerCharacterOverrides)
+            }
+        })
+        if (eventTypes.MORE_MESSAGES_LOADED) {
+            eventSource.on(
+                eventTypes.MORE_MESSAGES_LOADED,
+                refreshReswipeButtons,
+            )
+        }
+        eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
+        if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
+            eventSource.on(
+                eventTypes.CHAT_COMPLETION_PROMPT_READY,
+                handlePromptInjection,
+            )
+        }
+        if (eventTypes.MESSAGE_RECEIVED) {
+            eventSource.on(eventTypes.MESSAGE_RECEIVED, handleIncomingMessage)
+        }
 
-    document.addEventListener('change', handleDocumentChange)
+        document.addEventListener('change', handleDocumentChange)
 
-    state.initialized = true
-    log('Initialized')
+        state.initialized = true
+        log('Initialized')
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Initialization failed:',
+            error,
+        )
+        // Reset initialization state to allow retry
+        state.initialized = false
+    }
 }
 
 ;(function bootstrap() {
-    const ctx = getCtx()
-    ctx.eventSource.on(ctx.eventTypes.APP_READY, () => void init())
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.eventSource || !ctx.eventTypes) {
+            console.warn(
+                '[Image-Generation-Autopilot] Context not ready, retrying...',
+            )
+            setTimeout(() => bootstrap(), 100)
+            return
+        }
+        ctx.eventSource.on(ctx.eventTypes.APP_READY, () => void init())
+    } catch (error) {
+        console.error('[Image-Generation-Autopilot] Bootstrap failed:', error)
+        setTimeout(() => bootstrap(), 100)
+    }
 })()
