@@ -205,10 +205,7 @@ function ensureSettings() {
         }
 
         for (const [key, value] of Object.entries(defaultSettings)) {
-            if (key === 'presets') {
-                // Always initialize presets as empty object to avoid restoring deleted presets
-                extensionSettings[MODULE_NAME][key] = {}
-            } else if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
+            if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
                 extensionSettings[MODULE_NAME][key] = value
             }
         }
@@ -4644,7 +4641,8 @@ function getPresetStorage() {
         if (!ctx.extensionSettings[MODULE_NAME].presets) {
             ctx.extensionSettings[MODULE_NAME].presets = {}
         }
-        const presets = ctx.extensionSettings[MODULE_NAME].presets
+        // Return a deep copy to avoid reference issues
+        const presets = JSON.parse(JSON.stringify(ctx.extensionSettings[MODULE_NAME].presets))
         console.log(
             '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
             presets,
@@ -4675,7 +4673,9 @@ function savePresetToStorage(presets) {
             '[Image-Generation-Autopilot] Saving presets to extension settings:',
             presets,
         )
-        ctx.extensionSettings[MODULE_NAME].presets = presets
+        // Create a deep copy to avoid reference issues
+        const presetsCopy = JSON.parse(JSON.stringify(presets))
+        ctx.extensionSettings[MODULE_NAME].presets = presetsCopy
         ctx.saveSettingsDebounced()
         console.log('[Image-Generation-Autopilot] Presets saved successfully')
     } catch (error) {
