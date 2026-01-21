@@ -4647,8 +4647,18 @@ const PRESET_STORAGE_KEY = 'auto_multi_presets'
 function getPresetStorage() {
     try {
         const ctx = getCtx()
-        if (!ctx || !ctx.storage) return {}
-        return ctx.storage.get(PRESET_STORAGE_KEY) || {}
+        if (!ctx || !ctx.storage) {
+            console.warn(
+                '[Image-Generation-Autopilot] Storage not available for get',
+            )
+            return {}
+        }
+        const presets = ctx.storage.get(PRESET_STORAGE_KEY) || {}
+        console.log(
+            '[Image-Generation-Autopilot] Retrieved presets from storage:',
+            presets,
+        )
+        return presets
     } catch (error) {
         console.error(
             '[Image-Generation-Autopilot] Failed to get preset storage:',
@@ -4662,7 +4672,19 @@ function savePresetToStorage(presets) {
     try {
         const ctx = getCtx()
         if (ctx?.storage) {
+            console.log(
+                '[Image-Generation-Autopilot] Saving presets to storage:',
+                presets,
+            )
             ctx.storage.set(PRESET_STORAGE_KEY, presets)
+            // Verify the save
+            const saved = ctx.storage.get(PRESET_STORAGE_KEY)
+            console.log(
+                '[Image-Generation-Autopilot] Verified saved presets:',
+                saved,
+            )
+        } else {
+            console.warn('[Image-Generation-Autopilot] Storage not available')
         }
     } catch (error) {
         console.error(
