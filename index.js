@@ -327,7 +327,16 @@ function saveSettings() {
     try {
         const ctx = getCtx()
         if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
+            // Temporarily remove presets from settings before saving
+            // Presets should only be managed through preset storage functions
+            const settings = ctx.extensionSettings[MODULE_NAME]
+            const presets = settings.presets
+            delete settings.presets
+            
             ctx.saveSettingsDebounced()
+            
+            // Restore presets after saving
+            settings.presets = presets
         }
         syncUiFromSettings()
         syncPerCharacterStorage()
