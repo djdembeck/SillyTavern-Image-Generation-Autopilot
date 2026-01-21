@@ -1963,8 +1963,9 @@ function renderPresets() {
 
     if (presets.length === 0) {
         container.innerHTML = `
-            <p class="caption auto-multi-preset-empty" style="text-align: center; padding: 20px;">
-                No presets saved yet. Click "Save as preset" to create your first preset.
+            <p class="auto-multi-preset-empty" role="status">
+                <span class="fa-solid fa-folder-open" aria-hidden="true"></span>
+                <span>No presets saved yet. Create one above.</span>
             </p>
         `
         return
@@ -1974,11 +1975,12 @@ function renderPresets() {
         .map((preset) => {
             const createdAt = new Date(preset.createdAt).toLocaleString()
             return `
-            <div class="auto-multi-preset-item" data-preset-id="${preset.id}">
+            <div class="auto-multi-preset-item" data-preset-id="${preset.id}" role="listitem">
                 <button
                     type="button"
                     class="auto-multi-preset-body"
                     title="Load this preset"
+                    aria-label="Load preset ${escapeHtml(preset.name)}"
                 >
                     <div class="auto-multi-preset-info">
                         <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
@@ -1989,20 +1991,22 @@ function renderPresets() {
                         aria-hidden="true"
                     ></span>
                 </button>
-                <div class="auto-multi-preset-actions flex-container flexGap5">
+                <div class="auto-multi-preset-actions">
                     <button
                         type="button"
                         class="menu_button auto-multi-preset-rename"
                         title="Rename this preset"
+                        aria-label="Rename preset ${escapeHtml(preset.name)}"
                     >
-                        <span class="fa-solid fa-pen"></span>
+                        <span class="fa-solid fa-pen" aria-hidden="true"></span>
                     </button>
                     <button
                         type="button"
                         class="menu_button auto-multi-preset-delete"
                         title="Delete this preset"
+                        aria-label="Delete preset ${escapeHtml(preset.name)}"
                     >
-                        <span class="fa-solid fa-trash"></span>
+                        <span class="fa-solid fa-trash" aria-hidden="true"></span>
                     </button>
                 </div>
             </div>
