@@ -386,6 +386,46 @@
                 </p>
             </section>
 
+            <section class="auto-multi-panel auto-multi-panel--presets" id="auto_multi_presets_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-bookmark"></i> Preset profiles
+                        </p>
+                        <h5>Save and apply preset settings</h5>
+                    </div>
+                    <p class="caption">
+                        Create and manage presets to quickly apply specific image generation configurations.
+                    </p>
+                </header>
+                
+                <div class="auto-multi-preset-create">
+                    <input
+                        type="text"
+                        id="auto_multi_new_preset_name"
+                        class="text_pole auto-multi-preset-input"
+                        placeholder="Preset name..."
+                        aria-label="Preset name"
+                    />
+                    <button
+                        type="button"
+                        id="auto_multi_save_preset_button"
+                        class="menu_button auto-multi-preset-save"
+                        title="Save current settings as a new preset"
+                    >
+                        <span class="fa-solid fa-floppy-disk" aria-hidden="true"></span>
+                        <span>Save</span>
+                    </button>
+                </div>
+
+                <div class="auto-multi-preset-list" id="auto_multi_preset_list" role="list" aria-label="Saved presets">
+                    <p class="auto-multi-preset-empty" role="status">
+                        <span class="fa-solid fa-folder-open" aria-hidden="true"></span>
+                        <span>No presets saved yet. Create one above.</span>
+                    </p>
+                </div>
+            </section>
+
             <section class="auto-multi-panel" id="auto_multi_character_panel">
                 <header>
                     <div>

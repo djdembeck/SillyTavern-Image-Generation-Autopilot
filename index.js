@@ -178,105 +178,183 @@ function patchToastrForDebug() {
 }
 
 function getCtx() {
+    if (
+        typeof SillyTavern === 'undefined' ||
+        typeof SillyTavern.getContext !== 'function'
+    ) {
+        throw new Error(
+            '[Image-Generation-Autopilot] SillyTavern context not available',
+        )
+    }
     return SillyTavern.getContext()
 }
 
 function ensureSettings() {
-    const { extensionSettings } = getCtx()
-    if (!extensionSettings[MODULE_NAME]) {
-        extensionSettings[MODULE_NAME] = { ...defaultSettings }
-    }
-
-    for (const [key, value] of Object.entries(defaultSettings)) {
-        if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
-            extensionSettings[MODULE_NAME][key] = value
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            console.warn(
+                '[Image-Generation-Autopilot] Extension settings not available, using defaults',
+            )
+            return { ...defaultSettings }
         }
-    }
-    const settings = extensionSettings[MODULE_NAME]
-
-    if (!settings.autoGeneration) {
-        settings.autoGeneration = { ...defaultSettings.autoGeneration }
-    }
-
-    if (typeof settings.autoGeneration.enabled !== 'boolean') {
-        settings.autoGeneration.enabled = false
-    }
-
-    if (
-        !Object.values(INSERT_TYPE).includes(settings.autoGeneration.insertType)
-    ) {
-        settings.autoGeneration.insertType = INSERT_TYPE.DISABLED
-    }
-
-    if (!settings.autoGeneration.promptRewrite) {
-        settings.autoGeneration.promptRewrite = {
-            ...defaultSettings.autoGeneration.promptRewrite,
+        const { extensionSettings } = ctx
+        if (!extensionSettings[MODULE_NAME]) {
+            extensionSettings[MODULE_NAME] = { ...defaultSettings }
         }
-    }
 
-    if (typeof settings.autoGeneration.promptRewrite.enabled !== 'boolean') {
-        settings.autoGeneration.promptRewrite.enabled =
-            defaultSettings.autoGeneration.promptRewrite.enabled
-    }
-
-    if (!settings.autoGeneration.promptInjection) {
-        settings.autoGeneration.promptInjection = {
-            ...defaultSettings.autoGeneration.promptInjection,
+        for (const [key, value] of Object.entries(defaultSettings)) {
+            if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
+                extensionSettings[MODULE_NAME][key] = value
+            }
         }
-    }
+        const settings = extensionSettings[MODULE_NAME]
 
-    const promptInjection = settings.autoGeneration.promptInjection
-    for (const [key, value] of Object.entries(
-        defaultSettings.autoGeneration.promptInjection,
-    )) {
-        if (typeof promptInjection[key] === 'undefined') {
-            promptInjection[key] = value
+        // Migration: Clear old presets that contain circular references
+        // Only delete presets that have actual circular references (preset.settings.presets === the preset itself)
+        if (settings.presets && Object.keys(settings.presets).length > 0) {
+            const presetsWithCircularRefs = []
+            for (const [presetId, preset] of Object.entries(settings.presets)) {
+                if (preset.settings && preset.settings.presets) {
+                    // Check if this is a circular reference (the presets property contains the preset itself)
+                    if (preset.settings.presets[presetId] === preset) {
+                        presetsWithCircularRefs.push(presetId)
+                        console.log(
+                            '[Image-Generation-Autopilot] Found preset with circular reference:',
+                            { presetId, presetName: preset.name },
+                        )
+                    }
+                }
+            }
+            if (presetsWithCircularRefs.length > 0) {
+                console.log(
+                    '[Image-Generation-Autopilot] Clearing presets with circular references:',
+                    presetsWithCircularRefs,
+                )
+                for (const presetId of presetsWithCircularRefs) {
+                    delete settings.presets[presetId]
+                }
+            }
         }
-    }
 
-    if (!Array.isArray(settings.modelQueue)) {
-        settings.modelQueue = []
-    }
-
-    settings.modelQueueEnabled = normalizeModelQueueEnabled(
-        settings.modelQueueEnabled,
-        defaultSettings.modelQueueEnabled,
-    )
-
-    if (!settings.perCharacter) {
-        settings.perCharacter = {
-            ...defaultSettings.perCharacter,
-            globalDefaults: {},
+        // Migration: Move presets from old location to separate storage key
+        // This fixes the race condition between saveSettings() and savePresetToStorage()
+        if (settings.presets && Object.keys(settings.presets).length > 0) {
+            if (!extensionSettings[PRESET_STORAGE_KEY]) {
+                extensionSettings[PRESET_STORAGE_KEY] = {}
+            }
+            // Only migrate if the new storage is empty or has fewer presets
+            if (
+                Object.keys(extensionSettings[PRESET_STORAGE_KEY]).length <
+                Object.keys(settings.presets).length
+            ) {
+                console.log(
+                    '[Image-Generation-Autopilot] Migrating presets from old location to separate storage key',
+                )
+                extensionSettings[PRESET_STORAGE_KEY] = JSON.parse(
+                    JSON.stringify(settings.presets),
+                )
+                // Clear the old location after successful migration
+                delete settings.presets
+                // Save the migrated presets to persist the changes
+                ctx.saveSettingsDebounced()
+            }
         }
-    }
 
-    if (typeof settings.perCharacter.enabled !== 'boolean') {
-        settings.perCharacter.enabled = defaultSettings.perCharacter.enabled
-    }
+        if (!settings.autoGeneration) {
+            settings.autoGeneration = { ...defaultSettings.autoGeneration }
+        }
 
-    if (!settings.perCharacter.globalDefaults) {
-        settings.perCharacter.globalDefaults = {}
-    }
+        if (typeof settings.autoGeneration.enabled !== 'boolean') {
+            settings.autoGeneration.enabled = false
+        }
 
-    if (settings.burstMode) {
-        settings.burstMode = false
-    }
+        if (
+            !Object.values(INSERT_TYPE).includes(
+                settings.autoGeneration.insertType,
+            )
+        ) {
+            settings.autoGeneration.insertType = INSERT_TYPE.DISABLED
+        }
 
-    if (settings.swipeModel?.trim() && settings.modelQueue.length === 0) {
-        settings.modelQueue = [
-            {
-                id: settings.swipeModel.trim(),
-                count: clampCount(settings.targetCount),
-            },
-        ]
-        settings.swipeModel = ''
-    }
+        if (!settings.autoGeneration.promptRewrite) {
+            settings.autoGeneration.promptRewrite = {
+                ...defaultSettings.autoGeneration.promptRewrite,
+            }
+        }
 
-    settings.modelQueue = sanitizeModelQueue(
-        settings.modelQueue,
-        clampCount(settings.targetCount),
-    )
-    return settings
+        if (
+            typeof settings.autoGeneration.promptRewrite.enabled !== 'boolean'
+        ) {
+            settings.autoGeneration.promptRewrite.enabled =
+                defaultSettings.autoGeneration.promptRewrite.enabled
+        }
+
+        if (!settings.autoGeneration.promptInjection) {
+            settings.autoGeneration.promptInjection = {
+                ...defaultSettings.autoGeneration.promptInjection,
+            }
+        }
+
+        const promptInjection = settings.autoGeneration.promptInjection
+        for (const [key, value] of Object.entries(
+            defaultSettings.autoGeneration.promptInjection,
+        )) {
+            if (typeof promptInjection[key] === 'undefined') {
+                promptInjection[key] = value
+            }
+        }
+
+        if (!Array.isArray(settings.modelQueue)) {
+            settings.modelQueue = []
+        }
+
+        settings.modelQueueEnabled = normalizeModelQueueEnabled(
+            settings.modelQueueEnabled,
+            defaultSettings.modelQueueEnabled,
+        )
+
+        if (!settings.perCharacter) {
+            settings.perCharacter = {
+                ...defaultSettings.perCharacter,
+                globalDefaults: {},
+            }
+        }
+
+        if (typeof settings.perCharacter.enabled !== 'boolean') {
+            settings.perCharacter.enabled = defaultSettings.perCharacter.enabled
+        }
+
+        if (!settings.perCharacter.globalDefaults) {
+            settings.perCharacter.globalDefaults = {}
+        }
+
+        if (settings.burstMode) {
+            settings.burstMode = false
+        }
+
+        if (settings.swipeModel?.trim() && settings.modelQueue.length === 0) {
+            settings.modelQueue = [
+                {
+                    id: settings.swipeModel.trim(),
+                    count: clampCount(settings.targetCount),
+                },
+            ]
+            settings.swipeModel = ''
+        }
+
+        settings.modelQueue = sanitizeModelQueue(
+            settings.modelQueue,
+            clampCount(settings.targetCount),
+        )
+        return settings
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to ensure settings:',
+            error,
+        )
+        return { ...defaultSettings }
+    }
 }
 
 function getSettings() {
@@ -284,9 +362,19 @@ function getSettings() {
 }
 
 function saveSettings() {
-    getCtx().saveSettingsDebounced()
-    syncUiFromSettings()
-    syncPerCharacterStorage()
+    try {
+        const ctx = getCtx()
+        if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
+            ctx.saveSettingsDebounced()
+        }
+        syncUiFromSettings()
+        syncPerCharacterStorage()
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to save settings:',
+            error,
+        )
+    }
 }
 
 function setQueueControlsEnabled(panel, enabled) {
@@ -432,6 +520,11 @@ function buildShareableSettingsSnapshot(settings) {
     if (snapshot?.perCharacter) {
         delete snapshot.perCharacter.globalDefaults
         delete snapshot.perCharacter.fields
+    }
+
+    // Exclude 'presets' property from snapshot to prevent embedded presets in character-specific settings
+    if (snapshot?.presets) {
+        delete snapshot.presets
     }
 
     return snapshot
@@ -802,6 +895,92 @@ function syncPerCharacterStorage() {
         '[Image-Generation-Autopilot][PerCharacter] writeExtensionField unavailable',
     )
 }
+
+// ==================== PRESET CHARACTER INTEGRATION ====================
+
+function applyPresetToCharacter(presetId) {
+    const preset = getPreset(presetId)
+    if (!preset) {
+        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        return false
+    }
+
+    const settings = getSettings()
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
+
+    // Exclude 'presets' property from loaded preset settings
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
+
+    // Update settings - merge but exclude 'presets' property
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        const { presets, ...settingsWithoutPresets } = settings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettingsWithoutPresets,
+        }
+    }
+
+    // Save to character if per-character is enabled
+    if (settings.perCharacter?.enabled) {
+        syncPerCharacterStorage()
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function savePresetToCharacter(presetId) {
+    const preset = getPreset(presetId)
+    if (!preset) {
+        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        return false
+    }
+
+    const settings = getSettings()
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
+
+    // Exclude 'presets' property from loaded preset settings
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
+
+    // Update settings - merge but exclude 'presets' property
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        const { presets, ...settingsWithoutPresets } = settings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettingsWithoutPresets,
+        }
+    }
+
+    // Save to character if per-character is enabled
+    if (settings.perCharacter?.enabled) {
+        syncPerCharacterStorage()
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function loadPresetToCharacter(presetId) {
+    const success = loadPreset(presetId)
+    if (success) {
+        // Also save to character if per-character is enabled
+        const settings = getSettings()
+        if (settings.perCharacter?.enabled) {
+            syncPerCharacterStorage()
+        }
+        console.info(
+            '[Image-Generation-Autopilot] Preset loaded to character',
+            { presetId },
+        )
+    }
+    return success
+}
+
+// ==================== END PRESET CHARACTER INTEGRATION ====================
 
 function clampCount(value) {
     const numeric = Number(value)
@@ -1444,6 +1623,49 @@ async function buildSettingsPanel() {
         )
     }
 
+    // Initialize state.ui object early to avoid null reference errors
+    state.ui = {
+        container,
+        enabledInput,
+        modelQueueEnabledInput,
+        countInput,
+        delayInput,
+        burstThrottleInput,
+        summary,
+        modelRowsContainer,
+        burstModeInput,
+        addModelButton,
+        refreshModelsButton,
+        autoGenEnabledInput,
+        autoGenInsertSelect,
+        promptInjectionEnabledInput,
+        promptMainInput,
+        promptPositiveInput,
+        promptNegativeInput,
+        promptExampleInput,
+        promptLimitInput,
+        promptLimitTypeSelect,
+        promptRegexInput,
+        promptRewriteEnabledInput,
+        promptPositionSelect,
+        promptDepthInput,
+        debugModeInput,
+        picCountModeSelect,
+        picCountExactInput,
+        picCountMinInput,
+        picCountMaxInput,
+        summaryPanel,
+        autoGenPanel,
+        queuePanel,
+        cadencePanel,
+        characterPanel,
+        characterEnabledInput,
+        characterResetButton,
+        presetSaveButton: null,
+        presetNameInput: null,
+        presetListContainer: null,
+    }
+
     enabledInput.addEventListener('change', () => {
         const current = getSettings()
         current.enabled = enabledInput.checked
@@ -1661,46 +1883,201 @@ async function buildSettingsPanel() {
         syncModelSelectOptions(true)
     })
 
-    state.ui = {
-        container,
-        enabledInput,
-        modelQueueEnabledInput,
-        countInput,
-        delayInput,
-        burstThrottleInput,
-        summary,
-        modelRowsContainer,
-        burstModeInput,
-        addModelButton,
-        refreshModelsButton,
-        autoGenEnabledInput,
-        autoGenInsertSelect,
-        promptInjectionEnabledInput,
-        promptMainInput,
-        promptPositiveInput,
-        promptNegativeInput,
-        promptExampleInput,
-        promptLimitInput,
-        promptLimitTypeSelect,
-        promptRegexInput,
-        promptRewriteEnabledInput,
-        promptPositionSelect,
-        promptDepthInput,
-        debugModeInput,
-        picCountModeSelect,
-        picCountExactInput,
-        picCountMinInput,
-        picCountMaxInput,
-        summaryPanel,
-        autoGenPanel,
-        queuePanel,
-        cadencePanel,
-        characterPanel,
-        characterEnabledInput,
-        characterResetButton,
-    }
+    // Get preset UI elements
+    const presetSaveButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_save_preset_button')
+    )
+    const presetNameInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_new_preset_name')
+    )
+    const presetListContainer = /** @type {HTMLDivElement | null} */ (
+        container.querySelector('#auto_multi_preset_list')
+    )
+
+    // Store references
+    state.ui.presetSaveButton = presetSaveButton
+    state.ui.presetNameInput = presetNameInput
+    state.ui.presetListContainer = presetListContainer
+
+    // Add preset management event listeners
+    presetSaveButton?.addEventListener('click', handleSavePreset)
+    presetNameInput?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            handleSavePreset()
+        }
+    })
+
+    // Initial render of presets
+    renderPresets()
+
     syncModelSelectOptions()
     syncUiFromSettings()
+}
+
+// ==================== PRESET UI HANDLERS ====================
+
+function handleSavePreset() {
+    const name = state.ui.presetNameInput?.value?.trim()
+    if (!name) {
+        console.warn('[Image-Generation-Autopilot] Preset name is required')
+        return
+    }
+
+    const currentSettings = getCurrentSettingsSnapshot()
+    const id = 'preset_' + Date.now()
+
+    savePreset(id, name, currentSettings)
+
+    // Clear input and re-render
+    state.ui.presetNameInput.value = ''
+    renderPresets()
+
+    console.info('[Image-Generation-Autopilot] Preset saved', { id, name })
+}
+
+function handleLoadPreset(id) {
+    const success = loadPreset(id)
+    if (success) {
+        renderPresets()
+        console.info('[Image-Generation-Autopilot] Preset loaded', { id })
+    }
+}
+
+function handleDeletePreset(id) {
+    if (!confirm('Are you sure you want to delete this preset?')) {
+        return
+    }
+
+    deletePreset(id)
+    renderPresets()
+    console.info('[Image-Generation-Autopilot] Preset deleted', { id })
+}
+
+function renderPresets() {
+    const presets = listPresets()
+    const container = state.ui.presetListContainer
+
+    if (!container) {
+        return
+    }
+
+    if (presets.length === 0) {
+        container.innerHTML = `
+            <p class="auto-multi-preset-empty" role="status">
+                <span class="fa-solid fa-folder-open" aria-hidden="true"></span>
+                <span>No presets saved yet. Create one above.</span>
+            </p>
+        `
+        return
+    }
+
+    container.innerHTML = presets
+        .map((preset) => {
+            const createdAt = new Date(preset.createdAt).toLocaleString()
+            return `
+            <div class="auto-multi-preset-item" data-preset-id="${preset.id}" role="listitem">
+                <button
+                    type="button"
+                    class="auto-multi-preset-body"
+                    title="Load this preset"
+                    aria-label="Load preset ${escapeHtml(preset.name)}"
+                >
+                    <div class="auto-multi-preset-info">
+                        <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
+                        <div class="auto-multi-preset-date">${createdAt}</div>
+                    </div>
+                </button>
+                <div class="auto-multi-preset-actions">
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-load"
+                        title="Load this preset"
+                        aria-label="Load preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-download" aria-hidden="true"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-rename"
+                        title="Rename this preset"
+                        aria-label="Rename preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-pen" aria-hidden="true"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-delete"
+                        title="Delete this preset"
+                        aria-label="Delete preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-trash" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </div>
+        `
+        })
+        .join('')
+
+    // Add event listeners to preset buttons
+    container.querySelectorAll('.auto-multi-preset-body').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleLoadPreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-load').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleLoadPreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-delete').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleDeletePreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-rename').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const presetItem = btn.closest('.auto-multi-preset-item')
+            console.log(
+                '[Image-Generation-Autopilot] Rename button clicked, presetItem:',
+                presetItem,
+            )
+            const presetId = presetItem?.dataset.presetId
+            console.log(
+                '[Image-Generation-Autopilot] Rename button clicked, presetId:',
+                presetId,
+            )
+            if (presetId) {
+                handleRenamePreset(presetId)
+            } else {
+                console.error(
+                    '[Image-Generation-Autopilot] Could not get presetId from rename button',
+                )
+            }
+        })
+    })
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
 }
 
 function resetPerCharacterSettingsToDefaults() {
@@ -1796,12 +2173,15 @@ function resetPerCharacterSettingsToDefaults() {
     }
 
     applyPerCharacterOverrides()
-    
+
     const characterName = getCharacterIdentity(canonical || character)
     console.info(
         `[Image-Generation-Autopilot][PerCharacter] Reset complete for ${characterName}`,
     )
-    if (typeof window.toastr === 'object' && typeof window.toastr.success === 'function') {
+    if (
+        typeof window.toastr === 'object' &&
+        typeof window.toastr.success === 'function'
+    ) {
         window.toastr.success(
             `Character settings reset to global defaults for ${characterName}`,
             'Settings Reset',
@@ -1958,12 +2338,12 @@ function getActiveSdModelLabel() {
     const value = select.value || ''
     const selectedOption = select.options[select.selectedIndex]
     const label = selectedOption?.textContent?.trim()
-    return label || getModelLabel(value)
+    return label || value || 'active SD model'
 }
 
 function getModelLabel(value) {
     if (!value) {
-        return getActiveSdModelLabel()
+        return 'active SD model'
     }
 
     if (state.modelLabels.has(value)) {
@@ -4324,103 +4704,299 @@ async function handleMessageRendered(messageId, origin) {
     queueAutoFill(messageId, button)
 }
 
+// ==================== PRESET MANAGEMENT ====================
+
+const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
+
+function getPresetStorage() {
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            console.warn(
+                '[Image-Generation-Autopilot] Extension settings not available',
+            )
+            return {}
+        }
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
+        }
+        // Return a deep copy to avoid reference issues
+        const presets = JSON.parse(
+            JSON.stringify(ctx.extensionSettings[PRESET_STORAGE_KEY]),
+        )
+        console.log(
+            '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
+            presets,
+        )
+        return presets
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to get preset storage:',
+            error,
+        )
+        return {}
+    }
+}
+
+function savePresetToStorage(presets) {
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            console.warn(
+                '[Image-Generation-Autopilot] Extension settings not available',
+            )
+            return
+        }
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
+        }
+        console.log(
+            '[Image-Generation-Autopilot] Saving presets to extension settings:',
+            presets,
+        )
+        // Create a deep copy to avoid reference issues
+        const presetsCopy = JSON.parse(JSON.stringify(presets))
+        ctx.extensionSettings[PRESET_STORAGE_KEY] = presetsCopy
+        ctx.saveSettingsDebounced()
+        console.log('[Image-Generation-Autopilot] Presets saved successfully')
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to save preset storage:',
+            error,
+        )
+    }
+}
+
+function getAllPresets() {
+    return getPresetStorage()
+}
+
+function getPreset(id) {
+    const presets = getAllPresets()
+    return presets[id] || null
+}
+
+function savePreset(id, name, settings) {
+    const presets = getAllPresets()
+    // Exclude 'presets' property from saved preset settings to avoid circular reference
+    const { presets: _, ...settingsWithoutPresets } = settings
+    presets[id] = {
+        id,
+        name,
+        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
+        createdAt: new Date().toISOString(),
+    }
+    savePresetToStorage(presets)
+    return presets[id]
+}
+
+function deletePreset(id) {
+    const presets = getAllPresets()
+    delete presets[id]
+    savePresetToStorage(presets)
+}
+
+function handleRenamePreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        console.warn(
+            '[Image-Generation-Autopilot] Preset not found for rename:',
+            id,
+        )
+        return
+    }
+
+    const newName = prompt('Enter new name for preset:', preset.name)
+    if (!newName || newName.trim() === '') {
+        console.info('[Image-Generation-Autopilot] Rename cancelled')
+        return
+    }
+
+    const trimmedName = newName.trim()
+    if (trimmedName === preset.name) {
+        console.info('[Image-Generation-Autopilot] Name unchanged')
+        return
+    }
+
+    const presets = getAllPresets()
+    presets[id].name = trimmedName
+    savePresetToStorage(presets)
+    renderPresets()
+    console.info('[Image-Generation-Autopilot] Preset renamed:', {
+        id,
+        oldName: preset.name,
+        newName: trimmedName,
+    })
+}
+
+function loadPreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        console.warn('[Image-Generation-Autopilot] Preset not found:', id)
+        return false
+    }
+
+    const currentSettings = getSettings()
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
+
+    // Exclude 'presets' property from loaded preset settings
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
+
+    // Update settings - merge but exclude 'presets' property
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        const { presets, ...settingsWithoutPresets } = currentSettings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettingsWithoutPresets,
+        }
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function listPresets() {
+    const presets = getAllPresets()
+    return Object.values(presets).sort((a, b) => {
+        // Sort by name, then by creation date
+        if (a.name < b.name) return -1
+        if (a.name > b.name) return 1
+        return new Date(b.createdAt) - new Date(a.createdAt)
+    })
+}
+
+function getCurrentSettingsSnapshot() {
+    return JSON.parse(JSON.stringify(getSettings()))
+}
+
+// ==================== END PRESET MANAGEMENT ====================
+
 async function init() {
     if (state.initialized) {
         return
     }
 
-    ensureSettings()
-    console.info('[Image-Generation-Autopilot] init', {
-        perCharacterEnabled: getSettings()?.perCharacter?.enabled,
-    })
-    patchToastrForDebug()
-    await buildSettingsPanel()
-    applyPerCharacterOverrides()
-    injectReswipeButtonTemplate()
-    refreshReswipeButtons()
+    try {
+        ensureSettings()
+        console.info('[Image-Generation-Autopilot] init', {
+            perCharacterEnabled: getSettings()?.perCharacter?.enabled,
+        })
+        patchToastrForDebug()
+        await buildSettingsPanel()
+        applyPerCharacterOverrides()
+        injectReswipeButtonTemplate()
+        refreshReswipeButtons()
 
-    const chat = document.getElementById('chat')
-    chat?.addEventListener('click', async (event) => {
-        const reswipeTarget = event.target.closest('.auto-multi-reswipe')
-        const rewriteTarget = event.target.closest('.auto-multi-rewrite')
+        const chat = document.getElementById('chat')
+        chat?.addEventListener('click', async (event) => {
+            const reswipeTarget = event.target.closest('.auto-multi-reswipe')
+            const rewriteTarget = event.target.closest('.auto-multi-rewrite')
 
-        if (!reswipeTarget && !rewriteTarget) {
-            return
-        }
+            if (!reswipeTarget && !rewriteTarget) {
+                return
+            }
 
-        event.preventDefault()
-        event.stopPropagation()
+            event.preventDefault()
+            event.stopPropagation()
 
-        const target = reswipeTarget || rewriteTarget
-        const messageElement = target.closest('.mes')
-        const messageId = Number(messageElement?.getAttribute('mesid'))
-        if (!Number.isFinite(messageId)) {
-            return
-        }
+            const target = reswipeTarget || rewriteTarget
+            const messageElement = target.closest('.mes')
+            const messageId = Number(messageElement?.getAttribute('mesid'))
+            if (!Number.isFinite(messageId)) {
+                return
+            }
 
-        const settings = getSettings()
-        if (!settings.enabled) {
-            return
-        }
+            const settings = getSettings()
+            if (!settings.enabled) {
+                return
+            }
 
-        if (rewriteTarget) {
-            await handleManualPromptRewrite(messageId)
-            return
-        }
+            if (rewriteTarget) {
+                await handleManualPromptRewrite(messageId)
+                return
+            }
 
-        const message = getCtx().chat?.[messageId]
-        if (!shouldAutoFill(message)) {
-            return
-        }
+            const message = getCtx().chat?.[messageId]
+            if (!shouldAutoFill(message)) {
+                return
+            }
 
-        const paintbrush = await waitForPaintbrush(messageId)
-        if (!paintbrush) {
-            console.warn(
-                '[Image-Generation-Autopilot] No SD control found for message',
-                messageId,
-            )
-            return
-        }
+            const paintbrush = await waitForPaintbrush(messageId)
+            if (!paintbrush) {
+                console.warn(
+                    '[Image-Generation-Autopilot] No SD control found for message',
+                    messageId,
+                )
+                return
+            }
 
-        queueAutoFill(messageId, paintbrush)
-    })
+            queueAutoFill(messageId, paintbrush)
+        })
 
-    const { eventSource, eventTypes } = getCtx()
-    eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, handleMessageRendered)
-    eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
-    eventSource.on(eventTypes.CHAT_CHANGED, applyPerCharacterOverrides)
-    const characterEvents = [
-        'CHARACTER_SELECTED',
-        'CHARACTER_CHANGED',
-        'CHARACTER_LOADED',
-    ]
-    characterEvents.forEach((eventName) => {
-        const eventType = eventTypes?.[eventName]
-        if (eventType) {
-            eventSource.on(eventType, applyPerCharacterOverrides)
-        }
-    })
-    if (eventTypes.MORE_MESSAGES_LOADED) {
-        eventSource.on(eventTypes.MORE_MESSAGES_LOADED, refreshReswipeButtons)
-    }
-    eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
-    if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
+        const { eventSource, eventTypes } = getCtx()
         eventSource.on(
-            eventTypes.CHAT_COMPLETION_PROMPT_READY,
-            handlePromptInjection,
+            eventTypes.CHARACTER_MESSAGE_RENDERED,
+            handleMessageRendered,
         )
-    }
-    if (eventTypes.MESSAGE_RECEIVED) {
-        eventSource.on(eventTypes.MESSAGE_RECEIVED, handleIncomingMessage)
-    }
+        eventSource.on(eventTypes.CHAT_CHANGED, resetPerChatState)
+        eventSource.on(eventTypes.CHAT_CHANGED, applyPerCharacterOverrides)
+        const characterEvents = [
+            'CHARACTER_SELECTED',
+            'CHARACTER_CHANGED',
+            'CHARACTER_LOADED',
+        ]
+        characterEvents.forEach((eventName) => {
+            const eventType = eventTypes?.[eventName]
+            if (eventType) {
+                eventSource.on(eventType, applyPerCharacterOverrides)
+            }
+        })
+        if (eventTypes.MORE_MESSAGES_LOADED) {
+            eventSource.on(
+                eventTypes.MORE_MESSAGES_LOADED,
+                refreshReswipeButtons,
+            )
+        }
+        eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
+        if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
+            eventSource.on(
+                eventTypes.CHAT_COMPLETION_PROMPT_READY,
+                handlePromptInjection,
+            )
+        }
+        if (eventTypes.MESSAGE_RECEIVED) {
+            eventSource.on(eventTypes.MESSAGE_RECEIVED, handleIncomingMessage)
+        }
 
-    document.addEventListener('change', handleDocumentChange)
+        document.addEventListener('change', handleDocumentChange)
 
-    state.initialized = true
-    log('Initialized')
+        state.initialized = true
+        log('Initialized')
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Initialization failed:',
+            error,
+        )
+        // Reset initialization state to allow retry
+        state.initialized = false
+    }
 }
 
 ;(function bootstrap() {
-    const ctx = getCtx()
-    ctx.eventSource.on(ctx.eventTypes.APP_READY, () => void init())
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.eventSource || !ctx.eventTypes) {
+            console.warn(
+                '[Image-Generation-Autopilot] Context not ready, retrying...',
+            )
+            setTimeout(() => bootstrap(), 100)
+            return
+        }
+        ctx.eventSource.on(ctx.eventTypes.APP_READY, () => void init())
+    } catch (error) {
+        console.error('[Image-Generation-Autopilot] Bootstrap failed:', error)
+        setTimeout(() => bootstrap(), 100)
+    }
 })()

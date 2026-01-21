@@ -489,3 +489,361 @@
         max-width: 100%;
     }
 }
+
+/* ==================== PRESET PROFILES STYLES ==================== */
+
+.auto-multi-image-settings .auto-multi-panel--presets {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 20px;
+}
+
+/* Create preset section */
+.auto-multi-image-settings .auto-multi-preset-create {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-input {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.auto-multi-image-settings .auto-multi-preset-input::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.auto-multi-image-settings .auto-multi-preset-input:focus {
+    outline: none;
+    border-color: rgba(123, 181, 255, 0.5);
+    box-shadow: 0 0 0 3px rgba(123, 181, 255, 0.1);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.auto-multi-image-settings .auto-multi-preset-save {
+    min-width: 80px;
+    padding: 10px 16px;
+    background: linear-gradient(135deg, rgba(123, 181, 255, 0.25), rgba(138, 123, 255, 0.2));
+    border: 1px solid rgba(123, 181, 255, 0.4);
+    border-radius: 10px;
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.auto-multi-image-settings .auto-multi-preset-save:hover {
+    background: linear-gradient(135deg, rgba(123, 181, 255, 0.35), rgba(138, 123, 255, 0.3));
+    border-color: rgba(123, 181, 255, 0.6);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(123, 181, 255, 0.2);
+}
+
+.auto-multi-image-settings .auto-multi-preset-save:active {
+    transform: translateY(0);
+}
+
+/* Preset list */
+.auto-multi-image-settings .auto-multi-preset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Preset item card */
+.auto-multi-image-settings .auto-multi-preset-item {
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.2s ease;
+    gap: 14px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-item:hover {
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Preset body (load button) */
+.auto-multi-image-settings .auto-multi-preset-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    touch-action: manipulation;
+    width: 100%;
+}
+
+.auto-multi-image-settings .auto-multi-preset-body:hover .auto-multi-preset-name {
+    color: rgba(123, 181, 255, 0.9);
+}
+
+.auto-multi-image-settings .auto-multi-preset-body:focus-visible {
+    outline: 2px solid rgba(123, 181, 255, 0.7);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-info {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.auto-multi-image-settings .auto-multi-preset-name {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 0.95rem;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+}
+
+.auto-multi-image-settings .auto-multi-preset-date {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.45);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Preset actions (load, rename, delete) */
+.auto-multi-image-settings .auto-multi-preset-item .auto-multi-preset-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    width: 100%;
+}
+
+.auto-multi-image-settings .auto-multi-preset-load {
+    padding: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    background: rgba(123, 181, 255, 0.15);
+    border: 1px solid rgba(123, 181, 255, 0.3);
+    color: rgba(123, 181, 255, 0.9);
+}
+
+.auto-multi-image-settings .auto-multi-preset-load:hover {
+    background: rgba(123, 181, 255, 0.25);
+    border-color: rgba(123, 181, 255, 0.5);
+    transform: scale(1.05);
+}
+
+.auto-multi-image-settings .auto-multi-preset-rename {
+    padding: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.auto-multi-image-settings .auto-multi-preset-rename:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: scale(1.05);
+}
+
+.auto-multi-image-settings .auto-multi-preset-delete {
+    padding: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    background: rgba(255, 100, 100, 0.15);
+    border: 1px solid rgba(255, 100, 100, 0.3);
+    color: rgba(255, 100, 100, 0.95);
+}
+
+.auto-multi-image-settings .auto-multi-preset-delete:hover {
+    background: rgba(255, 100, 100, 0.25);
+    border-color: rgba(255, 100, 100, 0.5);
+    transform: scale(1.05);
+}
+
+/* Empty state */
+.auto-multi-image-settings .auto-multi-preset-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 20px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.9rem;
+    font-style: normal;
+}
+
+.auto-multi-image-settings .auto-multi-preset-empty .fa-solid {
+    font-size: 2.5rem;
+    opacity: 0.5;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .auto-multi-image-settings .auto-multi-preset-create {
+        grid-template-columns: 1fr;
+    }
+
+    .auto-multi-image-settings .auto-multi-preset-save {
+        width: 100%;
+    }
+
+    .auto-multi-image-settings .auto-multi-preset-name {
+        font-size: 0.9rem;
+    }
+
+    .auto-multi-image-settings .auto-multi-preset-date {
+        font-size: 0.7rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .auto-multi-image-settings .auto-multi-panel--presets {
+        padding: 14px;
+    }
+
+    .auto-multi-image-settings .auto-multi-preset-list {
+        max-height: 320px;
+    }
+
+    .auto-multi-image-settings .auto-multi-preset-item {
+        padding: 12px;
+        gap: 10px;
+    }
+
+    .auto-multi-image-settings .auto-multi-preset-load,
+    .auto-multi-image-settings .auto-multi-preset-rename,
+    .auto-multi-image-settings .auto-multi-preset-delete {
+        min-width: 36px;
+        min-height: 36px;
+        padding: 6px;
+    }
+}
+
+/* Character preset dropdown styles */
+.auto-multi-image-settings .auto-multi-character-presets {
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.auto-multi-image-settings .auto-multi-character-presets select {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.95);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.auto-multi-image-settings .auto-multi-character-presets select:hover {
+    border-color: rgba(123, 181, 255, 0.4);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.auto-multi-image-settings .auto-multi-character-presets select:focus {
+    outline: none;
+    border-color: rgba(123, 181, 255, 0.6);
+    box-shadow: 0 0 0 3px rgba(123, 181, 255, 0.15);
+}
+
+.auto-multi-image-settings .auto-multi-character-presets button {
+    background: rgba(123, 181, 255, 0.15);
+    border: 1px solid rgba(123, 181, 255, 0.3);
+    color: rgba(123, 181, 255, 0.95);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.auto-multi-image-settings .auto-multi-character-presets button:hover {
+    background: rgba(123, 181, 255, 0.25);
+    border-color: rgba(123, 181, 255, 0.5);
+    transform: translateY(-1px);
+}
+
+.auto-multi-image-settings .auto-multi-character-presets button:active {
+    transform: translateY(0);
+}
+
+/* Responsive adjustments for character presets */
+@media (max-width: 768px) {
+    .auto-multi-image-settings .auto-multi-character-presets {
+        flex-direction: column;
+    }
+
+    .auto-multi-image-settings .auto-multi-character-presets select,
+    .auto-multi-image-settings .auto-multi-character-presets button {
+        width: 100%;
+    }
+}
