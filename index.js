@@ -4670,8 +4670,13 @@ function getPresetStorage() {
             )
             return {}
         }
-        const settings = ctx.extensionSettings[MODULE_NAME] || {}
-        const presets = settings.presets || {}
+        if (!ctx.extensionSettings[MODULE_NAME]) {
+            ctx.extensionSettings[MODULE_NAME] = {}
+        }
+        if (!ctx.extensionSettings[MODULE_NAME].presets) {
+            ctx.extensionSettings[MODULE_NAME].presets = {}
+        }
+        const presets = ctx.extensionSettings[MODULE_NAME].presets
         console.log(
             '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
             presets,
