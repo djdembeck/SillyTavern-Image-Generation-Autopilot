@@ -4647,15 +4647,16 @@ const PRESET_STORAGE_KEY = 'auto_multi_presets'
 function getPresetStorage() {
     try {
         const ctx = getCtx()
-        if (!ctx || !ctx.storage) {
+        if (!ctx || !ctx.extensionSettings) {
             console.warn(
-                '[Image-Generation-Autopilot] Storage not available for get',
+                '[Image-Generation-Autopilot] Extension settings not available',
             )
             return {}
         }
-        const presets = ctx.storage.get(PRESET_STORAGE_KEY) || {}
+        const settings = ctx.extensionSettings[MODULE_NAME] || {}
+        const presets = settings.presets || {}
         console.log(
-            '[Image-Generation-Autopilot] Retrieved presets from storage:',
+            '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
             presets,
         )
         return presets
@@ -4671,21 +4672,22 @@ function getPresetStorage() {
 function savePresetToStorage(presets) {
     try {
         const ctx = getCtx()
-        if (ctx?.storage) {
-            console.log(
-                '[Image-Generation-Autopilot] Saving presets to storage:',
-                presets,
+        if (!ctx || !ctx.extensionSettings) {
+            console.warn(
+                '[Image-Generation-Autopilot] Extension settings not available',
             )
-            ctx.storage.set(PRESET_STORAGE_KEY, presets)
-            // Verify the save
-            const saved = ctx.storage.get(PRESET_STORAGE_KEY)
-            console.log(
-                '[Image-Generation-Autopilot] Verified saved presets:',
-                saved,
-            )
-        } else {
-            console.warn('[Image-Generation-Autopilot] Storage not available')
+            return
         }
+        if (!ctx.extensionSettings[MODULE_NAME]) {
+            ctx.extensionSettings[MODULE_NAME] = {}
+        }
+        console.log(
+            '[Image-Generation-Autopilot] Saving presets to extension settings:',
+            presets,
+        )
+        ctx.extensionSettings[MODULE_NAME].presets = presets
+        ctx.saveSettingsDebounced()
+        console.log('[Image-Generation-Autopilot] Presets saved successfully')
     } catch (error) {
         console.error(
             '[Image-Generation-Autopilot] Failed to save preset storage:',
