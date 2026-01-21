@@ -1976,11 +1976,17 @@ function renderPresets() {
     })
 
     container.querySelectorAll('.auto-multi-preset-rename').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
-                .presetId
+        btn.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const presetItem = btn.closest('.auto-multi-preset-item')
+            console.log('[Image-Generation-Autopilot] Rename button clicked, presetItem:', presetItem)
+            const presetId = presetItem?.dataset.presetId
+            console.log('[Image-Generation-Autopilot] Rename button clicked, presetId:', presetId)
             if (presetId) {
                 handleRenamePreset(presetId)
+            } else {
+                console.error('[Image-Generation-Autopilot] Could not get presetId from rename button')
             }
         })
     })
