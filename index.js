@@ -44,6 +44,7 @@ const defaultSettings = Object.freeze({
             depth: 0,
         },
     },
+    presets: {},
 })
 
 const state = {
@@ -850,12 +851,17 @@ function applyPresetToCharacter(presetId) {
     }
 
     const settings = getSettings()
-    const mergedSettings = { ...settings, ...preset.settings }
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
 
-    // Update settings
+    // Update settings - merge but preserve 'presets' and other metadata
     const ctx = getCtx()
     if (ctx?.extensionSettings?.[MODULE_NAME]) {
-        ctx.extensionSettings[MODULE_NAME] = mergedSettings
+        const { presets, ...settingsWithoutPresets } = settings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettings,
+            presets: presets || {}  // Always preserve presets
+        }
     }
 
     // Save to character if per-character is enabled
@@ -876,12 +882,17 @@ function savePresetToCharacter(presetId) {
     }
 
     const settings = getSettings()
-    const mergedSettings = { ...settings, ...preset.settings }
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
 
-    // Update settings
+    // Update settings - merge but preserve 'presets' and other metadata
     const ctx = getCtx()
     if (ctx?.extensionSettings?.[MODULE_NAME]) {
-        ctx.extensionSettings[MODULE_NAME] = mergedSettings
+        const { presets, ...settingsWithoutPresets } = settings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettings,
+            presets: presets || {}  // Always preserve presets
+        }
     }
 
     // Save to character if per-character is enabled
@@ -4730,13 +4741,15 @@ function loadPreset(id) {
     const currentSettings = getSettings()
     const newSettings = JSON.parse(JSON.stringify(preset.settings))
 
-    // Merge settings, preserving structure
-    const mergedSettings = { ...currentSettings, ...newSettings }
-
-    // Update settings
+    // Update settings - merge but preserve 'presets' and other metadata
     const ctx = getCtx()
     if (ctx?.extensionSettings?.[MODULE_NAME]) {
-        ctx.extensionSettings[MODULE_NAME] = mergedSettings
+        const { presets, ...settingsWithoutPresets } = currentSettings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettings,
+            presets: presets || {}  // Always preserve presets
+        }
     }
 
     // Save and sync UI
