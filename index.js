@@ -1591,8 +1591,6 @@ async function buildSettingsPanel() {
         characterPanel,
         characterEnabledInput,
         characterResetButton,
-        characterPresetSelect: null,
-        characterPresetApplyButton: null,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -1628,31 +1626,6 @@ async function buildSettingsPanel() {
         event.preventDefault()
         resetPerCharacterSettingsToDefaults()
     })
-
-    // Character preset functionality
-    const characterPresetSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_character_preset_select')
-    )
-    const characterPresetApplyButton = /** @type {HTMLButtonElement | null} */ (
-        container.querySelector('#auto_multi_character_apply_preset')
-    )
-
-    characterPresetSelect?.addEventListener('change', () => {
-        if (characterPresetSelect.value) {
-            handleLoadPresetToCharacter(characterPresetSelect.value)
-        }
-    })
-
-    characterPresetApplyButton?.addEventListener('click', (event) => {
-        event.preventDefault()
-        if (characterPresetSelect?.value) {
-            handleLoadPresetToCharacter(characterPresetSelect.value)
-        }
-    })
-
-    // Store character preset references
-    state.ui.characterPresetSelect = characterPresetSelect
-    state.ui.characterPresetApplyButton = characterPresetApplyButton
 
     countInput.addEventListener('change', () => {
         const current = getSettings()
@@ -2000,34 +1973,6 @@ function escapeHtml(text) {
     const div = document.createElement('div')
     div.textContent = text
     return div.innerHTML
-}
-
-function updateCharacterPresetDropdown() {
-    const select = state.ui.characterPresetSelect
-    if (!select) {
-        return
-    }
-
-    const presets = listPresets()
-
-    // Save current selection
-    const currentValue = select.value
-
-    // Clear existing options
-    select.innerHTML = '<option value="">-- Select a preset --</option>'
-
-    // Add presets to dropdown
-    presets.forEach((preset) => {
-        const option = document.createElement('option')
-        option.value = preset.id
-        option.textContent = preset.name
-        select.appendChild(option)
-    })
-
-    // Restore selection if it still exists
-    if (currentValue && presets.some((p) => p.id === currentValue)) {
-        select.value = currentValue
-    }
 }
 
 function resetPerCharacterSettingsToDefaults() {
@@ -2529,9 +2474,6 @@ function syncUiFromSettings() {
         state.ui.container,
         settings.autoGeneration.promptInjection.picCountMode,
     )
-
-    // Update preset dropdown in character panel
-    updateCharacterPresetDropdown()
 
     const setPanelEnabled = (panel, enabled) => {
         if (!panel) {
