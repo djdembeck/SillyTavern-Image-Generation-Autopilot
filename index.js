@@ -215,12 +215,22 @@ function ensureSettings() {
         // Check if presets exist and if any of them contain the 'presets' property in their settings
         // This indicates they were saved before the fix and need to be cleared
         if (settings.presets && Object.keys(settings.presets).length > 0) {
-            const hasOldPresets = Object.values(settings.presets).some(preset =>
-                preset.settings && preset.settings.presets
-            )
+            console.log('[Image-Generation-Autopilot] Checking for old presets...', {
+                presetCount: Object.keys(settings.presets).length,
+                presets: settings.presets
+            })
+            const hasOldPresets = Object.values(settings.presets).some(preset => {
+                const isOld = preset.settings && preset.settings.presets
+                if (isOld) {
+                    console.log('[Image-Generation-Autopilot] Found old preset:', preset.id, preset.name)
+                }
+                return isOld
+            })
             if (hasOldPresets) {
                 console.log('[Image-Generation-Autopilot] Clearing old presets that contain embedded presets')
                 settings.presets = {}
+            } else {
+                console.log('[Image-Generation-Autopilot] No old presets found, keeping current presets')
             }
         }
 
