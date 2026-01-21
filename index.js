@@ -1987,7 +1987,7 @@ function renderPresets() {
                         <div class="auto-multi-preset-date">${createdAt}</div>
                     </div>
                     <span
-                        class="fa-solid fa-arrow-right-long auto-multi-preset-load-icon"
+                        class="fa-solid fa-download auto-multi-preset-load-icon"
                         aria-hidden="true"
                     ></span>
                 </button>
