@@ -852,6 +852,9 @@ function applyPresetToCharacter(presetId) {
 
     const settings = getSettings()
     const newSettings = JSON.parse(JSON.stringify(preset.settings))
+    
+    // Exclude 'presets' property from loaded preset settings to avoid overwriting current presets
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
 
     // Update settings - merge but preserve 'presets' and other metadata
     const ctx = getCtx()
@@ -859,8 +862,8 @@ function applyPresetToCharacter(presetId) {
         const { presets, ...settingsWithoutPresets } = settings
         ctx.extensionSettings[MODULE_NAME] = {
             ...settingsWithoutPresets,
-            ...newSettings,
-            presets: presets || {}  // Always preserve presets
+            ...newSettingsWithoutPresets,
+            presets: presets || {}  // Always preserve current presets
         }
     }
 
@@ -883,6 +886,9 @@ function savePresetToCharacter(presetId) {
 
     const settings = getSettings()
     const newSettings = JSON.parse(JSON.stringify(preset.settings))
+    
+    // Exclude 'presets' property from loaded preset settings to avoid overwriting current presets
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
 
     // Update settings - merge but preserve 'presets' and other metadata
     const ctx = getCtx()
@@ -890,8 +896,8 @@ function savePresetToCharacter(presetId) {
         const { presets, ...settingsWithoutPresets } = settings
         ctx.extensionSettings[MODULE_NAME] = {
             ...settingsWithoutPresets,
-            ...newSettings,
-            presets: presets || {}  // Always preserve presets
+            ...newSettingsWithoutPresets,
+            presets: presets || {}  // Always preserve current presets
         }
     }
 
@@ -4742,6 +4748,9 @@ function loadPreset(id) {
 
     const currentSettings = getSettings()
     const newSettings = JSON.parse(JSON.stringify(preset.settings))
+    
+    // Exclude 'presets' property from loaded preset settings to avoid overwriting current presets
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
 
     // Update settings - merge but preserve 'presets' and other metadata
     const ctx = getCtx()
@@ -4749,8 +4758,8 @@ function loadPreset(id) {
         const { presets, ...settingsWithoutPresets } = currentSettings
         ctx.extensionSettings[MODULE_NAME] = {
             ...settingsWithoutPresets,
-            ...newSettings,
-            presets: presets || {}  // Always preserve presets
+            ...newSettingsWithoutPresets,
+            presets: presets || {}  // Always preserve current presets
         }
     }
 
