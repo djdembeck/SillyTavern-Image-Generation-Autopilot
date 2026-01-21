@@ -1975,10 +1975,20 @@ function renderPresets() {
             const createdAt = new Date(preset.createdAt).toLocaleString()
             return `
             <div class="auto-multi-preset-item" data-preset-id="${preset.id}">
-                <div class="auto-multi-preset-info">
-                    <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
-                    <div class="auto-multi-preset-date">${createdAt}</div>
-                </div>
+                <button
+                    type="button"
+                    class="auto-multi-preset-body"
+                    title="Load this preset"
+                >
+                    <div class="auto-multi-preset-info">
+                        <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
+                        <div class="auto-multi-preset-date">${createdAt}</div>
+                    </div>
+                    <span
+                        class="fa-solid fa-arrow-right-long auto-multi-preset-load-icon"
+                        aria-hidden="true"
+                    ></span>
+                </button>
                 <div class="auto-multi-preset-actions flex-container flexGap5">
                     <button
                         type="button"
@@ -1986,13 +1996,6 @@ function renderPresets() {
                         title="Rename this preset"
                     >
                         <span class="fa-solid fa-pen"></span>
-                    </button>
-                    <button
-                        type="button"
-                        class="menu_button auto-multi-preset-load"
-                        title="Load this preset"
-                    >
-                        <span class="fa-solid fa-check"></span>
                     </button>
                     <button
                         type="button"
@@ -2008,7 +2011,7 @@ function renderPresets() {
         .join('')
 
     // Add event listeners to preset buttons
-    container.querySelectorAll('.auto-multi-preset-load').forEach((btn) => {
+    container.querySelectorAll('.auto-multi-preset-body').forEach((btn) => {
         btn.addEventListener('click', () => {
             const presetId = btn.closest('.auto-multi-preset-item')?.dataset
                 .presetId

@@ -562,6 +562,38 @@
     transform: translateY(-1px);
 }
 
+.auto-multi-image-settings .auto-multi-preset-body {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.auto-multi-image-settings .auto-multi-preset-body:focus-visible {
+    outline: 2px solid rgba(123, 181, 255, 0.7);
+    outline-offset: 2px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-load-icon {
+    color: rgba(123, 181, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+.auto-multi-image-settings .auto-multi-preset-body:hover .auto-multi-preset-load-icon {
+    color: rgba(123, 181, 255, 0.95);
+}
+
 .auto-multi-image-settings .auto-multi-preset-info {
     flex: 1 1 0;
     min-width: 0;
@@ -597,7 +629,7 @@
     align-items: center;
 }
 
-.auto-multi-image-settings .auto-multi-preset-load,
+.auto-multi-image-settings .auto-multi-preset-rename,
 .auto-multi-image-settings .auto-multi-preset-delete {
     padding: 6px 10px;
     min-width: 32px;
@@ -609,18 +641,6 @@
     border-radius: 6px;
     transition: all 0.2s ease;
     white-space: nowrap;
-}
-
-.auto-multi-image-settings .auto-multi-preset-load {
-    background: rgba(123, 181, 255, 0.15);
-    border: 1px solid rgba(123, 181, 255, 0.3);
-    color: rgba(123, 181, 255, 0.95);
-}
-
-.auto-multi-image-settings .auto-multi-preset-load:hover {
-    background: rgba(123, 181, 255, 0.25);
-    border-color: rgba(123, 181, 255, 0.5);
-    transform: scale(1.05);
 }
 
 .auto-multi-image-settings .auto-multi-preset-delete {
