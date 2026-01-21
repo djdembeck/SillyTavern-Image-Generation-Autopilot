@@ -1939,6 +1939,13 @@ function renderPresets() {
                 <div class="auto-multi-preset-actions flex-container flexGap5">
                     <button
                         type="button"
+                        class="menu_button auto-multi-preset-rename"
+                        title="Rename this preset"
+                    >
+                        <span class="fa-solid fa-pen"></span>
+                    </button>
+                    <button
+                        type="button"
                         class="menu_button auto-multi-preset-load"
                         title="Load this preset"
                     >
@@ -1974,6 +1981,16 @@ function renderPresets() {
                 .presetId
             if (presetId) {
                 handleDeletePreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-rename').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleRenamePreset(presetId)
             }
         })
     })
@@ -4721,6 +4738,39 @@ function deletePreset(id) {
     const presets = getAllPresets()
     delete presets[id]
     savePresetToStorage(presets)
+}
+
+function handleRenamePreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        console.warn(
+            '[Image-Generation-Autopilot] Preset not found for rename:',
+            id,
+        )
+        return
+    }
+
+    const newName = prompt('Enter new name for preset:', preset.name)
+    if (!newName || newName.trim() === '') {
+        console.info('[Image-Generation-Autopilot] Rename cancelled')
+        return
+    }
+
+    const trimmedName = newName.trim()
+    if (trimmedName === preset.name) {
+        console.info('[Image-Generation-Autopilot] Name unchanged')
+        return
+    }
+
+    const presets = getAllPresets()
+    presets[id].name = trimmedName
+    savePresetToStorage(presets)
+    renderPresets()
+    console.info('[Image-Generation-Autopilot] Preset renamed:', {
+        id,
+        oldName: preset.name,
+        newName: trimmedName,
+    })
 }
 
 function loadPreset(id) {
