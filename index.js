@@ -4682,10 +4682,12 @@ function getPreset(id) {
 
 function savePreset(id, name, settings) {
     const presets = getAllPresets()
+    // Exclude 'presets' property from saved preset settings to avoid circular reference
+    const { presets: _, ...settingsWithoutPresets } = settings
     presets[id] = {
         id,
         name,
-        settings: JSON.parse(JSON.stringify(settings)),
+        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
         createdAt: new Date().toISOString(),
     }
     savePresetToStorage(presets)
