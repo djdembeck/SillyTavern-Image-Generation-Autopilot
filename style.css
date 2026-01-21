@@ -595,15 +595,6 @@
     gap: 4px;
     flex-shrink: 0;
     align-items: center;
-    width: 100%;
-}
-
-@media (min-width: 576px) {
-    .auto-multi-image-settings
-        .auto-multi-preset-item
-        .auto-multi-preset-actions {
-        width: auto;
-    }
 }
 
 .auto-multi-image-settings .auto-multi-preset-load,
