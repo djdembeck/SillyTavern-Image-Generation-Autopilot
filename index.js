@@ -4183,6 +4183,61 @@ async function waitForMediaIncrement(messageId, previousCount) {
         if (count > previousCount) {
             return true
         }
+
+        if (isGenerationInProgress(messageId)) {
+            return false
+        }
+
+        if (checkForImageDeletion(messageId, previousCount)) {
+            return false
+        }
+    }
+
+    return false
+}
+
+function isGenerationInProgress(messageId) {
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (!button) {
+        return false
+    }
+
+    return button.classList.contains('fa-hourglass') ||
+           button.classList.contains('fa-hourglass-half')
+}
+
+function detectGenerationCancellation(messageId) {
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (!button) {
+        return true
+    }
+
+    return !button.classList.contains('fa-hourglass') &&
+           !button.classList.contains('fa-hourglass-half')
+}
+
+function checkForImageDeletion(messageId, previousCount) {
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (!button) {
+        return false
+    }
+
+    const message = getCtx().chat?.[messageId]
+    if (!message) {
+        return false
+    }
+
+    const currentCount = getMediaCount(message)
+    if (currentCount < previousCount) {
+        console.warn(
+            '[Image-Generation-Autopilot] Detected image deletion during generation',
+            messageId,
+            { previousCount, currentCount },
+        )
+        return true
     }
 
     return false
@@ -4257,102 +4312,121 @@ async function runSequentialSwipePlan(
         models: plan.map((entry) => ({ id: entry.id, count: entry.count })),
     })
 
-    outer: for (const entry of plan) {
-        const modelLabel = getModelLabel(entry.id)
-        const restoreModel = await applyModelOverride(entry.id)
+        outer: for (const entry of plan) {
+            const modelLabel = getModelLabel(entry.id)
+            const restoreModel = await applyModelOverride(entry.id)
 
-        try {
-            for (
-                let swipeIndex = 0;
-                swipeIndex < entry.count;
-                swipeIndex += 1
-            ) {
-                const settings = getSettings()
-                if (!settings.enabled || token !== state.chatToken) {
-                    break outer
-                }
-
-                const message = getCtx().chat?.[messageId]
-                if (!message) {
-                    break outer
-                }
-
-                if (!button?.isConnected) {
-                    button = await waitForPaintbrush(messageId)
-                    if (!button) {
-                        console.warn(
-                            '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
-                            messageId,
-                        )
+            try {
+                for (
+                    let swipeIndex = 0;
+                    swipeIndex < entry.count;
+                    swipeIndex += 1
+                ) {
+                    const settings = getSettings()
+                    if (!settings.enabled || token !== state.chatToken) {
                         break outer
                     }
-                }
 
-                const pendingLabel = swipeLabels?.[completed]
-                if (
-                    !updateUnifiedProgress(
-                        messageId,
-                        true,
-                        pendingLabel
-                            ? `Generating ${pendingLabel}`
-                            : modelLabel,
-                    )
-                ) {
-                    updateProgressUi(
-                        messageId,
-                        completed,
-                        effectiveTarget,
-                        true,
-                        pendingLabel
-                            ? `Waiting on ${pendingLabel}`
-                            : modelLabel,
-                    )
-                }
-                log('Dispatching sequential swipe', {
-                    messageId,
-                    modelId: entry.id,
-                    swipeIndex: swipeIndex + 1,
-                    totalForModel: entry.count,
-                    completedSoFar: completed,
-                    state: getMessageSwipeState(messageId),
-                })
-
-                const success = await requestSwipe(button, messageId)
-                if (!success) {
-                    console.warn(
-                        '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
-                        messageId,
-                    )
-                    failed += 1
-                    effectiveTarget = Math.max(1, totalSwipes - failed)
-                    const failedLabel = swipeLabels?.[completed]
-                    if (state.unifiedProgress.active) {
-                        state.unifiedProgress.expectedSwipes = Math.max(
-                            0,
-                            state.unifiedProgress.expectedSwipes - 1,
-                        )
+                    const message = getCtx().chat?.[messageId]
+                    if (!message) {
+                        break outer
                     }
+
+                    if (isGenerationInProgress(messageId)) {
+                        console.warn(
+                            '[Image-Generation-Autopilot] Generation still in progress when trying to start new swipe for message',
+                            messageId,
+                        )
+                        const remainingModels = plan.slice(
+                            plan.indexOf(entry) + 1,
+                        )
+                        if (remainingModels.length > 0) {
+                            log('Skipping remaining models, waiting for current generation to complete', {
+                                remainingModels: remainingModels.map((m) => ({ id: m.id })),
+                            })
+                            await sleep(1000)
+                            continue
+                        }
+                        break outer
+                    }
+
+                    if (!button?.isConnected) {
+                        button = await waitForPaintbrush(messageId)
+                        if (!button) {
+                            console.warn(
+                                '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
+                                messageId,
+                            )
+                            break outer
+                        }
+                    }
+
+                    const pendingLabel = swipeLabels?.[completed]
                     if (
                         !updateUnifiedProgress(
                             messageId,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${modelLabel} swipe failed`,
+                            true,
+                            pendingLabel
+                                ? `Generating ${pendingLabel}`
+                                : modelLabel,
                         )
                     ) {
                         updateProgressUi(
                             messageId,
                             completed,
                             effectiveTarget,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${modelLabel} swipe failed`,
+                            true,
+                            pendingLabel
+                                ? `Waiting on ${pendingLabel}`
+                                : modelLabel,
                         )
                     }
-                    continue
-                }
+                    log('Dispatching sequential swipe', {
+                        messageId,
+                        modelId: entry.id,
+                        swipeIndex: swipeIndex + 1,
+                        totalForModel: entry.count,
+                        completedSoFar: completed,
+                        state: getMessageSwipeState(messageId),
+                    })
+
+                    const success = await requestSwipe(button, messageId)
+                    if (!success) {
+                        console.warn(
+                            '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
+                            messageId,
+                        )
+                        failed += 1
+                        effectiveTarget = Math.max(1, totalSwipes - failed)
+                        const failedLabel = swipeLabels?.[completed]
+                        if (state.unifiedProgress.active) {
+                            state.unifiedProgress.expectedSwipes = Math.max(
+                                0,
+                                state.unifiedProgress.expectedSwipes - 1,
+                            )
+                        }
+                        if (
+                            !updateUnifiedProgress(
+                                messageId,
+                                false,
+                                failedLabel
+                                    ? `Failed ${failedLabel}`
+                                    : `${modelLabel} swipe failed`,
+                            )
+                        ) {
+                            updateProgressUi(
+                                messageId,
+                                completed,
+                                effectiveTarget,
+                                false,
+                                failedLabel
+                                    ? `Failed ${failedLabel}`
+                                    : `${modelLabel} swipe failed`,
+                            )
+                        }
+                        continue
+                    }
+
 
                 const completedLabel = swipeLabels?.[completed]
                 completed += 1
@@ -4559,6 +4633,7 @@ async function monitorBurstCompletion(
     const effectiveTarget = Math.max(1, totalSwipes - failedDispatches)
     const targetCount = baselineCount + effectiveTarget
     let lastDelivered = 0
+    let lastWasInProgress = false
 
     while (performance.now() < deadline) {
         if (token !== state.chatToken) {
@@ -4573,6 +4648,17 @@ async function monitorBurstCompletion(
         const attachments = getMediaCount(message)
         const delivered = Math.max(0, attachments - baselineCount)
         lastDelivered = delivered
+        const isCurrentlyInProgress = isGenerationInProgress(messageId)
+        
+        if (lastWasInProgress && !isCurrentlyInProgress) {
+            console.warn(
+                '[Image-Generation-Autopilot] Generation detected as stopped unexpectedly',
+                messageId,
+            )
+            break
+        }
+        lastWasInProgress = isCurrentlyInProgress
+
         const pendingLabel = swipeLabels?.[delivered]
         if (state.unifiedProgress.active) {
             const baseCompleted =
@@ -4595,8 +4681,8 @@ async function monitorBurstCompletion(
                 effectiveTarget,
                 delivered < effectiveTarget,
                 pendingLabel
-                    ? `Waiting on ${pendingLabel}`
-                    : 'Waiting for swipes',
+                    ? `Queued ${pendingLabel}`
+                    : label,
             )
         }
 
@@ -4604,15 +4690,23 @@ async function monitorBurstCompletion(
             return
         }
 
+        if (isCurrentlyInProgress) {
+            await sleep(350)
+            continue
+        }
+
         await sleep(350)
     }
 
-    console.warn(
-        '[Image-Generation-Autopilot] Burst swipe completion timed out for message',
-        messageId,
-    )
-
     const timeoutDelivered = Math.min(lastDelivered, effectiveTarget)
+    if (lastWasInProgress) {
+        console.warn(
+            '[Image-Generation-Autopilot] Generation stopped unexpectedly for message',
+            messageId,
+            { timeoutDelivered, effectiveTarget },
+        )
+    }
+
     if (state.unifiedProgress.active) {
         state.unifiedProgress.completedSwipes = Math.max(
             0,
