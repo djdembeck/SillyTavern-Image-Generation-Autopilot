@@ -4185,10 +4185,7 @@ async function waitForMediaIncrement(messageId, previousCount) {
             return true
         }
 
-        if (checkForImageDeletion(messageId, previousCount)) {
-            clearGenerationState(messageId)
-            return false
-        }
+        checkForImageDeletion(messageId, previousCount)
 
         if (isGenerationInProgress(messageId)) {
             continue
