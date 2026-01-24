@@ -4181,18 +4181,29 @@ async function waitForMediaIncrement(messageId, previousCount) {
 
         const count = getMediaCount(message)
         if (count > previousCount) {
+            clearGenerationState(messageId)
             return true
         }
 
-        if (isGenerationInProgress(messageId)) {
+        if (checkForImageDeletion(messageId, previousCount)) {
+            clearGenerationState(messageId)
             return false
         }
 
-        if (checkForImageDeletion(messageId, previousCount)) {
-            return false
+        if (isGenerationInProgress(messageId)) {
+            continue
         }
+
+        clearGenerationState(messageId)
+        console.warn(
+            '[Image-Generation-Autopilot] Generation stopped without new media',
+            messageId,
+            { previousCount, currentCount: count },
+        )
+        return false
     }
 
+    clearGenerationState(messageId)
     return false
 }
 
@@ -4292,6 +4303,20 @@ function checkForImageDeletion(messageId, previousCount) {
     }
 
     return false
+}
+
+function clearGenerationState(messageId) {
+    const message = getCtx().chat?.[messageId]
+    if (!message) {
+        return
+    }
+
+    const swipeId = message.swipe_id
+    const stateKey = `${messageId}_${swipeId}`
+    
+    if (state.generationStates?.[stateKey]) {
+        delete state.generationStates[stateKey]
+    }
 }
 
 async function requestSwipe(button, messageId) {
@@ -4443,6 +4468,7 @@ async function runSequentialSwipePlan(
 
                     const success = await requestSwipe(button, messageId)
                     if (!success) {
+                        clearGenerationState(messageId)
                         console.warn(
                             '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
                             messageId,
