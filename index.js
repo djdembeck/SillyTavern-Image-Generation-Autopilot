@@ -4219,7 +4219,7 @@ function isGenerationInProgress(messageId) {
     const mediaCount = getMediaCount(message)
     
     const stateKey = `${messageId}_${swipeId}`
-    const stateEntry = state.generationStates?.[stateKey]
+    let stateEntry = state.generationStates?.[stateKey]
     
     if (!stateEntry) {
         stateEntry = {
