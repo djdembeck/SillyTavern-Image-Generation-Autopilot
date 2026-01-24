@@ -4248,10 +4248,6 @@ function isGenerationInProgress(messageId) {
             stateEntry.stuckCheckCount++
             if (stateEntry.stuckCheckCount >= 2) {
                 delete state.generationStates[stateKey]
-                console.warn(
-                    '[Image-Generation-Autopilot] Generation stuck detected - hourglass present but no media change',
-                    messageId,
-                )
                 return false
             }
         } else {
