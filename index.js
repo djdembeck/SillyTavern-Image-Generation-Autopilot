@@ -3955,12 +3955,20 @@ function findMessageActionBar(messageId) {
     return null
 }
 
+function findMessageExtraButtonsBar(messageId) {
+    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
+    if (!root) {
+        return null
+    }
+
+    const bar = root.querySelector('.mes_buttons .extraMesButtons')
+    return bar
+}
+
 function injectReswipeButtonTemplate() {
-    const template = document.querySelector(
+    const target = document.querySelector(
         '#message_template .mes_buttons .extraMesButtons',
     )
-    const fallback = document.querySelector('#message_template .mes_buttons')
-    const target = template || fallback
     if (!target) {
         console.warn(
             '[Image-Generation-Autopilot] Message toolbar template not found',
@@ -4005,7 +4013,7 @@ function ensureReswipeButton(messageId, shouldShow = true) {
         return
     }
 
-    const bar = findMessageActionBar(messageId)
+    const bar = findMessageExtraButtonsBar(messageId)
     if (!bar) {
         return
     }
@@ -4015,7 +4023,7 @@ function ensureReswipeButton(messageId, shouldShow = true) {
         'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
     button.title = 'run image auto-swipe'
     button.setAttribute('tabindex', '0')
-    bar.appendChild(button)
+    bar.prepend(button)
 }
 
 function ensureRewriteButton(messageId, shouldShow = true) {
@@ -4034,7 +4042,7 @@ function ensureRewriteButton(messageId, shouldShow = true) {
         return
     }
 
-    const bar = findMessageActionBar(messageId)
+    const bar = findMessageExtraButtonsBar(messageId)
     if (!bar) {
         return
     }
@@ -4044,7 +4052,7 @@ function ensureRewriteButton(messageId, shouldShow = true) {
         'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
     button.title = 'rewrite <pic> prompts and regenerate images'
     button.setAttribute('tabindex', '0')
-    bar.appendChild(button)
+    bar.prepend(button)
 }
 
 function refreshReswipeButtons() {
