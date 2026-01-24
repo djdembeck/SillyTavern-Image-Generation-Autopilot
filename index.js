@@ -2182,8 +2182,9 @@ function resetPerCharacterSettingsToDefaults() {
         typeof window.toastr === 'object' &&
         typeof window.toastr.success === 'function'
     ) {
+        const displayName = characterName.replace(/\.png$/, '')
         window.toastr.success(
-            `Character settings reset to global defaults for ${characterName}`,
+            `Character settings reset to global defaults for ${displayName}`,
             'Settings Reset',
         )
     }
