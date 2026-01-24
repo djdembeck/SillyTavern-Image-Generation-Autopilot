@@ -4195,12 +4195,7 @@ async function waitForMediaIncrement(messageId, previousCount) {
         }
 
         clearGenerationState(messageId)
-        console.warn(
-            '[Image-Generation-Autopilot] Generation stopped without new media',
-            messageId,
-            { previousCount, currentCount: count },
-        )
-        return false
+        return true
     }
 
     clearGenerationState(messageId)
