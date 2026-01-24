@@ -4317,6 +4317,12 @@ function clearGenerationState(messageId) {
     if (state.generationStates?.[stateKey]) {
         delete state.generationStates[stateKey]
     }
+
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (button) {
+        button.classList.remove('fa-hourglass', 'fa-hourglass-half')
+    }
 }
 
 async function requestSwipe(button, messageId) {
