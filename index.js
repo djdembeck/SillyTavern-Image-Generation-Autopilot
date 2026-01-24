@@ -3264,6 +3264,15 @@ async function handleIncomingMessage(messageId) {
                 } else {
                     completedImages += 1
                     state.unifiedProgress.completedImages = completedImages
+                    log('Image generation completed', {
+                        messageId: resolvedId,
+                        imageIndex: index + 1,
+                        totalImages,
+                        completedImages,
+                        failedImages,
+                        prompt: finalPrompt,
+                        insertType: autoSettings.insertType,
+                    })
                     if (
                         !updateUnifiedProgress(
                             resolvedId,
@@ -3402,6 +3411,16 @@ async function handleIncomingMessage(messageId) {
             await context.saveChat?.()
             completedImages += 1
             state.unifiedProgress.completedImages = completedImages
+            log('Image generation completed', {
+                messageId: resolvedId,
+                imageIndex: index + 1,
+                totalImages,
+                completedImages,
+                failedImages,
+                prompt: finalPrompt,
+                imageUrl,
+                insertType: autoSettings.insertType,
+            })
             if (
                 !updateUnifiedProgress(
                     resolvedId,
@@ -4727,9 +4746,19 @@ async function monitorBurstCompletion(
 
         const attachments = getMediaCount(message)
         const delivered = Math.max(0, attachments - baselineCount)
+        if (delivered > lastDelivered) {
+            log('Swipe generation completed', {
+                messageId,
+                delivered,
+                lastDelivered,
+                baselineCount,
+                targetCount,
+                swipeLabel: swipeLabels?.[delivered - 1],
+            })
+        }
         lastDelivered = delivered
         const isCurrentlyInProgress = isGenerationInProgress(messageId)
-        
+
         if (lastWasInProgress && !isCurrentlyInProgress) {
             console.warn(
                 '[Image-Generation-Autopilot] Generation detected as stopped unexpectedly',
