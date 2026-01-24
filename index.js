@@ -4203,8 +4203,59 @@ function isGenerationInProgress(messageId) {
         return false
     }
 
-    return button.classList.contains('fa-hourglass') ||
-           button.classList.contains('fa-hourglass-half')
+    const hasHourglassClass = button.classList.contains('fa-hourglass') ||
+                               button.classList.contains('fa-hourglass-half')
+    
+    if (!hasHourglassClass) {
+        return false
+    }
+
+    const message = getCtx().chat?.[messageId]
+    if (!message) {
+        return false
+    }
+
+    const swipeId = message.swipe_id
+    const mediaCount = getMediaCount(message)
+    
+    const stateKey = `${messageId}_${swipeId}`
+    const stateEntry = state.generationStates?.[stateKey]
+    
+    if (!stateEntry) {
+        stateEntry = {
+            lastMediaCount: mediaCount,
+            lastCheckTime: Date.now(),
+            stuckCheckCount: 0
+        }
+        if (!state.generationStates) {
+            state.generationStates = {}
+        }
+        state.generationStates[stateKey] = stateEntry
+        return true
+    }
+
+    const now = Date.now()
+    const timeSinceLastCheck = now - stateEntry.lastCheckTime
+    
+    if (timeSinceLastCheck >= 2000) {
+        if (mediaCount === stateEntry.lastMediaCount) {
+            stateEntry.stuckCheckCount++
+            if (stateEntry.stuckCheckCount >= 2) {
+                delete state.generationStates[stateKey]
+                console.warn(
+                    '[Image-Generation-Autopilot] Generation stuck detected - hourglass present but no media change',
+                    messageId,
+                )
+                return false
+            }
+        } else {
+            stateEntry.stuckCheckCount = 0
+        }
+        stateEntry.lastMediaCount = mediaCount
+        stateEntry.lastCheckTime = now
+    }
+
+    return true
 }
 
 function detectGenerationCancellation(messageId) {
