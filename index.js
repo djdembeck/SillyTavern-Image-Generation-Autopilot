@@ -2182,8 +2182,9 @@ function resetPerCharacterSettingsToDefaults() {
         typeof window.toastr === 'object' &&
         typeof window.toastr.success === 'function'
     ) {
+        const displayName = characterName.replace(/\.png$/, '')
         window.toastr.success(
-            `Character settings reset to global defaults for ${characterName}`,
+            `Character settings reset to global defaults for ${displayName}`,
             'Settings Reset',
         )
     }
@@ -3263,6 +3264,15 @@ async function handleIncomingMessage(messageId) {
                 } else {
                     completedImages += 1
                     state.unifiedProgress.completedImages = completedImages
+                    log('Image generation completed', {
+                        messageId: resolvedId,
+                        imageIndex: index + 1,
+                        totalImages,
+                        completedImages,
+                        failedImages,
+                        prompt: finalPrompt,
+                        insertType: autoSettings.insertType,
+                    })
                     if (
                         !updateUnifiedProgress(
                             resolvedId,
@@ -3401,6 +3411,16 @@ async function handleIncomingMessage(messageId) {
             await context.saveChat?.()
             completedImages += 1
             state.unifiedProgress.completedImages = completedImages
+            log('Image generation completed', {
+                messageId: resolvedId,
+                imageIndex: index + 1,
+                totalImages,
+                completedImages,
+                failedImages,
+                prompt: finalPrompt,
+                imageUrl,
+                insertType: autoSettings.insertType,
+            })
             if (
                 !updateUnifiedProgress(
                     resolvedId,
@@ -3955,12 +3975,20 @@ function findMessageActionBar(messageId) {
     return null
 }
 
+function findMessageExtraButtonsBar(messageId) {
+    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
+    if (!root) {
+        return null
+    }
+
+    const bar = root.querySelector('.mes_buttons .extraMesButtons')
+    return bar
+}
+
 function injectReswipeButtonTemplate() {
-    const template = document.querySelector(
+    const target = document.querySelector(
         '#message_template .mes_buttons .extraMesButtons',
     )
-    const fallback = document.querySelector('#message_template .mes_buttons')
-    const target = template || fallback
     if (!target) {
         console.warn(
             '[Image-Generation-Autopilot] Message toolbar template not found',
@@ -4005,7 +4033,7 @@ function ensureReswipeButton(messageId, shouldShow = true) {
         return
     }
 
-    const bar = findMessageActionBar(messageId)
+    const bar = findMessageExtraButtonsBar(messageId)
     if (!bar) {
         return
     }
@@ -4015,7 +4043,7 @@ function ensureReswipeButton(messageId, shouldShow = true) {
         'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
     button.title = 'run image auto-swipe'
     button.setAttribute('tabindex', '0')
-    bar.appendChild(button)
+    bar.prepend(button)
 }
 
 function ensureRewriteButton(messageId, shouldShow = true) {
@@ -4034,7 +4062,7 @@ function ensureRewriteButton(messageId, shouldShow = true) {
         return
     }
 
-    const bar = findMessageActionBar(messageId)
+    const bar = findMessageExtraButtonsBar(messageId)
     if (!bar) {
         return
     }
@@ -4044,7 +4072,7 @@ function ensureRewriteButton(messageId, shouldShow = true) {
         'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
     button.title = 'rewrite <pic> prompts and regenerate images'
     button.setAttribute('tabindex', '0')
-    bar.appendChild(button)
+    bar.prepend(button)
 }
 
 function refreshReswipeButtons() {
@@ -4181,11 +4209,136 @@ async function waitForMediaIncrement(messageId, previousCount) {
 
         const count = getMediaCount(message)
         if (count > previousCount) {
+            clearGenerationState(messageId)
             return true
         }
+
+        checkForImageDeletion(messageId, previousCount)
+
+        if (isGenerationInProgress(messageId)) {
+            continue
+        }
+
+        clearGenerationState(messageId)
+        return true
+    }
+
+    clearGenerationState(messageId)
+    return false
+}
+
+function isGenerationInProgress(messageId) {
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (!button) {
+        return false
+    }
+
+    const hasHourglassClass = button.classList.contains('fa-hourglass') ||
+                               button.classList.contains('fa-hourglass-half')
+    
+    if (!hasHourglassClass) {
+        return false
+    }
+
+    const message = getCtx().chat?.[messageId]
+    if (!message) {
+        return false
+    }
+
+    const swipeId = message.swipe_id
+    const mediaCount = getMediaCount(message)
+    
+    const stateKey = `${messageId}_${swipeId}`
+    let stateEntry = state.generationStates?.[stateKey]
+    
+    if (!stateEntry) {
+        stateEntry = {
+            lastMediaCount: mediaCount,
+            lastCheckTime: Date.now(),
+            stuckCheckCount: 0
+        }
+        if (!state.generationStates) {
+            state.generationStates = {}
+        }
+        state.generationStates[stateKey] = stateEntry
+        return true
+    }
+
+    const now = Date.now()
+    const timeSinceLastCheck = now - stateEntry.lastCheckTime
+    
+    if (timeSinceLastCheck >= 2000) {
+        if (mediaCount === stateEntry.lastMediaCount) {
+            stateEntry.stuckCheckCount++
+            if (stateEntry.stuckCheckCount >= 2) {
+                delete state.generationStates[stateKey]
+                return false
+            }
+        } else {
+            stateEntry.stuckCheckCount = 0
+        }
+        stateEntry.lastMediaCount = mediaCount
+        stateEntry.lastCheckTime = now
+    }
+
+    return true
+}
+
+function detectGenerationCancellation(messageId) {
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (!button) {
+        return true
+    }
+
+    return !button.classList.contains('fa-hourglass') &&
+           !button.classList.contains('fa-hourglass-half')
+}
+
+function checkForImageDeletion(messageId, previousCount) {
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (!button) {
+        return false
+    }
+
+    const message = getCtx().chat?.[messageId]
+    if (!message) {
+        return false
+    }
+
+    const currentCount = getMediaCount(message)
+    if (currentCount < previousCount) {
+        console.warn(
+            '[Image-Generation-Autopilot] Detected image deletion during generation',
+            messageId,
+            { previousCount, currentCount },
+        )
+        return true
     }
 
     return false
+}
+
+function clearGenerationState(messageId) {
+    const message = getCtx().chat?.[messageId]
+    if (!message) {
+        return
+    }
+
+    const swipeId = message.swipe_id
+    const stateKey = `${messageId}_${swipeId}`
+    
+    if (state.generationStates?.[stateKey]) {
+        delete state.generationStates[stateKey]
+    }
+
+    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
+    const button = document.querySelector(selector)
+    if (button) {
+        button.classList.remove('fa-hourglass', 'fa-hourglass-half')
+    }
 }
 
 async function requestSwipe(button, messageId) {
@@ -4257,102 +4410,122 @@ async function runSequentialSwipePlan(
         models: plan.map((entry) => ({ id: entry.id, count: entry.count })),
     })
 
-    outer: for (const entry of plan) {
-        const modelLabel = getModelLabel(entry.id)
-        const restoreModel = await applyModelOverride(entry.id)
+        outer: for (const entry of plan) {
+            const modelLabel = getModelLabel(entry.id)
+            const restoreModel = await applyModelOverride(entry.id)
 
-        try {
-            for (
-                let swipeIndex = 0;
-                swipeIndex < entry.count;
-                swipeIndex += 1
-            ) {
-                const settings = getSettings()
-                if (!settings.enabled || token !== state.chatToken) {
-                    break outer
-                }
-
-                const message = getCtx().chat?.[messageId]
-                if (!message) {
-                    break outer
-                }
-
-                if (!button?.isConnected) {
-                    button = await waitForPaintbrush(messageId)
-                    if (!button) {
-                        console.warn(
-                            '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
-                            messageId,
-                        )
+            try {
+                for (
+                    let swipeIndex = 0;
+                    swipeIndex < entry.count;
+                    swipeIndex += 1
+                ) {
+                    const settings = getSettings()
+                    if (!settings.enabled || token !== state.chatToken) {
                         break outer
                     }
-                }
 
-                const pendingLabel = swipeLabels?.[completed]
-                if (
-                    !updateUnifiedProgress(
-                        messageId,
-                        true,
-                        pendingLabel
-                            ? `Generating ${pendingLabel}`
-                            : modelLabel,
-                    )
-                ) {
-                    updateProgressUi(
-                        messageId,
-                        completed,
-                        effectiveTarget,
-                        true,
-                        pendingLabel
-                            ? `Waiting on ${pendingLabel}`
-                            : modelLabel,
-                    )
-                }
-                log('Dispatching sequential swipe', {
-                    messageId,
-                    modelId: entry.id,
-                    swipeIndex: swipeIndex + 1,
-                    totalForModel: entry.count,
-                    completedSoFar: completed,
-                    state: getMessageSwipeState(messageId),
-                })
-
-                const success = await requestSwipe(button, messageId)
-                if (!success) {
-                    console.warn(
-                        '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
-                        messageId,
-                    )
-                    failed += 1
-                    effectiveTarget = Math.max(1, totalSwipes - failed)
-                    const failedLabel = swipeLabels?.[completed]
-                    if (state.unifiedProgress.active) {
-                        state.unifiedProgress.expectedSwipes = Math.max(
-                            0,
-                            state.unifiedProgress.expectedSwipes - 1,
-                        )
+                    const message = getCtx().chat?.[messageId]
+                    if (!message) {
+                        break outer
                     }
+
+                    if (isGenerationInProgress(messageId)) {
+                        console.warn(
+                            '[Image-Generation-Autopilot] Generation still in progress when trying to start new swipe for message',
+                            messageId,
+                        )
+                        const remainingModels = plan.slice(
+                            plan.indexOf(entry) + 1,
+                        )
+                        if (remainingModels.length > 0) {
+                            log('Skipping remaining models, waiting for current generation to complete', {
+                                remainingModels: remainingModels.map((m) => ({ id: m.id })),
+                            })
+                            await sleep(1000)
+                            continue
+                        }
+                        break outer
+                    }
+
+                    if (!button?.isConnected) {
+                        button = await waitForPaintbrush(messageId)
+                        if (!button) {
+                            console.warn(
+                                '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
+                                messageId,
+                            )
+                            break outer
+                        }
+                    }
+
+                    const pendingLabel = swipeLabels?.[completed]
                     if (
                         !updateUnifiedProgress(
                             messageId,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${modelLabel} swipe failed`,
+                            true,
+                            pendingLabel
+                                ? `Generating ${pendingLabel}`
+                                : modelLabel,
                         )
                     ) {
                         updateProgressUi(
                             messageId,
                             completed,
                             effectiveTarget,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${modelLabel} swipe failed`,
+                            true,
+                            pendingLabel
+                                ? `Waiting on ${pendingLabel}`
+                                : modelLabel,
                         )
                     }
-                    continue
-                }
+                    log('Dispatching sequential swipe', {
+                        messageId,
+                        modelId: entry.id,
+                        swipeIndex: swipeIndex + 1,
+                        totalForModel: entry.count,
+                        completedSoFar: completed,
+                        state: getMessageSwipeState(messageId),
+                    })
+
+                    const success = await requestSwipe(button, messageId)
+                    if (!success) {
+                        clearGenerationState(messageId)
+                        console.warn(
+                            '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
+                            messageId,
+                        )
+                        failed += 1
+                        effectiveTarget = Math.max(1, totalSwipes - failed)
+                        const failedLabel = swipeLabels?.[completed]
+                        if (state.unifiedProgress.active) {
+                            state.unifiedProgress.expectedSwipes = Math.max(
+                                0,
+                                state.unifiedProgress.expectedSwipes - 1,
+                            )
+                        }
+                        if (
+                            !updateUnifiedProgress(
+                                messageId,
+                                false,
+                                failedLabel
+                                    ? `Failed ${failedLabel}`
+                                    : `${modelLabel} swipe failed`,
+                            )
+                        ) {
+                            updateProgressUi(
+                                messageId,
+                                completed,
+                                effectiveTarget,
+                                false,
+                                failedLabel
+                                    ? `Failed ${failedLabel}`
+                                    : `${modelLabel} swipe failed`,
+                            )
+                        }
+                        continue
+                    }
+
 
                 const completedLabel = swipeLabels?.[completed]
                 completed += 1
@@ -4559,6 +4732,7 @@ async function monitorBurstCompletion(
     const effectiveTarget = Math.max(1, totalSwipes - failedDispatches)
     const targetCount = baselineCount + effectiveTarget
     let lastDelivered = 0
+    let lastWasInProgress = false
 
     while (performance.now() < deadline) {
         if (token !== state.chatToken) {
@@ -4572,7 +4746,28 @@ async function monitorBurstCompletion(
 
         const attachments = getMediaCount(message)
         const delivered = Math.max(0, attachments - baselineCount)
+        if (delivered > lastDelivered) {
+            log('Swipe generation completed', {
+                messageId,
+                delivered,
+                lastDelivered,
+                baselineCount,
+                targetCount,
+                swipeLabel: swipeLabels?.[delivered - 1],
+            })
+        }
         lastDelivered = delivered
+        const isCurrentlyInProgress = isGenerationInProgress(messageId)
+
+        if (lastWasInProgress && !isCurrentlyInProgress) {
+            console.warn(
+                '[Image-Generation-Autopilot] Generation detected as stopped unexpectedly',
+                messageId,
+            )
+            break
+        }
+        lastWasInProgress = isCurrentlyInProgress
+
         const pendingLabel = swipeLabels?.[delivered]
         if (state.unifiedProgress.active) {
             const baseCompleted =
@@ -4595,8 +4790,8 @@ async function monitorBurstCompletion(
                 effectiveTarget,
                 delivered < effectiveTarget,
                 pendingLabel
-                    ? `Waiting on ${pendingLabel}`
-                    : 'Waiting for swipes',
+                    ? `Queued ${pendingLabel}`
+                    : label,
             )
         }
 
@@ -4604,15 +4799,23 @@ async function monitorBurstCompletion(
             return
         }
 
+        if (isCurrentlyInProgress) {
+            await sleep(350)
+            continue
+        }
+
         await sleep(350)
     }
 
-    console.warn(
-        '[Image-Generation-Autopilot] Burst swipe completion timed out for message',
-        messageId,
-    )
-
     const timeoutDelivered = Math.min(lastDelivered, effectiveTarget)
+    if (lastWasInProgress) {
+        console.warn(
+            '[Image-Generation-Autopilot] Generation stopped unexpectedly for message',
+            messageId,
+            { timeoutDelivered, effectiveTarget },
+        )
+    }
+
     if (state.unifiedProgress.active) {
         state.unifiedProgress.completedSwipes = Math.max(
             0,
