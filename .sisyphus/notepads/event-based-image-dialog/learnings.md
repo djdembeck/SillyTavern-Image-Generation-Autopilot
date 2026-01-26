@@ -1,23 +1,4 @@
-# Test Infrastructure Setup
+- GenerationDetector subscribes to MESSAGE_RECEIVED and filters for source === 'extension' to detect SD completion events.
+- Designed completion event mapping to allow future SD_GENERATION_COMPLETE event hookup without changing public API.
 
-## Files Created
-- `bunfig.toml` - Bun configuration for test runner
-- `src/__tests__/example.test.js` - Example test file
-- `package.json` - Updated with test script
-
-## Verification
-✅ `bun test` runs successfully
-✅ 4 tests pass
-✅ Bun's built-in test runner working
-
-## Next Steps (for Task 1+)
-- Add actual extension tests
-- Integrate with CI/CD
-- Set up test coverage
-
-## State Manager
-- Implemented StateManager to manage generation state, seen/running message collections, and chat token lifecycle.
-- cleanup() clears generationStates object and empties Map/Set to prevent leaks.
-- resetForChat(token) mirrors resetPerChatState behavior with token bump/reset logic.
-- add/get/removeGenerationState provide guarded access to generationStates entries.
-- Added Bun tests covering init, add/get/remove, cleanup, chat reset, and token increment path.
+- Added ParallelGenerator with concurrency-limited worker pool, model queue cycling by count, and progress callbacks to align with SD slash execution patterns.
