@@ -92,12 +92,25 @@ export class ImageSelectionDialog {
     }
 
     _bindEvents() {
-        const container = document.querySelector('#image-selection-dialog') || document.body;
+        let container = document.getElementById('image-selection-dialog');
+        
+        if (!container) {
+            container = document.querySelector('.image-selection-dialog');
+        }
+        
+        if (!container) {
+            console.warn('[ImageSelectionDialog] Container not found, falling back to body');
+            container = document.body;
+        }
 
-        this.domElements.grid = container.querySelector('#image-grid');
+        this.domElements.grid = container.querySelector('.image-selection-grid');
         this.domElements.selectAll = container.querySelector('#btn-select-all');
         this.domElements.deselectAll = container.querySelector('#btn-deselect-all');
         this.domElements.destination = container.querySelector('#img-dest-select');
+
+        if (!this.domElements.grid) {
+            console.error('[ImageSelectionDialog] Grid element not found in DOM');
+        }
 
         if (this.domElements.grid) {
             this.domElements.grid.addEventListener('click', (e) => {
@@ -148,6 +161,8 @@ export class ImageSelectionDialog {
             result: result
         };
 
+        if (!this.domElements.grid) return;
+
         const slotEl = this.domElements.grid.querySelector(`.image-slot[data-index="${index}"]`);
         if (!slotEl) return;
 
@@ -184,6 +199,8 @@ export class ImageSelectionDialog {
         } else {
             this.selectedIndices.delete(index);
         }
+
+        if (!this.domElements.grid) return;
 
         const slotEl = this.domElements.grid.querySelector(`.image-slot[data-index="${index}"]`);
         if (slotEl) {

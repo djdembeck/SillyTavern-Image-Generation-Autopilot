@@ -28,6 +28,7 @@ const createMockElement = (id = '') => {
 
 global.document = {
     querySelector: mock(() => createMockElement('container')),
+    getElementById: mock(() => createMockElement('container')),
     body: createMockElement('body'),
 };
 
