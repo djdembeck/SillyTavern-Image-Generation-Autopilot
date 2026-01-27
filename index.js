@@ -4519,19 +4519,11 @@ async function init() {
     }
 
     try {
-        const { StateManager } = await import('./src/state-manager.js')
-        const { GenerationDetector } = await import('./src/generation-events.js')
-        const { ParallelGenerator } = await import('./src/parallel-generator.js')
-        const { ImageSelectionDialog } = await import('./src/image-dialog.js')
-
-        state.components.StateManager = StateManager
-        state.components.GenerationDetector = GenerationDetector
-        state.components.ParallelGenerator = ParallelGenerator
-        state.components.ImageSelectionDialog = ImageSelectionDialog
+        await initComponents()
 
         state.managers = {
-            state: new StateManager(),
-            detector: new GenerationDetector()
+            state: new state.components.StateManager(),
+            detector: new state.components.GenerationDetector(),
         }
 
         ensureSettings()
