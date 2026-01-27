@@ -3200,6 +3200,52 @@ async function handleIncomingMessage(messageId) {
     }
 
     const matches = getPicPromptMatches(message.mes, regex)
+    if (!matches.length) {
+        return
+    }
+
+    const prompts = matches
+        .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
+        .filter((p) => p.trim())
+
+    if (!prompts.length) {
+        return
+    }
+
+    state.autoGenMessages.add(resolvedId)
+
+    try {
+        const result = await openImageSelectionDialog(prompts, resolvedId)
+        await handleDialogResult(result, message)
+    } catch (error) {
+        console.warn('[Image-Generation-Autopilot] Auto-generation failed', error)
+    }
+}
+
+    const token = state.chatToken
+
+    if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
+        return
+    }
+
+    const context = getCtx()
+    const resolvedId =
+        typeof messageId === 'number' ? messageId : context.chat?.length - 1
+    const message = context.chat?.[resolvedId]
+    if (!message || message.is_user || !message.mes) {
+        return
+    }
+
+    if (state.autoGenMessages.has(resolvedId)) {
+        return
+    }
+
+    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
+    if (!regex) {
+        return
+    }
+
+    const matches = getPicPromptMatches(message.mes, regex)
 
     if (!matches.length) {
         return
@@ -4106,32 +4152,49 @@ function getMediaCount(message) {
     return Array.isArray(mediaList) ? mediaList.length : 0
 }
 
-function queueAutoFill(messageId, button) {
+async function queueAutoFill(messageId, button) {
     if (state.runningMessages.has(messageId)) {
         return
     }
 
-    const token = state.chatToken
-    const job = autoFillMessage(messageId, button, token)
-        .catch((error) =>
-            console.error(
-                '[Image-Generation-Autopilot] Failed to auto-fill images',
-                error,
-            ),
+    const context = getCtx()
+    const message = context.chat?.[messageId]
+    if (!message) {
+        return
+    }
+
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+
+    let prompts = []
+
+    if (autoSettings?.promptInjection?.regex) {
+        const regex = parseRegexFromString(autoSettings.promptInjection.regex)
+        if (regex) {
+            const matches = getPicPromptMatches(message.mes, regex)
+            prompts = matches
+                .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
+                .filter((p) => p.trim())
+        }
+    }
+
+    if (!prompts.length) {
+        console.warn(
+            '[Image-Generation-Autopilot] No prompts found in message for auto-fill',
         )
-        .finally(() => {
-            state.runningMessages.delete(messageId)
-            if (finalizeUnifiedProgress()) {
-                clearProgress(messageId)
-                return
-            }
+        return
+    }
 
-            if (!state.unifiedProgress.active) {
-                clearProgress(messageId)
-            }
-        })
+    state.runningMessages.set(messageId, true)
 
-    state.runningMessages.set(messageId, job)
+    try {
+        const result = await openImageSelectionDialog(prompts, messageId)
+        await handleDialogResult(result, message)
+    } catch (error) {
+        console.warn('[Image-Generation-Autopilot] Auto-fill failed', error)
+    } finally {
+        state.runningMessages.delete(messageId)
+    }
 }
 
 async function handleMessageRendered(messageId, origin) {
@@ -4339,12 +4402,138 @@ function getCurrentSettingsSnapshot() {
 
 // ==================== END PRESET MANAGEMENT ====================
 
+function injectReswipeButtonTemplate() {
+    const target = document.querySelector(
+        '#message_template .mes_buttons .extraMesButtons',
+    )
+    if (!target) {
+        console.warn(
+            '[Image-Generation-Autopilot] Message toolbar template not found',
+        )
+        return
+    }
+
+    if (!target.querySelector('.auto-multi-reswipe')) {
+        const button = document.createElement('div')
+        button.className =
+            'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
+        button.title = 'run image auto-swipe'
+        button.setAttribute('tabindex', '0')
+        button.style.display = 'none'
+        target.prepend(button)
+    }
+
+    if (!target.querySelector('.auto-multi-rewrite')) {
+        const button = document.createElement('div')
+        button.className =
+            'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
+        button.title = 'rewrite <pic> prompts and regenerate images'
+        button.setAttribute('tabindex', '0')
+        button.style.display = 'none'
+        target.prepend(button)
+    }
+}
+
+function ensureReswipeButton(messageId, shouldShow = true) {
+    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
+    if (!root) {
+        return
+    }
+
+    const existing = root.querySelector('.auto-multi-reswipe')
+    if (existing) {
+        existing.style.display = shouldShow ? '' : 'none'
+        return
+    }
+
+    if (!shouldShow) {
+        return
+    }
+
+    const bar = findMessageExtraButtonsBar(messageId)
+    if (!bar) {
+        return
+    }
+
+    const button = document.createElement('div')
+    button.className =
+        'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
+    button.title = 'run image auto-swipe'
+    button.setAttribute('tabindex', '0')
+    bar.prepend(button)
+}
+
+function ensureRewriteButton(messageId, shouldShow = true) {
+    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
+    if (!root) {
+        return
+    }
+
+    const existing = root.querySelector('.auto-multi-rewrite')
+    if (existing) {
+        existing.style.display = shouldShow ? '' : 'none'
+        return
+    }
+
+    if (!shouldShow) {
+        return
+    }
+
+    const bar = findMessageExtraButtonsBar(messageId)
+    if (!bar) {
+        return
+    }
+
+    const button = document.createElement('div')
+    button.className =
+        'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
+    button.title = 'rewrite <pic> prompts and regenerate images'
+    button.setAttribute('tabindex', '0')
+    bar.prepend(button)
+}
+
+function refreshReswipeButtons() {
+    const settings = getSettings()
+    const chat = getCtx().chat || []
+    const messageElements = document.querySelectorAll('.mes[mesid]')
+
+    messageElements.forEach((element) => {
+        const messageId = Number(element.getAttribute('mesid'))
+        if (!Number.isFinite(messageId)) {
+            return
+        }
+
+        const message = chat[messageId]
+        const hasMedia = getMediaCount(message) > 0
+        const shouldShow = settings.enabled && hasMedia
+        ensureReswipeButton(messageId, shouldShow)
+
+        const shouldShowRewrite = shouldShowPromptRewriteButton(message)
+        ensureRewriteButton(messageId, shouldShowRewrite)
+    })
+}
+
 async function init() {
     if (state.initialized) {
         return
     }
 
     try {
+        const { StateManager } = await import('./src/state-manager.js')
+        const { GenerationDetector } = await import('./src/generation-events.js')
+        const { ParallelGenerator } = await import('./src/parallel-generator.js')
+        const { ImageSelectionDialog } = await import('./src/image-dialog.js')
+
+        state.components.StateManager = StateManager
+        state.components.GenerationDetector = GenerationDetector
+        state.components.ParallelGenerator = ParallelGenerator
+        state.components.ImageSelectionDialog = ImageSelectionDialog
+
+        state.managers = {
+            state: new StateManager(),
+            detector: new GenerationDetector()
+        }
+
         ensureSettings()
         console.info('[Image-Generation-Autopilot] init', {
             perCharacterEnabled: getSettings()?.perCharacter?.enabled,
