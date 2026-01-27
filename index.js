@@ -4130,9 +4130,14 @@ async function init() {
     try {
         await initComponents()
 
+        const { eventSource, eventTypes } = getCtx()
+
         state.managers = {
             state: new state.components.StateManager(),
-            detector: new state.components.GenerationDetector(),
+            detector: new state.components.GenerationDetector(
+                eventSource,
+                eventTypes,
+            ),
         }
 
         ensureSettings()
