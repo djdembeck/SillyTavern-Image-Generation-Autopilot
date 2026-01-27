@@ -1,7 +1,7 @@
 # Image Generation Autopilot
 
-**End‑to‑end SD automation: auto image tags ➜ auto image generation ➜ auto swipes.**
-This extension guides the assistant to emit `<pic prompt="...">` tags, triggers SD generation automatically, and then queues extra swipes so every reply yields a predictable batch of images.
+**End‑to‑end SD automation: auto image tags ➜ auto image generation ➜ parallel selection dialog.**
+This extension guides the assistant to emit `<pic prompt="...">` tags, triggers SD generation automatically, and opens a parallel selection dialog so you can choose the best images from a batch.
 
 **Badges:**
 
@@ -14,12 +14,12 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 ## ✨ What it does
 
 - **Auto image generation** from `<pic prompt>` tags (inline, replace, or new message).
-- **Auto swipes** on each generated image message (per-model counts).
+- **Parallel Selection Dialog**: Generates multiple images in parallel and lets you pick which ones to keep.
 - **Prompt injection + regex matching** to guide consistent image tags.
 - **Preset profiles** to save, load, rename, and delete preset configurations for quick switching between different image generation setups.
 - **Global progress HUD** with a stop button.
-- **Message toolbar action** to re-run auto-swipes on image messages.
-- **Rate-limit friendly** with configurable delay.
+- **Message toolbar action** to re-run generation on image messages.
+- **Concurrency control**: Configure how many images to generate at once.
 
 ---
 
@@ -38,12 +38,13 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 
 ---
 
-## 🧭 Auto image + auto swipes flow
+## 🧭 Auto image + selection dialog flow
 
 1. **Prompt injection** nudges the assistant to include `<pic prompt="...">` tags.
-2. **Auto generation** uses those tags to request SD images (inline/replace/new message).
-3. **Auto swipes** fire extra swipes for each generated image message.
-4. **Progress HUD** shows status and lets you stop everything instantly.
+2. **Auto generation** detects these tags and opens the **Image Selection Dialog**.
+3. **Parallel Generation**: The extension generates multiple images in parallel (respecting your concurrency limit).
+4. **Selection**: You see a live grid of images as they arrive. Select the ones you like and click **"Keep Selected"**.
+5. **Progress HUD** shows status and lets you stop everything instantly.
 
 **Note:** Only SD-generated gallery messages are automated. Manual uploads are ignored.
 
@@ -55,10 +56,9 @@ This extension guides the assistant to emit `<pic prompt="...">` tags, triggers 
 | -------------------------------- | ---------------------------------------------------------------------- |
 | **Enable auto image generation** | Turns the `<pic prompt>` automation on/off.                            |
 | **Insert mode**                  | Inline, replace marker, or new message.                                |
-| **Enable auto-swipes**           | Triggers swipe queues on SD-generated messages.                        |
-| **Default swipes per model**     | Baseline count when the model queue is empty.                          |
+| **Concurrency**                  | How many images to generate in parallel (1-8).                         |
+| **Default images per model**     | Baseline count when the model queue is empty.                          |
 | **Model queue**                  | Run multiple SD models with per-model counts.                          |
-| **Delay between swipes**         | Protects against provider throttles.                                   |
 | **Prompt injection**             | Main prompt, positive/negative rules, example prompt, and count rules. |
 | **Preset profiles**              | Save, load, rename, and delete preset configurations.                  |
 
@@ -79,9 +79,9 @@ Use these fields to keep image tags consistent:
 ## 🆘 Troubleshooting
 
 - **No images**: confirm SD is enabled and the paintbrush appears on generated images.
-- **Too many requests**: increase delay or reduce swipe counts.
-- **Provider throttles**: start with 1500ms delay and tune down.
-- **Old chats auto-swipe**: file an issue with repro steps.
+- **Too many requests**: reduce concurrency or increase delay.
+- **Provider throttles**: start with lower concurrency and tune up.
+- **Old approach**: The legacy "auto-swipes" approach has been replaced by the new event-based parallel dialog system.
 
 ---
 
@@ -97,4 +97,4 @@ Use these fields to keep image tags consistent:
 - No bundler needed; the extension runs directly in the browser context.
 - Settings live under `extensionSettings.autoMultiImageSwipes`.
 - Licensed under MIT (see `LICENSE`).
-- AI developer: GitHub Copilot (GPT-5.2-Codex).
+- AI developer: gemini-3-flash-preview via OhMyOpenCode.

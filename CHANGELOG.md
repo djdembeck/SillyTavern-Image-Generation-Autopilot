@@ -2,6 +2,39 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.0] - 2026-01-27
+
+### BREAKING CHANGES
+
+- **Replaced sequential swipe workflow with parallel Image Selection Dialog**: The old auto-swipes approach that fired swipes one-by-one has been completely replaced with an event-based parallel generation system.
+- **Removed burst mode**: The deprecated burst mode setting and UI have been removed entirely.
+- **Removed DOM polling**: Generation detection now uses SillyTavern's `MESSAGE_RECEIVED` event instead of polling for CSS classes.
+
+### Added
+
+- **Image Selection Dialog**: A new modal dialog that displays a live grid of images as they generate in parallel. Users can select which images to keep and choose the destination (current message or new message).
+- **Parallel generation engine**: Images now generate concurrently up to a configurable concurrency limit (1-8, default 4).
+- **Event-based generation detection**: Uses SillyTavern's event system for reliable completion detection instead of fragile DOM polling.
+- **State management with cleanup**: New state manager prevents memory leaks by properly cleaning up generation states on chat change.
+- **Concurrency slider**: New setting to control how many images generate in parallel.
+
+### Removed
+
+- `runSequentialSwipePlan()` - replaced by parallel generation
+- `runBurstSwipePlan()` - replaced by parallel generation
+- `monitorBurstCompletion()` - replaced by event-based detection
+- `isGenerationInProgress()` - replaced by event-based detection
+- `dispatchSwipe()` - no longer needed
+- Burst mode checkbox and throttle settings from UI
+
+### Migration
+
+If you were using the auto-swipes feature, the new workflow is:
+1. `<pic>` tags or paintbrush clicks now open an **Image Selection Dialog**
+2. Images generate in parallel (configure concurrency in settings)
+3. Select desired images and click **"Keep Selected"**
+4. Images are inserted to your chosen destination
+
 ## [1.3.0] - 2026-01-21
 
 ### Added

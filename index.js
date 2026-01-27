@@ -11,8 +11,7 @@ const defaultSettings = Object.freeze({
     targetCount: 4,
     delayMs: 800,
     swipeTimeoutMs: 120000,
-    burstMode: false,
-    burstThrottleMs: 250,
+    concurrency: 4,
     modelQueue: [],
     modelQueueEnabled: true,
     swipeModel: '',
@@ -74,6 +73,12 @@ const state = {
         swipesPerImage: 0,
         insertType: INSERT_TYPE.DISABLED,
     },
+    components: {
+        StateManager: null,
+        GenerationDetector: null,
+        ParallelGenerator: null,
+        ImageSelectionDialog: null,
+    },
 }
 
 function resolveTemplateRoot() {
@@ -114,7 +119,44 @@ function resolveTemplateRoot() {
 }
 
 const TEMPLATE_ROOT = resolveTemplateRoot()
-const BURST_MODEL_SETTLE_MS = 120
+
+/**
+ * Dynamically import and cache component modules.
+ * @returns {Promise<{StateManager: Function, GenerationDetector: Function, ParallelGenerator: Function, ImageSelectionDialog: Function}>}
+ */
+async function initComponents() {
+    if (
+        state.components.StateManager &&
+        state.components.GenerationDetector &&
+        state.components.ParallelGenerator &&
+        state.components.ImageSelectionDialog
+    ) {
+        return state.components
+    }
+
+    const extensionPath = `scripts/extensions/${TEMPLATE_ROOT}`
+
+    try {
+        const [stateModule, eventsModule, generatorModule, dialogModule] =
+            await Promise.all([
+                import(`/${extensionPath}/src/state-manager.js`),
+                import(`/${extensionPath}/src/generation-events.js`),
+                import(`/${extensionPath}/src/parallel-generator.js`),
+                import(`/${extensionPath}/src/image-dialog.js`),
+            ])
+
+        state.components.StateManager = stateModule.StateManager
+        state.components.GenerationDetector = eventsModule.GenerationDetector
+        state.components.ParallelGenerator = generatorModule.ParallelGenerator
+        state.components.ImageSelectionDialog = dialogModule.ImageSelectionDialog
+
+        log('Components initialized:', Object.keys(state.components))
+        return state.components
+    } catch (error) {
+        console.error('[Image-Generation-Autopilot] Failed to load components', error)
+        throw error
+    }
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const log = (...args) => {
@@ -327,10 +369,6 @@ function ensureSettings() {
 
         if (!settings.perCharacter.globalDefaults) {
             settings.perCharacter.globalDefaults = {}
-        }
-
-        if (settings.burstMode) {
-            settings.burstMode = false
         }
 
         if (settings.swipeModel?.trim() && settings.modelQueue.length === 0) {
@@ -1020,13 +1058,7 @@ function normalizeModelQueueEnabled(
     return fallback
 }
 
-function clampBurstThrottle(value) {
-    const numeric = Number(value)
-    if (Number.isNaN(numeric)) {
-        return defaultSettings.burstThrottleMs
-    }
-    return Math.max(0, Math.min(5000, Math.round(numeric)))
-}
+
 
 function clampDepth(value) {
     const numeric = Number(value)
@@ -1485,9 +1517,6 @@ async function buildSettingsPanel() {
     const delayInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_image_delay')
     )
-    const burstThrottleInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_burst_throttle')
-    )
     const summary = /** @type {HTMLParagraphElement | null} */ (
         container.querySelector('#auto_multi_image_summary')
     )
@@ -1499,9 +1528,6 @@ async function buildSettingsPanel() {
     )
     const refreshModelsButton = /** @type {HTMLButtonElement | null} */ (
         container.querySelector('#auto_multi_refresh_models')
-    )
-    const burstModeInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_burst_mode')
     )
     const summaryPanel = /** @type {HTMLElement | null} */ (
         container.querySelector('#auto_multi_summary_panel')
@@ -1584,10 +1610,8 @@ async function buildSettingsPanel() {
             enabledInput &&
             countInput &&
             delayInput &&
-            burstThrottleInput &&
             summary &&
-            modelRowsContainer &&
-            burstModeInput
+            modelRowsContainer
         )
     ) {
         console.warn(
@@ -1630,10 +1654,8 @@ async function buildSettingsPanel() {
         modelQueueEnabledInput,
         countInput,
         delayInput,
-        burstThrottleInput,
         summary,
         modelRowsContainer,
-        burstModeInput,
         addModelButton,
         refreshModelsButton,
         autoGenEnabledInput,
@@ -1708,19 +1730,6 @@ async function buildSettingsPanel() {
         const current = getSettings()
         current.delayMs = clampDelay(delayInput.value)
         delayInput.value = String(current.delayMs)
-        saveSettings()
-    })
-
-    burstThrottleInput.addEventListener('change', () => {
-        const current = getSettings()
-        current.burstThrottleMs = clampBurstThrottle(burstThrottleInput.value)
-        burstThrottleInput.value = String(current.burstThrottleMs)
-        saveSettings()
-    })
-
-    burstModeInput.addEventListener('change', () => {
-        const current = getSettings()
-        current.burstMode = burstModeInput.checked
         saveSettings()
     })
 
@@ -2470,16 +2479,6 @@ function syncUiFromSettings() {
     state.ui.enabledInput.checked = settings.enabled
     state.ui.countInput.value = String(settings.targetCount)
     state.ui.delayInput.value = String(settings.delayMs)
-    if (state.ui.burstThrottleInput) {
-        state.ui.burstThrottleInput.value = String(
-            clampBurstThrottle(settings.burstThrottleMs),
-        )
-    }
-    if (settings.burstMode) {
-        settings.burstMode = false
-        saveSettings()
-    }
-    state.ui.burstModeInput.checked = false
 
     if (state.ui.autoGenEnabledInput) {
         state.ui.autoGenEnabledInput.checked = settings.autoGeneration.enabled
@@ -2649,9 +2648,7 @@ function syncUiFromSettings() {
         segments.push(`auto image gen (${insertLabel}, ${injectionLabel})`)
     }
 
-    const baseStrategyBlurb = settings.burstMode
-        ? 'Burst mode is deprecated and has been disabled.'
-        : settings.delayMs <= 0
+    const baseStrategyBlurb = settings.delayMs <= 0
           ? 'Swipes run sequentially without pacing between requests.'
           : 'Swipes run sequentially with pacing between requests.'
     const queueBlurb = !queueEnabled
@@ -2921,6 +2918,125 @@ async function callSdSlash(prompt, quiet) {
             error,
         )
         return null
+    }
+}
+
+async function callSdSlashWithModel(prompt, modelId, quiet = true) {
+    const restoreModel = await applyModelOverride(modelId)
+    try {
+        return await callSdSlash(prompt, quiet)
+    } finally {
+        if (typeof restoreModel === 'function') {
+            restoreModel()
+        }
+    }
+}
+
+async function openImageSelectionDialog(prompts, sourceMessageId) {
+    const components = await initComponents()
+    const settings = getSettings()
+    const modelQueue = getSwipePlan(settings)
+
+    const generatorFactory = (options) => {
+        const generator = new components.ParallelGenerator({
+            concurrencyLimit: settings.concurrency || 4,
+            callSdSlash: async (prompt, opts) => {
+                const modelId = opts?.modelId
+                return callSdSlashWithModel(prompt, modelId, true)
+            },
+        })
+        return generator
+    }
+
+    const dialog = new components.ImageSelectionDialog(generatorFactory)
+    
+    const generatorOptions = {
+        modelQueue: modelQueue,
+    }
+
+    try {
+        const result = await dialog.show(prompts, generatorOptions)
+        return {
+            selected: result.selected || [],
+            destination: result.destination || 'new',
+            sourceMessageId,
+        }
+    } catch (error) {
+        if (error?.message === 'Cancelled' || error?.message === 'Closed') {
+            log('Image selection dialog cancelled')
+            return null
+        }
+        throw error
+    }
+}
+
+async function handleDialogResult(dialogResult, triggerMessage) {
+    if (!dialogResult || !dialogResult.selected?.length) {
+        log('No images selected, skipping insertion')
+        return
+    }
+
+    const context = getCtx()
+    const settings = getSettings()
+    const insertType = settings.autoGeneration?.insertType || INSERT_TYPE.NEW_MESSAGE
+
+    if (dialogResult.destination === 'current' && triggerMessage) {
+        for (const imageUrl of dialogResult.selected) {
+            appendGeneratedMedia(triggerMessage, imageUrl, '', true)
+        }
+        
+        const messageId = dialogResult.sourceMessageId
+        let messageElement = document.querySelector(`.mes[mesid="${messageId}"]`)
+        if (!messageElement) {
+            messageElement = await waitForMessageElement(messageId, 2000)
+        }
+        
+        if (messageElement && typeof window.appendMediaToMessage === 'function') {
+            sanitizeMessageMediaState(triggerMessage)
+            window.appendMediaToMessage(triggerMessage, messageElement)
+        } else if (typeof window.updateMessageBlock === 'function') {
+            sanitizeMessageMediaState(triggerMessage)
+            window.updateMessageBlock(messageId, triggerMessage)
+        }
+        
+        if (typeof context.saveChat === 'function') {
+            await context.saveChat()
+        }
+        
+        log('Images inserted to current message', {
+            messageId,
+            imageCount: dialogResult.selected.length,
+        })
+    } else {
+        for (const imageUrl of dialogResult.selected) {
+            const newMessageId = await createPlaceholderImageMessage('')
+            if (Number.isFinite(newMessageId)) {
+                const newMessage = context.chat?.[newMessageId]
+                if (newMessage) {
+                    appendGeneratedMedia(newMessage, imageUrl, '', true)
+                    
+                    let messageElement = document.querySelector(
+                        `.mes[mesid="${newMessageId}"]`,
+                    )
+                    if (!messageElement) {
+                        messageElement = await waitForMessageElement(newMessageId, 2000)
+                    }
+                    
+                    if (messageElement && typeof window.appendMediaToMessage === 'function') {
+                        sanitizeMessageMediaState(newMessage)
+                        window.appendMediaToMessage(newMessage, messageElement)
+                    }
+                }
+            }
+        }
+        
+        if (typeof context.saveChat === 'function') {
+            await context.saveChat()
+        }
+        
+        log('Images inserted as new messages', {
+            imageCount: dialogResult.selected.length,
+        })
     }
 }
 
@@ -3985,862 +4101,9 @@ function findMessageExtraButtonsBar(messageId) {
     return bar
 }
 
-function injectReswipeButtonTemplate() {
-    const target = document.querySelector(
-        '#message_template .mes_buttons .extraMesButtons',
-    )
-    if (!target) {
-        console.warn(
-            '[Image-Generation-Autopilot] Message toolbar template not found',
-        )
-        return
-    }
-
-    if (!target.querySelector('.auto-multi-reswipe')) {
-        const button = document.createElement('div')
-        button.className =
-            'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-        button.title = 'run image auto-swipe'
-        button.setAttribute('tabindex', '0')
-        button.style.display = 'none'
-        target.prepend(button)
-    }
-
-    if (!target.querySelector('.auto-multi-rewrite')) {
-        const button = document.createElement('div')
-        button.className =
-            'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
-        button.title = 'rewrite <pic> prompts and regenerate images'
-        button.setAttribute('tabindex', '0')
-        button.style.display = 'none'
-        target.prepend(button)
-    }
-}
-
-function ensureReswipeButton(messageId, shouldShow = true) {
-    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
-    if (!root) {
-        return
-    }
-
-    const existing = root.querySelector('.auto-multi-reswipe')
-    if (existing) {
-        existing.style.display = shouldShow ? '' : 'none'
-        return
-    }
-
-    if (!shouldShow) {
-        return
-    }
-
-    const bar = findMessageExtraButtonsBar(messageId)
-    if (!bar) {
-        return
-    }
-
-    const button = document.createElement('div')
-    button.className =
-        'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-    button.title = 'run image auto-swipe'
-    button.setAttribute('tabindex', '0')
-    bar.prepend(button)
-}
-
-function ensureRewriteButton(messageId, shouldShow = true) {
-    const root = document.querySelector(`.mes[mesid="${messageId}"]`)
-    if (!root) {
-        return
-    }
-
-    const existing = root.querySelector('.auto-multi-rewrite')
-    if (existing) {
-        existing.style.display = shouldShow ? '' : 'none'
-        return
-    }
-
-    if (!shouldShow) {
-        return
-    }
-
-    const bar = findMessageExtraButtonsBar(messageId)
-    if (!bar) {
-        return
-    }
-
-    const button = document.createElement('div')
-    button.className =
-        'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
-    button.title = 'rewrite <pic> prompts and regenerate images'
-    button.setAttribute('tabindex', '0')
-    bar.prepend(button)
-}
-
-function refreshReswipeButtons() {
-    const settings = getSettings()
-    const chat = getCtx().chat || []
-    const messageElements = document.querySelectorAll('.mes[mesid]')
-
-    messageElements.forEach((element) => {
-        const messageId = Number(element.getAttribute('mesid'))
-        if (!Number.isFinite(messageId)) {
-            return
-        }
-
-        const message = chat[messageId]
-        const hasMedia = getMediaCount(message) > 0
-        const shouldShow = settings.enabled && hasMedia
-        ensureReswipeButton(messageId, shouldShow)
-
-        const shouldShowRewrite = shouldShowPromptRewriteButton(message)
-        ensureRewriteButton(messageId, shouldShowRewrite)
-    })
-}
-
-function dispatchSwipe(button) {
-    if (!button || typeof button.dispatchEvent !== 'function') {
-        return false
-    }
-
-    const event = new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-    })
-    button.dispatchEvent(event)
-    return true
-}
-
 function getMediaCount(message) {
     const mediaList = message?.extra?.media
     return Array.isArray(mediaList) ? mediaList.length : 0
-}
-
-async function applyModelOverride(modelId) {
-    const overrideModel = modelId?.trim()
-    if (!overrideModel) {
-        return null
-    }
-
-    const context = getCtx()
-    const sdSettings = context?.extensionSettings?.sd
-    const modelSelect = document.getElementById('sd_model')
-    const previousSettingsModel = sdSettings?.model
-    const previousSelectValue =
-        modelSelect instanceof HTMLSelectElement ? modelSelect.value : null
-    const selectOptions =
-        modelSelect instanceof HTMLSelectElement
-            ? Array.from(modelSelect.options)
-            : []
-    const selectHasOption = selectOptions.some(
-        (option) => option.value === overrideModel,
-    )
-    const needsSettingsChange =
-        !!sdSettings && previousSettingsModel !== overrideModel
-    const needsSelectChange =
-        selectHasOption && previousSelectValue !== overrideModel
-
-    if (!needsSettingsChange && !needsSelectChange) {
-        log('Model override skipped (already active)', {
-            overrideModel,
-            previousSettingsModel,
-            previousSelectValue,
-        })
-        return null
-    }
-
-    if (needsSettingsChange) {
-        sdSettings.model = overrideModel
-        log('Model override applied to settings', {
-            overrideModel,
-            previousSettingsModel,
-        })
-    }
-
-    if (needsSelectChange && modelSelect instanceof HTMLSelectElement) {
-        modelSelect.value = overrideModel
-        modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
-        log('Model override applied to select', {
-            overrideModel,
-            previousSelectValue,
-        })
-    }
-
-    if (needsSelectChange) {
-        await sleep(80)
-    }
-
-    return () => {
-        if (
-            needsSettingsChange &&
-            typeof previousSettingsModel !== 'undefined'
-        ) {
-            sdSettings.model = previousSettingsModel
-            log('Model override restored settings', {
-                previousSettingsModel,
-                overrideModel,
-            })
-        }
-
-        if (
-            needsSelectChange &&
-            modelSelect instanceof HTMLSelectElement &&
-            previousSelectValue !== null
-        ) {
-            modelSelect.value = previousSelectValue
-            modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
-            log('Model override restored select', {
-                previousSelectValue,
-                overrideModel,
-            })
-        }
-    }
-}
-
-async function waitForMediaIncrement(messageId, previousCount) {
-    const timeout = getSettings().swipeTimeoutMs
-    const deadline = performance.now() + timeout
-
-    while (performance.now() < deadline) {
-        await sleep(250)
-        const message = getCtx().chat?.[messageId]
-        if (!message) {
-            return false
-        }
-
-        const count = getMediaCount(message)
-        if (count > previousCount) {
-            clearGenerationState(messageId)
-            return true
-        }
-
-        checkForImageDeletion(messageId, previousCount)
-
-        if (isGenerationInProgress(messageId)) {
-            continue
-        }
-
-        clearGenerationState(messageId)
-        return true
-    }
-
-    clearGenerationState(messageId)
-    return false
-}
-
-function isGenerationInProgress(messageId) {
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (!button) {
-        return false
-    }
-
-    const hasHourglassClass = button.classList.contains('fa-hourglass') ||
-                               button.classList.contains('fa-hourglass-half')
-    
-    if (!hasHourglassClass) {
-        return false
-    }
-
-    const message = getCtx().chat?.[messageId]
-    if (!message) {
-        return false
-    }
-
-    const swipeId = message.swipe_id
-    const mediaCount = getMediaCount(message)
-    
-    const stateKey = `${messageId}_${swipeId}`
-    let stateEntry = state.generationStates?.[stateKey]
-    
-    if (!stateEntry) {
-        stateEntry = {
-            lastMediaCount: mediaCount,
-            lastCheckTime: Date.now(),
-            stuckCheckCount: 0
-        }
-        if (!state.generationStates) {
-            state.generationStates = {}
-        }
-        state.generationStates[stateKey] = stateEntry
-        return true
-    }
-
-    const now = Date.now()
-    const timeSinceLastCheck = now - stateEntry.lastCheckTime
-    
-    if (timeSinceLastCheck >= 2000) {
-        if (mediaCount === stateEntry.lastMediaCount) {
-            stateEntry.stuckCheckCount++
-            if (stateEntry.stuckCheckCount >= 2) {
-                delete state.generationStates[stateKey]
-                return false
-            }
-        } else {
-            stateEntry.stuckCheckCount = 0
-        }
-        stateEntry.lastMediaCount = mediaCount
-        stateEntry.lastCheckTime = now
-    }
-
-    return true
-}
-
-function detectGenerationCancellation(messageId) {
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (!button) {
-        return true
-    }
-
-    return !button.classList.contains('fa-hourglass') &&
-           !button.classList.contains('fa-hourglass-half')
-}
-
-function checkForImageDeletion(messageId, previousCount) {
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (!button) {
-        return false
-    }
-
-    const message = getCtx().chat?.[messageId]
-    if (!message) {
-        return false
-    }
-
-    const currentCount = getMediaCount(message)
-    if (currentCount < previousCount) {
-        console.warn(
-            '[Image-Generation-Autopilot] Detected image deletion during generation',
-            messageId,
-            { previousCount, currentCount },
-        )
-        return true
-    }
-
-    return false
-}
-
-function clearGenerationState(messageId) {
-    const message = getCtx().chat?.[messageId]
-    if (!message) {
-        return
-    }
-
-    const swipeId = message.swipe_id
-    const stateKey = `${messageId}_${swipeId}`
-    
-    if (state.generationStates?.[stateKey]) {
-        delete state.generationStates[stateKey]
-    }
-
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (button) {
-        button.classList.remove('fa-hourglass', 'fa-hourglass-half')
-    }
-}
-
-async function requestSwipe(button, messageId) {
-    const baselineMessage = getCtx().chat?.[messageId]
-    const baselineCount = getMediaCount(baselineMessage)
-    if (!dispatchSwipe(button)) {
-        return false
-    }
-
-    return await waitForMediaIncrement(messageId, baselineCount)
-}
-
-async function autoFillMessage(messageId, button, token) {
-    state.abortInProgress = false
-    log('Auto-fill start', { state: getMessageSwipeState(messageId) })
-    const initialSettings = getSettings()
-    const plan = getSwipePlan(initialSettings)
-    const totalSwipes = plan.reduce((sum, entry) => sum + entry.count, 0)
-
-    if (!totalSwipes) {
-        return
-    }
-
-    const swipeLabels = buildSwipeLabels(plan, totalSwipes)
-    const initialLabel = swipeLabels[0]
-        ? `Generating ${swipeLabels[0]}`
-        : 'Preparing swipe queue…'
-
-    if (!updateUnifiedProgress(messageId, true, initialLabel)) {
-        updateProgressUi(messageId, 0, totalSwipes, true, initialLabel)
-    }
-
-    if (initialSettings.burstMode) {
-        await runBurstSwipePlan(
-            plan,
-            messageId,
-            button,
-            token,
-            totalSwipes,
-            swipeLabels,
-        )
-    } else {
-        await runSequentialSwipePlan(
-            plan,
-            messageId,
-            button,
-            token,
-            totalSwipes,
-            swipeLabels,
-        )
-    }
-}
-
-async function runSequentialSwipePlan(
-    plan,
-    messageId,
-    button,
-    token,
-    totalSwipes,
-    swipeLabels,
-) {
-    let completed = 0
-    let failed = 0
-    let effectiveTarget = totalSwipes
-
-    log('Sequential plan start', {
-        messageId,
-        totalSwipes,
-        models: plan.map((entry) => ({ id: entry.id, count: entry.count })),
-    })
-
-        outer: for (const entry of plan) {
-            const modelLabel = getModelLabel(entry.id)
-            const restoreModel = await applyModelOverride(entry.id)
-
-            try {
-                for (
-                    let swipeIndex = 0;
-                    swipeIndex < entry.count;
-                    swipeIndex += 1
-                ) {
-                    const settings = getSettings()
-                    if (!settings.enabled || token !== state.chatToken) {
-                        break outer
-                    }
-
-                    const message = getCtx().chat?.[messageId]
-                    if (!message) {
-                        break outer
-                    }
-
-                    if (isGenerationInProgress(messageId)) {
-                        console.warn(
-                            '[Image-Generation-Autopilot] Generation still in progress when trying to start new swipe for message',
-                            messageId,
-                        )
-                        const remainingModels = plan.slice(
-                            plan.indexOf(entry) + 1,
-                        )
-                        if (remainingModels.length > 0) {
-                            log('Skipping remaining models, waiting for current generation to complete', {
-                                remainingModels: remainingModels.map((m) => ({ id: m.id })),
-                            })
-                            await sleep(1000)
-                            continue
-                        }
-                        break outer
-                    }
-
-                    if (!button?.isConnected) {
-                        button = await waitForPaintbrush(messageId)
-                        if (!button) {
-                            console.warn(
-                                '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
-                                messageId,
-                            )
-                            break outer
-                        }
-                    }
-
-                    const pendingLabel = swipeLabels?.[completed]
-                    if (
-                        !updateUnifiedProgress(
-                            messageId,
-                            true,
-                            pendingLabel
-                                ? `Generating ${pendingLabel}`
-                                : modelLabel,
-                        )
-                    ) {
-                        updateProgressUi(
-                            messageId,
-                            completed,
-                            effectiveTarget,
-                            true,
-                            pendingLabel
-                                ? `Waiting on ${pendingLabel}`
-                                : modelLabel,
-                        )
-                    }
-                    log('Dispatching sequential swipe', {
-                        messageId,
-                        modelId: entry.id,
-                        swipeIndex: swipeIndex + 1,
-                        totalForModel: entry.count,
-                        completedSoFar: completed,
-                        state: getMessageSwipeState(messageId),
-                    })
-
-                    const success = await requestSwipe(button, messageId)
-                    if (!success) {
-                        clearGenerationState(messageId)
-                        console.warn(
-                            '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
-                            messageId,
-                        )
-                        failed += 1
-                        effectiveTarget = Math.max(1, totalSwipes - failed)
-                        const failedLabel = swipeLabels?.[completed]
-                        if (state.unifiedProgress.active) {
-                            state.unifiedProgress.expectedSwipes = Math.max(
-                                0,
-                                state.unifiedProgress.expectedSwipes - 1,
-                            )
-                        }
-                        if (
-                            !updateUnifiedProgress(
-                                messageId,
-                                false,
-                                failedLabel
-                                    ? `Failed ${failedLabel}`
-                                    : `${modelLabel} swipe failed`,
-                            )
-                        ) {
-                            updateProgressUi(
-                                messageId,
-                                completed,
-                                effectiveTarget,
-                                false,
-                                failedLabel
-                                    ? `Failed ${failedLabel}`
-                                    : `${modelLabel} swipe failed`,
-                            )
-                        }
-                        continue
-                    }
-
-
-                const completedLabel = swipeLabels?.[completed]
-                completed += 1
-                if (state.unifiedProgress.active) {
-                    state.unifiedProgress.completedSwipes += 1
-                }
-                if (
-                    !updateUnifiedProgress(
-                        messageId,
-                        false,
-                        completedLabel
-                            ? `Completed ${completedLabel}`
-                            : modelLabel,
-                    )
-                ) {
-                    updateProgressUi(
-                        messageId,
-                        completed,
-                        effectiveTarget,
-                        false,
-                        completedLabel
-                            ? `Completed ${completedLabel}`
-                            : modelLabel,
-                    )
-                }
-
-                if (settings.delayMs > 0 && completed < effectiveTarget) {
-                    await sleep(settings.delayMs)
-                }
-            }
-        } finally {
-            if (typeof restoreModel === 'function') {
-                restoreModel()
-            }
-        }
-    }
-}
-
-async function runBurstSwipePlan(
-    plan,
-    messageId,
-    button,
-    token,
-    totalSwipes,
-    swipeLabels,
-) {
-    const ctx = getCtx()
-    const baselineCount = getMediaCount(ctx.chat?.[messageId])
-    let issued = 0
-    let failedDispatches = 0
-    let effectiveTarget = totalSwipes
-
-    log('Burst plan start', {
-        messageId,
-        totalSwipes,
-        models: plan.map((entry) => ({ id: entry.id, count: entry.count })),
-    })
-
-    for (const entry of plan) {
-        const settings = getSettings()
-        if (!settings.enabled || token !== state.chatToken) {
-            return
-        }
-
-        const label = getModelLabel(entry.id)
-        const restoreModel = await applyModelOverride(entry.id)
-
-        try {
-            for (
-                let swipeIndex = 0;
-                swipeIndex < entry.count;
-                swipeIndex += 1
-            ) {
-                const throttleMs = clampBurstThrottle(
-                    getSettings().burstThrottleMs,
-                )
-                if (!settings.enabled || token !== state.chatToken) {
-                    return
-                }
-
-                const message = ctx.chat?.[messageId]
-                if (!message) {
-                    return
-                }
-
-                if (!button?.isConnected) {
-                    button = await waitForPaintbrush(messageId)
-                    if (!button) {
-                        console.warn(
-                            '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
-                            messageId,
-                        )
-                        return
-                    }
-                }
-
-                log('Dispatching burst swipe', {
-                    messageId,
-                    modelId: entry.id,
-                    swipeIndex: swipeIndex + 1,
-                    totalForModel: entry.count,
-                    issuedSoFar: issued,
-                    state: getMessageSwipeState(messageId),
-                })
-
-                if (!dispatchSwipe(button)) {
-                    console.warn(
-                        '[Image-Generation-Autopilot] Failed to dispatch swipe click for message',
-                        messageId,
-                    )
-                    failedDispatches += 1
-                    effectiveTarget = Math.max(
-                        1,
-                        totalSwipes - failedDispatches,
-                    )
-                    const failedLabel = swipeLabels?.[issued]
-                    issued += 1
-                    if (state.unifiedProgress.active) {
-                        state.unifiedProgress.expectedSwipes = Math.max(
-                            0,
-                            state.unifiedProgress.expectedSwipes - 1,
-                        )
-                    }
-                    if (
-                        !updateUnifiedProgress(
-                            messageId,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${label} swipe failed`,
-                        )
-                    ) {
-                        updateProgressUi(
-                            messageId,
-                            issued,
-                            effectiveTarget,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${label} swipe failed`,
-                        )
-                    }
-                    continue
-                }
-
-                const issuedLabel = swipeLabels?.[issued]
-                issued += 1
-                if (state.unifiedProgress.active) {
-                    state.unifiedProgress.completedSwipes += 1
-                }
-                if (
-                    !updateUnifiedProgress(
-                        messageId,
-                        true,
-                        issuedLabel
-                            ? `Generating ${issuedLabel}`
-                            : 'Generating swipe',
-                    )
-                ) {
-                    updateProgressUi(
-                        messageId,
-                        issued,
-                        effectiveTarget,
-                        true,
-                        issuedLabel ? `Queued ${issuedLabel}` : label,
-                    )
-                }
-
-                if (issued < effectiveTarget) {
-                    if (throttleMs > 0) {
-                        await sleep(throttleMs)
-                    } else {
-                        await sleep(BURST_MODEL_SETTLE_MS)
-                    }
-                }
-            }
-        } finally {
-            if (typeof restoreModel === 'function') {
-                restoreModel()
-            }
-        }
-    }
-
-    await monitorBurstCompletion(
-        messageId,
-        baselineCount,
-        totalSwipes,
-        token,
-        swipeLabels,
-        failedDispatches,
-    )
-}
-
-async function monitorBurstCompletion(
-    messageId,
-    baselineCount,
-    totalSwipes,
-    token,
-    swipeLabels,
-    failedDispatches = 0,
-) {
-    const timeout = getSettings().swipeTimeoutMs
-    const deadline = performance.now() + timeout
-    const effectiveTarget = Math.max(1, totalSwipes - failedDispatches)
-    const targetCount = baselineCount + effectiveTarget
-    let lastDelivered = 0
-    let lastWasInProgress = false
-
-    while (performance.now() < deadline) {
-        if (token !== state.chatToken) {
-            return
-        }
-
-        const message = getCtx().chat?.[messageId]
-        if (!message) {
-            break
-        }
-
-        const attachments = getMediaCount(message)
-        const delivered = Math.max(0, attachments - baselineCount)
-        if (delivered > lastDelivered) {
-            log('Swipe generation completed', {
-                messageId,
-                delivered,
-                lastDelivered,
-                baselineCount,
-                targetCount,
-                swipeLabel: swipeLabels?.[delivered - 1],
-            })
-        }
-        lastDelivered = delivered
-        const isCurrentlyInProgress = isGenerationInProgress(messageId)
-
-        if (lastWasInProgress && !isCurrentlyInProgress) {
-            console.warn(
-                '[Image-Generation-Autopilot] Generation detected as stopped unexpectedly',
-                messageId,
-            )
-            break
-        }
-        lastWasInProgress = isCurrentlyInProgress
-
-        const pendingLabel = swipeLabels?.[delivered]
-        if (state.unifiedProgress.active) {
-            const baseCompleted =
-                state.unifiedProgress.completedSwipes - lastDelivered
-            state.unifiedProgress.completedSwipes = Math.max(
-                0,
-                baseCompleted + delivered,
-            )
-            updateUnifiedProgress(
-                messageId,
-                delivered < effectiveTarget,
-                pendingLabel
-                    ? `Waiting on ${pendingLabel}`
-                    : 'Waiting for swipes',
-            )
-        } else {
-            updateProgressUi(
-                messageId,
-                Math.min(delivered, effectiveTarget),
-                effectiveTarget,
-                delivered < effectiveTarget,
-                pendingLabel
-                    ? `Queued ${pendingLabel}`
-                    : label,
-            )
-        }
-
-        if (attachments >= targetCount) {
-            return
-        }
-
-        if (isCurrentlyInProgress) {
-            await sleep(350)
-            continue
-        }
-
-        await sleep(350)
-    }
-
-    const timeoutDelivered = Math.min(lastDelivered, effectiveTarget)
-    if (lastWasInProgress) {
-        console.warn(
-            '[Image-Generation-Autopilot] Generation stopped unexpectedly for message',
-            messageId,
-            { timeoutDelivered, effectiveTarget },
-        )
-    }
-
-    if (state.unifiedProgress.active) {
-        state.unifiedProgress.completedSwipes = Math.max(
-            0,
-            state.unifiedProgress.completedSwipes -
-                lastDelivered +
-                timeoutDelivered,
-        )
-        updateUnifiedProgress(
-            messageId,
-            false,
-            timeoutDelivered > 0
-                ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
-                : 'Timed out waiting for swipes',
-        )
-    } else {
-        updateProgressUi(
-            messageId,
-            timeoutDelivered,
-            Math.max(1, timeoutDelivered),
-            false,
-            timeoutDelivered > 0
-                ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
-                : 'Timed out waiting for swipes',
-        )
-    }
 }
 
 function queueAutoFill(messageId, button) {
