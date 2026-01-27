@@ -54,7 +54,7 @@ export class ImageSelectionDialog {
         });
 
         this.popup.show();
-        setTimeout(() => this._bindEvents(), 50);
+        this._bindEvents();
     }
 
     _buildHtml(count) {
@@ -91,27 +91,49 @@ export class ImageSelectionDialog {
         return `<div class="image-selection-dialog">${toolbar}${grid}</div>`;
     }
 
-    _bindEvents() {
-        let container = document.getElementById('image-selection-dialog');
-        
-        if (!container) {
-            container = document.querySelector('.image-selection-dialog');
-        }
-        
-        if (!container) {
-            console.warn('[ImageSelectionDialog] Container not found, falling back to body');
-            container = document.body;
+    async _bindEvents() {
+        let attempts = 0;
+        const maxAttempts = 40;
+
+        while (attempts < maxAttempts) {
+            let container = document.getElementById('image-selection-dialog');
+            if (!container) {
+                container = document.querySelector('.image-selection-dialog');
+            }
+
+            const grid = container
+                ? container.querySelector('.image-selection-grid')
+                : document.querySelector('.image-selection-grid');
+
+            if (grid) {
+                if (!container) container = document.body;
+
+                this.domElements.grid = grid;
+                this.domElements.selectAll =
+                    container.querySelector('#btn-select-all') ||
+                    document.querySelector('#btn-select-all');
+                this.domElements.deselectAll =
+                    container.querySelector('#btn-deselect-all') ||
+                    document.querySelector('#btn-deselect-all');
+                this.domElements.destination =
+                    container.querySelector('#img-dest-select') ||
+                    document.querySelector('#img-dest-select');
+
+                this._attachListeners();
+                this._syncGrid();
+                return;
+            }
+
+            await new Promise((r) => setTimeout(r, 50));
+            attempts++;
         }
 
-        this.domElements.grid = container.querySelector('.image-selection-grid');
-        this.domElements.selectAll = container.querySelector('#btn-select-all');
-        this.domElements.deselectAll = container.querySelector('#btn-deselect-all');
-        this.domElements.destination = container.querySelector('#img-dest-select');
+        console.error(
+            '[ImageSelectionDialog] Failed to find DOM elements after waiting',
+        );
+    }
 
-        if (!this.domElements.grid) {
-            console.error('[ImageSelectionDialog] Grid element not found in DOM');
-        }
-
+    _attachListeners() {
         if (this.domElements.grid) {
             this.domElements.grid.addEventListener('click', (e) => {
                 const slot = e.target.closest('.image-slot');
@@ -123,11 +145,15 @@ export class ImageSelectionDialog {
         }
 
         if (this.domElements.selectAll) {
-            this.domElements.selectAll.addEventListener('click', () => this._selectAll());
+            this.domElements.selectAll.addEventListener('click', () =>
+                this._selectAll(),
+            );
         }
 
         if (this.domElements.deselectAll) {
-            this.domElements.deselectAll.addEventListener('click', () => this._deselectAll());
+            this.domElements.deselectAll.addEventListener('click', () =>
+                this._deselectAll(),
+            );
         }
 
         if (this.domElements.destination) {
@@ -135,8 +161,6 @@ export class ImageSelectionDialog {
                 this.destination = e.target.value;
             });
         }
-
-        this._syncGrid();
     }
 
     async _startGeneration(prompts, options) {
