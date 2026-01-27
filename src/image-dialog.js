@@ -54,7 +54,7 @@ export class ImageSelectionDialog {
         });
 
         this.popup.show();
-        this._bindEvents();
+        setTimeout(() => this._bindEvents(), 50);
     }
 
     _buildHtml(count) {
@@ -135,6 +135,8 @@ export class ImageSelectionDialog {
                 this.destination = e.target.value;
             });
         }
+
+        this._syncGrid();
     }
 
     async _startGeneration(prompts, options) {
@@ -155,28 +157,37 @@ export class ImageSelectionDialog {
         }
     }
 
-    _updateSlot(index, result) {
-        this.slots[index] = {
-            status: result.status === 'ok' ? 'success' : 'error',
-            result: result
-        };
-
+    _syncGrid() {
         if (!this.domElements.grid) return;
+        this.slots.forEach((_, index) => this._renderSlot(index));
+    }
+
+    _renderSlot(index) {
+        if (!this.domElements.grid) return;
+
+        const slotData = this.slots[index];
+        if (!slotData) return;
 
         const slotEl = this.domElements.grid.querySelector(`.image-slot[data-index="${index}"]`);
         if (!slotEl) return;
 
+        if (slotData.status === 'pending') {
+            // Pending is the default state, no need to reset if we assume clean slate
+            return;
+        }
+
         slotEl.classList.remove('pending');
-        
-        if (result.status === 'ok') {
+
+        if (slotData.status === 'success') {
             slotEl.classList.add('success');
-            const imageUrl = result.result; 
+            const imageUrl = slotData.result.result;
             slotEl.innerHTML = `
-                <img src="${imageUrl}" alt="${result.prompt}" />
+                <img src="${imageUrl}" alt="${slotData.result.prompt}" />
                 <div class="image-slot-overlay"></div>
             `;
-            this._toggleSelection(index, true);
-        } else {
+            const isSelected = this.selectedIndices.has(index);
+            slotEl.classList.toggle('selected', isSelected);
+        } else if (slotData.status === 'error') {
             slotEl.classList.add('error');
             slotEl.innerHTML = `
                 <div class="image-slot-status">
@@ -185,6 +196,19 @@ export class ImageSelectionDialog {
                 </div>
             `;
         }
+    }
+
+    _updateSlot(index, result) {
+        this.slots[index] = {
+            status: result.status === 'ok' ? 'success' : 'error',
+            result: result
+        };
+
+        if (result.status === 'ok') {
+            this._toggleSelection(index, true);
+        }
+
+        this._renderSlot(index);
     }
 
     _toggleSelection(index, forceState = null) {
