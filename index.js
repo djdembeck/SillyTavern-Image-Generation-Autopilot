@@ -4196,7 +4196,6 @@ async function init() {
             queueAutoFill(messageId, paintbrush)
         })
 
-        const { eventSource, eventTypes } = getCtx()
         eventSource.on(
             eventTypes.CHARACTER_MESSAGE_RENDERED,
             handleMessageRendered,
