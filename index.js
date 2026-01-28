@@ -1129,10 +1129,17 @@ function getSdModelOptions() {
         return []
     }
 
-    return Array.from(select.options).map((option) => ({
-        value: option.value,
-        text: option.text,
-    }))
+    return Array.from(select.options)
+        .map((option) => {
+            const text =
+                option.textContent?.trim() || option.value || 'Unnamed model'
+            return {
+                value: option.value,
+                text: text,
+                label: text,
+            }
+        })
+        .filter((option) => option.value)
 }
 
 function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
@@ -2356,21 +2363,6 @@ function renderModelQueueRows(queue) {
         row.append(modelField, countField, removeButton)
         container.appendChild(row)
     })
-}
-
-function getSdModelOptions() {
-    const select = document.getElementById('sd_model')
-    if (!(select instanceof HTMLSelectElement)) {
-        return []
-    }
-
-    return Array.from(select.options)
-        .map((option) => ({
-            value: option.value,
-            label:
-                option.textContent?.trim() || option.value || 'Unnamed model',
-        }))
-        .filter((option) => option.value)
 }
 
 function getActiveSdModelLabel() {
