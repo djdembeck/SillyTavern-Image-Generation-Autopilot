@@ -18,6 +18,7 @@ const createMockElement = (id = '') => {
             remove: mock(),
             toggle: mock(),
         },
+        remove: mock(),
         dataset: {},
         closest: mock(() => ({ dataset: { index: "0" } })),
         innerHTML: "",

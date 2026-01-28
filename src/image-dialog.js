@@ -179,6 +179,32 @@ export class ImageSelectionDialog {
                     );
                     wrapper.innerHTML = this.content;
                     injectedFallback = true;
+                } else if (attempts > 20) {
+                    console.warn(
+                        '[ImageSelectionDialog] No popup found. Creating manual overlay.',
+                    );
+                    const manualWrapper = document.createElement('div');
+                    manualWrapper.className =
+                        'image-selection-popup manual-overlay';
+                    manualWrapper.style.position = 'fixed';
+                    manualWrapper.style.top = '10%';
+                    manualWrapper.style.left = '10%';
+                    manualWrapper.style.width = '80%';
+                    manualWrapper.style.height = '80%';
+                    manualWrapper.style.zIndex = '20000';
+                    manualWrapper.style.background =
+                        'var(--SmartThemeBlur, #1c1c26)';
+                    manualWrapper.style.border =
+                        '1px solid var(--SmartThemeBorder, #444)';
+                    manualWrapper.style.borderRadius = '12px';
+                    manualWrapper.style.padding = '20px';
+                    manualWrapper.style.boxShadow = '0 0 50px rgba(0,0,0,0.8)';
+                    manualWrapper.style.display = 'flex';
+                    manualWrapper.style.flexDirection = 'column';
+
+                    manualWrapper.innerHTML = this.content;
+                    document.body.appendChild(manualWrapper);
+                    injectedFallback = true;
                 }
             }
 
@@ -361,9 +387,18 @@ export class ImageSelectionDialog {
         });
     }
 
+    _removeManualOverlay() {
+        const overlay = document.querySelector(
+            '.image-selection-popup.manual-overlay',
+        );
+        if (overlay) {
+            overlay.remove();
+        }
+    }
+
     _handleConfirm() {
         const selectedImages = [];
-        this.selectedIndices.forEach(index => {
+        this.selectedIndices.forEach((index) => {
             const slot = this.slots[index];
             if (slot && slot.status === 'success') {
                 selectedImages.push(slot.result.result);
@@ -373,10 +408,15 @@ export class ImageSelectionDialog {
         if (this.resolvePromise) {
             this.resolvePromise({
                 selected: selectedImages,
-                destination: this.destination
+                destination: this.destination,
             });
         }
         this.resolvePromise = null;
+
+        if (this.popup && typeof this.popup.hide === 'function') {
+            this.popup.hide();
+        }
+        this._removeManualOverlay();
     }
 
     _handleCancel() {
@@ -387,21 +427,30 @@ export class ImageSelectionDialog {
             this.rejectPromise(new Error('Cancelled'));
         }
         this.resolvePromise = null;
+
+        if (this.popup && typeof this.popup.hide === 'function') {
+            this.popup.hide();
+        }
+        this._removeManualOverlay();
     }
 
     _handleClosing() {
         if (this.isGenerating) {
-            const confirmClose = confirm('Generation is still in progress. Are you sure you want to close?');
+            const confirmClose = confirm(
+                'Generation is still in progress. Are you sure you want to close?',
+            );
             if (!confirmClose) {
                 this.generator.abort();
             } else {
                 this.generator.abort();
             }
         }
-        
+
         if (this.resolvePromise) {
             this.rejectPromise(new Error('Closed'));
         }
+        this.resolvePromise = null;
+        this._removeManualOverlay();
     }
     
     _updateUIState() {
