@@ -34,6 +34,8 @@ export class ImageSelectionDialog {
         this.domElements = {};
         this.prompts = [];
         this.generatorOptions = {};
+        this.modelOptions = dependencies.modelOptions || [];
+        this.selectedModelId = null;
     }
 
     show(prompts, options = {}) {
@@ -94,7 +96,6 @@ export class ImageSelectionDialog {
         this._bindEvents();
     }
 
-
     _buildHtml(count) {
         const header = `
             <div class="image-selection-header">
@@ -106,6 +107,21 @@ export class ImageSelectionDialog {
                     <h5>Parallel Generation Results</h5>
                     <p class="caption">Select the images you want to keep and choose their destination.</p>
                 </div>
+            </div>
+        `;
+
+        const modelSelector = `
+            <div class="image-selection-model">
+                <span>Model:</span>
+                <select id="img-model-select">
+                    <option value="">Default (Active)</option>
+                    ${this.modelOptions
+                        .map(
+                            (m) =>
+                                `<option value="${m.value}">${m.text}</option>`,
+                        )
+                        .join('')}
+                </select>
             </div>
         `;
 
@@ -122,12 +138,15 @@ export class ImageSelectionDialog {
                         <i class="fa-solid fa-rotate"></i> Regenerate All
                     </button>
                 </div>
-                <div class="image-selection-destination">
-                    <span>Destination:</span>
-                    <select id="img-dest-select">
-                        <option value="new">New Message</option>
-                        <option value="current">Current Message</option>
-                    </select>
+                <div class="image-selection-toolbar-group">
+                    ${modelSelector}
+                    <div class="image-selection-destination">
+                        <span>Destination:</span>
+                        <select id="img-dest-select">
+                            <option value="new">New Message</option>
+                            <option value="current">Current Message</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         `;
@@ -141,6 +160,7 @@ export class ImageSelectionDialog {
                         <span>Generating...</span>
                     </div>
                     <div class="image-slot-overlay"></div>
+                    <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
                 </div>
             `;
         }
@@ -153,7 +173,16 @@ export class ImageSelectionDialog {
             </div>
         `;
 
-        return `<div class="image-selection-dialog">${header}${toolbar}${grid}${footer}</div>`;
+        const lightbox = `
+            <div id="image-selection-lightbox" class="image-selection-lightbox hidden">
+                <div class="lightbox-content">
+                    <img id="lightbox-img" src="" alt="Enlarged view" />
+                    <div id="lightbox-select" class="lightbox-select-btn fa-solid fa-circle-check"></div>
+                </div>
+            </div>
+        `;
+
+        return `<div class="image-selection-dialog">${header}${toolbar}${grid}${footer}${lightbox}</div>`;
     }
 
     async _bindEvents() {
@@ -193,6 +222,18 @@ export class ImageSelectionDialog {
                 this.domElements.regenerate =
                     container.querySelector('#btn-img-regenerate') ||
                     document.querySelector('#btn-img-regenerate');
+                this.domElements.modelSelect =
+                    container.querySelector('#img-model-select') ||
+                    document.querySelector('#img-model-select');
+                this.domElements.lightbox =
+                    container.querySelector('#image-selection-lightbox') ||
+                    document.querySelector('#image-selection-lightbox');
+                this.domElements.lightboxImg =
+                    container.querySelector('#lightbox-img') ||
+                    document.querySelector('#lightbox-img');
+                this.domElements.lightboxSelect =
+                    container.querySelector('#lightbox-select') ||
+                    document.querySelector('#lightbox-select');
                 this.domElements.manualClose =
                     container.querySelector('#manual-close-dialog') ||
                     document.querySelector('#manual-close-dialog');
@@ -303,8 +344,52 @@ export class ImageSelectionDialog {
                 const slot = e.target.closest('.image-slot');
                 if (slot) {
                     const index = parseInt(slot.dataset.index, 10);
-                    this._toggleSelection(index);
+                    const isMobile = window.innerWidth < 600;
+                    if (isMobile) {
+                        this._showLightbox(index);
+                    } else {
+                        this._toggleSelection(index);
+                    }
                 }
+            });
+
+            // Hover to enlarge (lightbox style) on desktop
+            this.domElements.grid.addEventListener('mouseover', (e) => {
+                const isMobile = window.innerWidth < 600;
+                if (isMobile) return;
+
+                const slot = e.target.closest('.image-slot');
+                if (slot) {
+                    const index = parseInt(slot.dataset.index, 10);
+                    this._showLightbox(index);
+                }
+            });
+        }
+
+        if (this.domElements.lightbox) {
+            this.domElements.lightbox.addEventListener('click', (e) => {
+                if (e.target.id === 'lightbox-select') {
+                    const index = parseInt(
+                        this.domElements.lightbox.dataset.index,
+                        10,
+                    );
+                    this._toggleSelection(index);
+                    this._updateLightboxSelectState(index);
+                    return;
+                }
+                this._hideLightbox();
+            });
+
+            // Dismiss lightbox when mouse leaves grid on desktop
+            this.domElements.grid?.addEventListener('mouseleave', () => {
+                const isMobile = window.innerWidth < 600;
+                if (!isMobile) this._hideLightbox();
+            });
+        }
+
+        if (this.domElements.modelSelect) {
+            this.domElements.modelSelect.addEventListener('change', (e) => {
+                this.selectedModelId = e.target.value;
             });
         }
 
@@ -351,16 +436,52 @@ export class ImageSelectionDialog {
         }
     }
 
+    _showLightbox(index) {
+        const slot = this.slots[index];
+        if (!slot || slot.status !== 'success') return;
+
+        if (this.domElements.lightbox && this.domElements.lightboxImg) {
+            this.domElements.lightbox.dataset.index = index;
+            this.domElements.lightboxImg.src = slot.result.result;
+            this.domElements.lightbox.classList.remove('hidden');
+            this._updateLightboxSelectState(index);
+        }
+    }
+
+    _hideLightbox() {
+        if (this.domElements.lightbox) {
+            this.domElements.lightbox.classList.add('hidden');
+        }
+    }
+
+    _updateLightboxSelectState(index) {
+        if (this.domElements.lightboxSelect) {
+            const isSelected = this.selectedIndices.has(index);
+            this.domElements.lightboxSelect.classList.toggle(
+                'selected',
+                isSelected,
+            );
+        }
+    }
+
     async _startGeneration(prompts, options) {
         this.isGenerating = true;
-        this.generator = this.generatorFactory(options);
+
+        // Apply model override if selected in dialog
+        const genOptions = { ...options };
+        if (this.selectedModelId) {
+            genOptions.modelId = this.selectedModelId;
+            // If modelId is set, the ParallelGenerator worker will use it
+        }
+
+        this.generator = this.generatorFactory(genOptions);
 
         this.generator.onProgress((data) => {
             this._updateSlot(data.taskIndex, data.result);
         });
 
         try {
-            await this.generator.run(prompts, options);
+            await this.generator.run(prompts, genOptions);
         } catch (err) {
             console.error('Generation error:', err);
         } finally {
@@ -446,6 +567,17 @@ export class ImageSelectionDialog {
         );
         if (slotEl) {
             slotEl.classList.toggle('selected', newState);
+        }
+
+        if (
+            this.domElements.lightbox &&
+            !this.domElements.lightbox.classList.contains('hidden')
+        ) {
+            if (
+                parseInt(this.domElements.lightbox.dataset.index, 10) === index
+            ) {
+                this._updateLightboxSelectState(index);
+            }
         }
 
         if (!skipUiUpdate) {

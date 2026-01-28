@@ -17,6 +17,7 @@ const createMockElement = (id = '') => {
             add: mock(),
             remove: mock(),
             toggle: mock(),
+            contains: mock(() => false),
         },
         remove: mock(),
         dataset: {},

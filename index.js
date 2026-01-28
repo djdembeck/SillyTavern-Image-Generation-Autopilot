@@ -1123,6 +1123,18 @@ function getPicPromptMatches(messageText, regex) {
           : []
 }
 
+function getSdModelOptions() {
+    const select = document.getElementById('sd_model')
+    if (!(select instanceof HTMLSelectElement)) {
+        return []
+    }
+
+    return Array.from(select.options).map((option) => ({
+        value: option.value,
+        text: option.text,
+    }))
+}
+
 function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
     const fallback = typeof originalPrompt === 'string' ? originalPrompt : ''
     if (typeof rewrittenText !== 'string') {
@@ -3048,6 +3060,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
     const components = await initComponents()
     const settings = getSettings()
     const modelQueue = getSwipePlan(settings)
+    const modelOptions = getSdModelOptions()
 
     const generatorFactory = (options) => {
         const generator = new components.ParallelGenerator({
@@ -3063,6 +3076,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
     const dialog = new components.ImageSelectionDialog({
         generatorFactory,
         PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
+        modelOptions,
     })
     
     const generatorOptions = {
@@ -4278,7 +4292,12 @@ function refreshReswipeButtons() {
 
         const message = chat[messageId]
         const hasMedia = getMediaCount(message) > 0
-        const shouldShow = settings.enabled && hasMedia
+
+        // Also check if message contains pic tags for reswipe trigger
+        const regex = parseRegexFromString(settings.autoGeneration?.promptInjection?.regex)
+        const hasPicTags = regex && getPicPromptMatches(message.mes, regex).length > 0
+
+        const shouldShow = settings.enabled && (hasMedia || hasPicTags)
         ensureReswipeButton(messageId, shouldShow)
 
         const shouldShowRewrite = shouldShowPromptRewriteButton(message)
