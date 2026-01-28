@@ -192,11 +192,12 @@ export class ImageSelectionDialog {
                     if (isMobile) {
                         manualWrapper.style.top = '0';
                         manualWrapper.style.left = '0';
-                        manualWrapper.style.width = '100%';
-                        manualWrapper.style.height = '100%';
+                        manualWrapper.style.width = '100vw';
+                        manualWrapper.style.height = '100vh';
                         manualWrapper.style.transform = 'none';
                         manualWrapper.style.borderRadius = '0';
                         manualWrapper.style.padding = '10px';
+                        manualWrapper.style.margin = '0';
                     } else {
                         manualWrapper.style.top = '5%';
                         manualWrapper.style.left = '50%';
