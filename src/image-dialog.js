@@ -329,11 +329,17 @@ export class ImageSelectionDialog {
             const isSelected = this.selectedIndices.has(index);
             slotEl.classList.toggle('selected', isSelected);
         } else if (slotData.status === 'error') {
+            console.error(
+                '[ImageSelectionDialog] Slot error:',
+                slotData.result.error,
+            );
+            const errorMsg = slotData.result.error?.message || 'Unknown error';
             slotEl.classList.add('error');
             slotEl.innerHTML = `
                 <div class="image-slot-status">
                     <i class="fa-solid fa-triangle-exclamation"></i>
                     <span>Failed</span>
+                    <span style="font-size: 0.7em; margin-top: 4px; opacity: 0.8;">${errorMsg}</span>
                 </div>
             `;
         }
