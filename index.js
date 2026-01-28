@@ -3296,10 +3296,21 @@ async function handleIncomingMessage(messageId) {
         return
     }
 
+    const swipesPerImage = getSwipeTotal(settings)
+    const expandedPrompts = []
+    for (const prompt of prompts) {
+        for (let i = 0; i < swipesPerImage; i += 1) {
+            expandedPrompts.push(prompt)
+        }
+    }
+
     state.autoGenMessages.add(resolvedId)
 
     try {
-        const result = await openImageSelectionDialog(prompts, resolvedId)
+        const result = await openImageSelectionDialog(
+            expandedPrompts,
+            resolvedId,
+        )
         await handleDialogResult(result, message)
     } catch (error) {
         console.warn('[Image-Generation-Autopilot] Auto-generation failed', error)
@@ -3878,10 +3889,21 @@ async function queueAutoFill(messageId, button) {
         return
     }
 
+    const swipesPerImage = getSwipeTotal(settings)
+    const expandedPrompts = []
+    for (const prompt of prompts) {
+        for (let i = 0; i < swipesPerImage; i += 1) {
+            expandedPrompts.push(prompt)
+        }
+    }
+
     state.runningMessages.set(messageId, true)
 
     try {
-        const result = await openImageSelectionDialog(prompts, messageId)
+        const result = await openImageSelectionDialog(
+            expandedPrompts,
+            messageId,
+        )
         await handleDialogResult(result, message)
     } catch (error) {
         console.warn('[Image-Generation-Autopilot] Auto-fill failed', error)
