@@ -1729,9 +1729,13 @@ async function buildSettingsPanel() {
     })
 
     concurrencyInput.addEventListener('input', () => {
-        concurrencyCounter.innerText = concurrencyInput.value
+        const value = concurrencyInput.value
+        console.log('[Image-Generation-Autopilot] Concurrency slider input:', value)
+        if (concurrencyCounter) {
+            concurrencyCounter.textContent = String(value)
+        }
         const current = getSettings()
-        current.concurrency = parseInt(concurrencyInput.value)
+        current.concurrency = parseInt(value, 10) || 4
         saveSettings()
     })
 
