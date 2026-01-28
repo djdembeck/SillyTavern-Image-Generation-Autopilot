@@ -112,7 +112,7 @@ export class ImageSelectionDialog {
 
         const modelSelector = `
             <div class="image-selection-model">
-                <span>Model:</span>
+                <span><i class="fa-solid fa-cube"></i> Model:</span>
                 <select id="img-model-select">
                     <option value="">Default (Active)</option>
                     ${this.modelOptions
@@ -144,7 +144,7 @@ export class ImageSelectionDialog {
                 <div class="image-selection-toolbar-group">
                     ${modelSelector}
                     <div class="image-selection-destination">
-                        <span>Destination:</span>
+                        <span><i class="fa-solid fa-location-arrow"></i> Destination:</span>
                         <select id="img-dest-select">
                             <option value="new">New Message</option>
                             <option value="current">Current Message</option>

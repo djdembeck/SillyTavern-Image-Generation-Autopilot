@@ -317,7 +317,9 @@
 .lightbox-active .manual-dialog-close,
 .image-selection-dialog.lightbox-active .manual-dialog-close,
 .manual-overlay.lightbox-active .manual-dialog-close,
-.image-selection-popup.lightbox-active .manual-dialog-close {
+.image-selection-popup.lightbox-active .manual-dialog-close,
+.lightbox-active .popup-close,
+.lightbox-active .popup-header .popup-close {
     display: none !important;
     opacity: 0 !important;
     pointer-events: none !important;
@@ -458,12 +460,19 @@
     .image-selection-model, .image-selection-destination {
         flex: 1;
         min-width: 0;
-        font-size: 0.75rem;
-        gap: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
     }
 
     .image-selection-model span, .image-selection-destination span {
-        display: none;
+        display: block;
+        font-size: 0.7rem;
+        opacity: 0.8;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .image-selection-model select, .image-selection-destination select {
