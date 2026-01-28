@@ -368,12 +368,6 @@ export class ImageSelectionDialog {
                 }
                 this._hideLightbox();
             });
-
-            // Dismiss lightbox when mouse leaves grid on desktop
-            this.domElements.grid?.addEventListener('mouseleave', () => {
-                const isMobile = window.innerWidth < 600;
-                if (!isMobile) this._hideLightbox();
-            });
         }
 
         if (this.domElements.modelSelect) {

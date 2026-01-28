@@ -3061,9 +3061,8 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
     const generatorFactory = (options) => {
         const generator = new components.ParallelGenerator({
             concurrencyLimit: settings.concurrency || 4,
-            callSdSlash: async (prompt, opts) => {
-                const modelId = opts?.modelId
-                return callSdSlashWithModel(prompt, modelId, true)
+            callSdSlash: async (prompt, quiet, modelId) => {
+                return callSdSlashWithModel(prompt, modelId, quiet)
             },
         })
         return generator

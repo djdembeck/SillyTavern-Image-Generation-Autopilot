@@ -130,6 +130,9 @@ class ParallelGenerator {
         const stats = { completed: 0, failed: 0 }
         let nextIndex = 0
         const workerCount = Math.min(this.concurrencyLimit, total)
+        const retryLimit = Number.isFinite(options.retryLimit)
+            ? options.retryLimit
+            : 1
 
         const worker = async (slotIndex) => {
             while (true) {
@@ -145,24 +148,40 @@ class ParallelGenerator {
 
                 const task = tasks[taskIndex]
                 let result
+                let attempts = 0
+                let lastError = null
 
-                try {
-                    const response = await this.callSdSlash(
-                        task.prompt,
-                        quiet,
-                        task.modelId,
-                    )
-                    if (response == null) {
-                        throw new Error('SD generation failed')
+                while (attempts <= retryLimit) {
+                    if (this._abortRequested) break
+
+                    try {
+                        const response = await this.callSdSlash(
+                            task.prompt,
+                            quiet,
+                            task.modelId,
+                        )
+                        if (response == null) {
+                            throw new Error('SD generation failed')
+                        }
+                        result = createSuccessResult(
+                            task.prompt,
+                            task.modelId,
+                            response,
+                        )
+                        stats.completed += 1
+                        lastError = null
+                        break
+                    } catch (error) {
+                        lastError = error
+                        attempts += 1
+                        if (stats.completed === 0 && stats.failed >= workerCount) {
+                            break
+                        }
                     }
-                    result = createSuccessResult(
-                        task.prompt,
-                        task.modelId,
-                        response,
-                    )
-                    stats.completed += 1
-                } catch (error) {
-                    result = createErrorResult(task.prompt, task.modelId, error)
+                }
+
+                if (lastError) {
+                    result = createErrorResult(task.prompt, task.modelId, lastError)
                     stats.failed += 1
                 }
 
