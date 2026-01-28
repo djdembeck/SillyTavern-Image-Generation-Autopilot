@@ -188,23 +188,37 @@ export class ImageSelectionDialog {
                         'image-selection-popup manual-overlay';
                     manualWrapper.style.position = 'fixed';
                     const isMobile = window.innerWidth < 600;
-                    manualWrapper.style.top = isMobile ? '0' : '10%';
-                    manualWrapper.style.left = isMobile ? '0' : '10%';
-                    manualWrapper.style.width = isMobile ? '100%' : '80%';
-                    manualWrapper.style.height = isMobile ? '100%' : '80%';
-                    manualWrapper.style.maxWidth = isMobile ? '100%' : '1000px';
-                    manualWrapper.style.maxHeight = isMobile ? '100%' : '90vh';
-                    manualWrapper.style.zIndex = '1000000';
+
+                    if (isMobile) {
+                        manualWrapper.style.top = '0';
+                        manualWrapper.style.left = '0';
+                        manualWrapper.style.width = '100%';
+                        manualWrapper.style.height = '100%';
+                        manualWrapper.style.transform = 'none';
+                        manualWrapper.style.borderRadius = '0';
+                        manualWrapper.style.padding = '10px';
+                    } else {
+                        manualWrapper.style.top = '5%';
+                        manualWrapper.style.left = '50%';
+                        manualWrapper.style.transform = 'translateX(-50%)';
+                        manualWrapper.style.width = '90%';
+                        manualWrapper.style.height = '90%';
+                        manualWrapper.style.maxWidth = '1200px';
+                        manualWrapper.style.maxHeight = '90vh';
+                        manualWrapper.style.borderRadius = '12px';
+                        manualWrapper.style.padding = '20px';
+                    }
+
+                    manualWrapper.style.zIndex = '1000000000';
                     manualWrapper.style.background = 'rgba(20, 20, 30, 0.98)';
                     manualWrapper.style.border =
                         '1px solid var(--SmartThemeBorder, #444)';
-                    manualWrapper.style.borderRadius = isMobile ? '0' : '12px';
-                    manualWrapper.style.padding = isMobile ? '10px' : '20px';
                     manualWrapper.style.boxShadow = '0 0 50px rgba(0,0,0,0.8)';
                     manualWrapper.style.display = 'flex';
                     manualWrapper.style.flexDirection = 'column';
                     manualWrapper.style.boxSizing = 'border-box';
                     manualWrapper.style.overflow = 'hidden';
+                    manualWrapper.style.pointerEvents = 'all';
 
                     manualWrapper.innerHTML = this.content;
                     document.body.appendChild(manualWrapper);
@@ -350,12 +364,8 @@ export class ImageSelectionDialog {
     _updateSlot(index, result) {
         this.slots[index] = {
             status: result.status === 'ok' ? 'success' : 'error',
-            result: result
+            result: result,
         };
-
-        if (result.status === 'ok') {
-            this._toggleSelection(index, true);
-        }
 
         this._renderSlot(index);
     }

@@ -113,7 +113,7 @@ describe("ImageSelectionDialog", () => {
         });
 
         expect(dialog.slots[0].status).toBe('success');
-        expect(dialog.selectedIndices.has(0)).toBe(true);
+        expect(dialog.selectedIndices.has(0)).toBe(false);
         expect(mockSlot.classList.remove).toHaveBeenCalledWith('pending');
         expect(mockSlot.classList.add).toHaveBeenCalledWith('success');
         expect(mockSlot.innerHTML).toContain('img1.png');

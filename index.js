@@ -1604,14 +1604,23 @@ async function buildSettingsPanel() {
     const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_pic_count_max')
     )
+    const concurrencyInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_swipe_concurrency')
+    )
+    const concurrencyCounter = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_swipe_concurrency_counter')
+    )
 
     if (
         !(
             enabledInput &&
+            modelQueueEnabledInput &&
             countInput &&
             delayInput &&
             summary &&
-            modelRowsContainer
+            modelRowsContainer &&
+            concurrencyInput &&
+            concurrencyCounter
         )
     ) {
         console.warn(
@@ -1683,6 +1692,8 @@ async function buildSettingsPanel() {
         characterPanel,
         characterEnabledInput,
         characterResetButton,
+        concurrencyInput,
+        concurrencyCounter,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -1691,6 +1702,13 @@ async function buildSettingsPanel() {
     enabledInput.addEventListener('change', () => {
         const current = getSettings()
         current.enabled = enabledInput.checked
+        saveSettings()
+    })
+
+    concurrencyInput.addEventListener('input', () => {
+        concurrencyCounter.innerText = concurrencyInput.value
+        const current = getSettings()
+        current.concurrency = parseInt(concurrencyInput.value)
         saveSettings()
     })
 
@@ -2572,6 +2590,15 @@ function syncUiFromSettings() {
                 settings.autoGeneration.promptInjection.picCountMax,
                 3,
             ),
+        )
+    }
+
+    if (state.ui.concurrencyInput) {
+        state.ui.concurrencyInput.value = String(settings.concurrency || 4)
+    }
+    if (state.ui.concurrencyCounter) {
+        state.ui.concurrencyCounter.innerText = String(
+            settings.concurrency || 4,
         )
     }
 
