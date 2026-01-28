@@ -83,8 +83,16 @@ describe("ImageSelectionDialog", () => {
         expect(mockRun).toHaveBeenCalled();
         
         // Simulate completion
-        progressCallback({ slotIndex: 0, result: { status: 'ok', result: 'img1.png' } });
-        progressCallback({ slotIndex: 1, result: { status: 'ok', result: 'img2.png' } });
+        progressCallback({
+            slotIndex: 0,
+            taskIndex: 0,
+            result: { status: 'ok', result: 'img1.png' },
+        });
+        progressCallback({
+            slotIndex: 1,
+            taskIndex: 1,
+            result: { status: 'ok', result: 'img2.png' },
+        });
         
         // Wait for run to resolve (it's mocked to resolve immediately, but logic awaits it)
     });
@@ -98,9 +106,10 @@ describe("ImageSelectionDialog", () => {
         dialog.domElements.grid = mockGrid;
         mockGrid.querySelector.mockReturnValue(mockSlot);
 
-        progressCallback({ 
-            slotIndex: 0, 
-            result: { status: 'ok', result: 'img1.png', prompt: 'p1' } 
+        progressCallback({
+            slotIndex: 0,
+            taskIndex: 0,
+            result: { status: 'ok', result: 'img1.png', prompt: 'p1' },
         });
 
         expect(dialog.slots[0].status).toBe('success');
@@ -118,9 +127,10 @@ describe("ImageSelectionDialog", () => {
         dialog.domElements.grid = mockGrid;
         mockGrid.querySelector.mockReturnValue(mockSlot);
 
-        progressCallback({ 
-            slotIndex: 0, 
-            result: { status: 'error', error: 'failed' } 
+        progressCallback({
+            slotIndex: 0,
+            taskIndex: 0,
+            result: { status: 'error', error: 'failed' },
         });
 
         expect(dialog.slots[0].status).toBe('error');

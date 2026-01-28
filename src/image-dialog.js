@@ -191,7 +191,9 @@ export class ImageSelectionDialog {
                     manualWrapper.style.left = '10%';
                     manualWrapper.style.width = '80%';
                     manualWrapper.style.height = '80%';
-                    manualWrapper.style.zIndex = '20000';
+                    manualWrapper.style.maxWidth = '1000px';
+                    manualWrapper.style.maxHeight = '90vh';
+                    manualWrapper.style.zIndex = '99999';
                     manualWrapper.style.background =
                         'var(--SmartThemeBlur, #1c1c26)';
                     manualWrapper.style.border =
@@ -283,9 +285,9 @@ export class ImageSelectionDialog {
     async _startGeneration(prompts, options) {
         this.isGenerating = true;
         this.generator = this.generatorFactory(options);
-        
+
         this.generator.onProgress((data) => {
-            this._updateSlot(data.slotIndex, data.result);
+            this._updateSlot(data.taskIndex, data.result);
         });
 
         try {

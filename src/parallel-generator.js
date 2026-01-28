@@ -170,6 +170,7 @@ class ParallelGenerator {
                         failed: stats.failed,
                         total,
                         slotIndex,
+                        taskIndex: task.index,
                         result,
                     })
                 }
