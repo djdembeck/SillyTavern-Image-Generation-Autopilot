@@ -267,7 +267,7 @@ export class ImageSelectionDialog {
                     manualWrapper.className =
                         'image-selection-popup manual-overlay';
                     manualWrapper.style.position = 'fixed';
-                    const isMobile = window.innerWidth < 600;
+                    const isMobile = window.innerWidth < 800;
 
                     if (isMobile) {
                         manualWrapper.style.setProperty('top', '0', 'important');
@@ -350,6 +350,13 @@ export class ImageSelectionDialog {
                 const slot = e.target.closest('.image-slot');
                 if (slot) {
                     const index = parseInt(slot.dataset.index, 10);
+                    
+                    if (e.target.closest('.image-slot-selection-indicator')) {
+                        e.stopPropagation();
+                        this._toggleSelection(index);
+                        return;
+                    }
+
                     this._showLightbox(index);
                 }
             });
@@ -640,6 +647,7 @@ export class ImageSelectionDialog {
                             <span>Generating...</span>
                         </div>
                         <div class="image-slot-overlay"></div>
+                        <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
                     `;
                 }
             });
