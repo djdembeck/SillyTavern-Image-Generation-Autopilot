@@ -47,7 +47,7 @@ export class ImageSelectionDialog {
     }
 
     _createPopup(count) {
-        const content = this._buildHtml(count);
+        this.content = this._buildHtml(count);
 
         if (!this.PopupClass && !window.Popup) {
             console.error(
@@ -63,7 +63,7 @@ export class ImageSelectionDialog {
 
         try {
             this.popup = new this.PopupClass(
-                content,
+                this.content,
                 type,
                 'image-selection-popup',
                 null,
@@ -132,7 +132,8 @@ export class ImageSelectionDialog {
 
     async _bindEvents() {
         let attempts = 0;
-        const maxAttempts = 40;
+        const maxAttempts = 60;
+        let injectedFallback = false;
 
         while (attempts < maxAttempts) {
             let container = document.getElementById('image-selection-dialog');
@@ -169,6 +170,18 @@ export class ImageSelectionDialog {
                 return;
             }
 
+            // Fallback: If wrapper exists but content missing, inject manually
+            if (!grid && !injectedFallback && attempts > 10) {
+                const wrapper = document.querySelector('.image-selection-popup');
+                if (wrapper) {
+                    console.warn(
+                        '[ImageSelectionDialog] Wrapper found but grid missing. Injecting content manually.',
+                    );
+                    wrapper.innerHTML = this.content;
+                    injectedFallback = true;
+                }
+            }
+
             await new Promise((r) => setTimeout(r, 50));
             attempts++;
         }
@@ -176,12 +189,28 @@ export class ImageSelectionDialog {
         console.error(
             '[ImageSelectionDialog] Failed to find DOM elements after waiting',
         );
-        
-        const popups = document.querySelectorAll('.popup-body, .popup-content, .mes_text');
-        console.log('[ImageSelectionDialog] Debug - Popups found:', popups.length);
-        console.log('[ImageSelectionDialog] Debug - #image-grid found?', !!document.getElementById('image-grid'));
-        console.log('[ImageSelectionDialog] Debug - .image-selection-grid found?', !!document.querySelector('.image-selection-grid'));
+
+        const popups = document.querySelectorAll(
+            '.popup-body, .popup-content, .mes_text',
+        );
+        console.log(
+            '[ImageSelectionDialog] Debug - Popups found:',
+            popups.length,
+        );
+        console.log(
+            '[ImageSelectionDialog] Debug - #image-grid found?',
+            !!document.getElementById('image-grid'),
+        );
+        console.log(
+            '[ImageSelectionDialog] Debug - .image-selection-grid found?',
+            !!document.querySelector('.image-selection-grid'),
+        );
+        console.log(
+            '[ImageSelectionDialog] Debug - .image-selection-popup found?',
+            !!document.querySelector('.image-selection-popup'),
+        );
     }
+
 
     _attachListeners() {
         if (this.domElements.grid) {
