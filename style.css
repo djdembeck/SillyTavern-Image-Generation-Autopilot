@@ -393,26 +393,22 @@
 .image-selection-dialog .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
 
 @media (max-width: 800px) {
-    .image-selection-dialog .image-selection-grid,
-    .image-selection-dialog .image-selection-grid[class*="count-"] {
-        grid-template-columns: repeat(2, 1fr) !important;
-        padding: 8px !important;
-        gap: 8px !important;
-    }
-
-    .image-selection-dialog .image-selection-grid.count-1 {
-        grid-template-columns: 1fr !important;
-    }
-
-    #image-grid {
+    .image-selection-dialog #image-grid:not(.count-1) {
         display: grid !important;
         grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
         width: 100% !important;
         box-sizing: border-box !important;
+        padding: 8px !important;
+        gap: 8px !important;
     }
 
-    #image-grid.count-1 {
+    .image-selection-dialog #image-grid.count-1 {
+        display: grid !important;
         grid-template-columns: 1fr !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        padding: 8px !important;
+        gap: 8px !important;
     }
 
     .image-selection-dialog {
@@ -433,6 +429,14 @@
         max-width: none !important;
         max-height: none !important;
         border-radius: 0 !important;
+    }
+
+    .image-slot-selection-indicator {
+        width: 36px;
+        height: 36px;
+        top: 8px;
+        right: 8px;
+        font-size: 16px;
     }
 
     .image-selection-header {
