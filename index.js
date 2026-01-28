@@ -3086,39 +3086,60 @@ async function handleDialogResult(dialogResult, triggerMessage) {
         if (typeof context.saveChat === 'function') {
             await context.saveChat()
         }
-        
+
+        if (typeof context.reloadCurrentChat === 'function') {
+            await context.reloadCurrentChat()
+        } else if (typeof window.reloadCurrentChat === 'function') {
+            await window.reloadCurrentChat()
+        }
+
         log('Images inserted to current message', {
             messageId,
             imageCount: dialogResult.selected.length,
         })
     } else {
-        for (const imageUrl of dialogResult.selected) {
-            const newMessageId = await createPlaceholderImageMessage('')
-            if (Number.isFinite(newMessageId)) {
-                const newMessage = context.chat?.[newMessageId]
-                if (newMessage) {
+        const newMessageId = await createPlaceholderImageMessage('')
+        if (Number.isFinite(newMessageId)) {
+            const newMessage = context.chat?.[newMessageId]
+            if (newMessage) {
+                for (const imageUrl of dialogResult.selected) {
                     appendGeneratedMedia(newMessage, imageUrl, '', true)
-                    
-                    let messageElement = document.querySelector(
-                        `.mes[mesid="${newMessageId}"]`,
+                }
+
+                let messageElement = document.querySelector(
+                    `.mes[mesid="${newMessageId}"]`,
+                )
+                if (!messageElement) {
+                    messageElement = await waitForMessageElement(
+                        newMessageId,
+                        2000,
                     )
-                    if (!messageElement) {
-                        messageElement = await waitForMessageElement(newMessageId, 2000)
-                    }
-                    
-                    if (messageElement && typeof window.appendMediaToMessage === 'function') {
-                        sanitizeMessageMediaState(newMessage)
-                        window.appendMediaToMessage(newMessage, messageElement)
-                    }
+                }
+
+                if (
+                    messageElement &&
+                    typeof window.appendMediaToMessage === 'function'
+                ) {
+                    sanitizeMessageMediaState(newMessage)
+                    window.appendMediaToMessage(newMessage, messageElement)
+                } else if (typeof window.updateMessageBlock === 'function') {
+                    sanitizeMessageMediaState(newMessage)
+                    window.updateMessageBlock(newMessageId, newMessage)
                 }
             }
         }
-        
+
         if (typeof context.saveChat === 'function') {
             await context.saveChat()
         }
-        
-        log('Images inserted as new messages', {
+
+        if (typeof context.reloadCurrentChat === 'function') {
+            await context.reloadCurrentChat()
+        } else if (typeof window.reloadCurrentChat === 'function') {
+            await window.reloadCurrentChat()
+        }
+
+        log('Images inserted as new message', {
             imageCount: dialogResult.selected.length,
         })
     }
