@@ -2624,13 +2624,54 @@ function syncModelSelectOptions(showFeedback = false) {
 async function syncProfileSelectOptions(showFeedback = false) {
     const ctx = getCtx()
     let profiles = []
-    try {
-        const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
-        if (typeof result === 'string') {
-            profiles = JSON.parse(result)
+    
+    // @ts-ignore
+    const stProfiles = ctx.profiles || window.profiles || []
+    if (Array.isArray(stProfiles) && stProfiles.length > 0) {
+        profiles = stProfiles.map(p => typeof p === 'string' ? p : p.name).filter(Boolean)
+    }
+
+    if (profiles.length === 0) {
+        try {
+            const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
+            if (typeof result === 'string' && result.trim()) {
+                try {
+                    profiles = JSON.parse(result)
+                } catch {
+                    profiles = result.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+                }
+            }
+        } catch (error) {
+            console.warn('[Image-Generation-Autopilot] Failed to list profiles via slash command:', error)
         }
-    } catch (error) {
-        console.warn('[Image-Generation-Autopilot] Failed to list profiles:', error)
+    }
+
+    const presetSelect = document.getElementById('settings_preset')
+    if (presetSelect instanceof HTMLSelectElement) {
+        const presets = Array.from(presetSelect.options)
+            .map(o => o.textContent?.trim() || o.value)
+            .filter(Boolean)
+        
+        presets.forEach(p => {
+            if (!profiles.includes(p)) {
+                profiles.push(p)
+            }
+        })
+    }
+
+    if (profiles.length === 0) {
+        const profileSelect = document.getElementById('profile_select')
+        if (profileSelect instanceof HTMLSelectElement) {
+            const domProfiles = Array.from(profileSelect.options)
+                .map(o => o.textContent?.trim() || o.value)
+                .filter(Boolean)
+            
+            domProfiles.forEach(p => {
+                if (!profiles.includes(p)) {
+                    profiles.push(p)
+                }
+            })
+        }
     }
 
     const select = state.ui?.promptRewriteModelSelect
@@ -2639,7 +2680,7 @@ async function syncProfileSelectOptions(showFeedback = false) {
     const currentValue = select.value || ''
     select.innerHTML = '<option value="">Default (Active chat model)</option>'
 
-    profiles.forEach((profileName) => {
+    profiles.sort().forEach((profileName) => {
         const option = document.createElement('option')
         option.value = profileName
         option.textContent = profileName
@@ -2651,7 +2692,7 @@ async function syncProfileSelectOptions(showFeedback = false) {
     }
 
     if (showFeedback) {
-        log('Profile list refreshed. Entries:', profiles.length)
+        log('Profile/Preset list refreshed. Entries:', profiles.length)
     }
 }
 
@@ -3288,6 +3329,13 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         generatorFactory,
         PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
         modelOptions,
+        onRewrite: async (prompt) => {
+            return await callChatRewrite(
+                prompt,
+                settings.autoGeneration.promptInjection,
+                settings.autoGeneration.promptRewrite.modelId,
+            )
+        },
     })
     
     const generatorOptions = {

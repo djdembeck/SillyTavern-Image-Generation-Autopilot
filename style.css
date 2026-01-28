@@ -438,6 +438,22 @@
     gap: 10px;
 }
 
+#btn-prompt-rewrite {
+    background: rgba(86, 197, 255, 0.2);
+    border-color: rgba(86, 197, 255, 0.4);
+    color: #56c5ff;
+}
+
+#btn-prompt-rewrite:hover {
+    background: rgba(86, 197, 255, 0.3);
+    border-color: rgba(86, 197, 255, 0.6);
+}
+
+#btn-prompt-rewrite:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
 .image-selection-count {
     display: flex;
     align-items: center;

@@ -38,6 +38,7 @@ export class ImageSelectionDialog {
         this.selectedModelId = null;
         this.editedPrompt = null;
         this.currentCount = 0;
+        this.onRewrite = dependencies.onRewrite || null;
     }
 
     show(prompts, options = {}) {
@@ -172,6 +173,9 @@ export class ImageSelectionDialog {
             <div class="image-selection-prompt-editor hidden" id="prompt-editor-container">
                 <textarea id="img-prompt-editor" class="text_pole" placeholder="Edit image prompt...">${this.editedPrompt}</textarea>
                 <div class="prompt-editor-actions">
+                    <button class="image-selection-btn primary" id="btn-prompt-rewrite" title="Have the AI rewrite the prompt based on context">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Rewrite Prompt
+                    </button>
                     <button class="image-selection-btn primary" id="btn-prompt-apply">Apply & Regenerate</button>
                     <button class="image-selection-btn" id="btn-prompt-close">Close</button>
                 </div>
@@ -267,6 +271,9 @@ export class ImageSelectionDialog {
                 this.domElements.promptTextarea =
                     container.querySelector('#img-prompt-editor') ||
                     document.querySelector('#img-prompt-editor');
+                this.domElements.promptRewriteBtn =
+                    container.querySelector('#btn-prompt-rewrite') ||
+                    document.querySelector('#btn-prompt-rewrite');
                 this.domElements.promptApplyBtn =
                     container.querySelector('#btn-prompt-apply') ||
                     document.querySelector('#btn-prompt-apply');
@@ -495,6 +502,12 @@ export class ImageSelectionDialog {
             this.domElements.promptApplyBtn.addEventListener('click', () => {
                 this.domElements.promptEditorContainer.classList.add('hidden');
                 this._handleRegenerateAll();
+            });
+        }
+
+        if (this.domElements.promptRewriteBtn) {
+            this.domElements.promptRewriteBtn.addEventListener('click', () => {
+                this._handlePromptRewrite();
             });
         }
 
@@ -867,6 +880,31 @@ export class ImageSelectionDialog {
                 'hidden',
                 !hasErrors || this.isGenerating,
             );
+        }
+    }
+
+    async _handlePromptRewrite() {
+        if (!this.onRewrite || this.isRewriting) return;
+
+        const originalText = this.domElements.promptRewriteBtn.innerHTML;
+        try {
+            this.isRewriting = true;
+            this.domElements.promptRewriteBtn.disabled = true;
+            this.domElements.promptRewriteBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Rewriting...';
+
+            const rewritten = await this.onRewrite(this.editedPrompt);
+            if (rewritten) {
+                this.editedPrompt = rewritten;
+                if (this.domElements.promptTextarea) {
+                    this.domElements.promptTextarea.value = rewritten;
+                }
+            }
+        } catch (error) {
+            console.error('[ImageSelectionDialog] Rewrite failed:', error);
+        } finally {
+            this.isRewriting = false;
+            this.domElements.promptRewriteBtn.disabled = false;
+            this.domElements.promptRewriteBtn.innerHTML = originalText;
         }
     }
 }
