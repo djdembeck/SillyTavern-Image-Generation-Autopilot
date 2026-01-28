@@ -137,6 +137,9 @@ export class ImageSelectionDialog {
                     <button class="image-selection-btn regenerate" id="btn-img-regenerate" title="Discard current results and generate again">
                         <i class="fa-solid fa-rotate"></i> Regenerate All
                     </button>
+                    <button class="image-selection-btn hidden" id="btn-img-retry" title="Retry only failed generations">
+                        <i class="fa-solid fa-arrows-rotate"></i> Retry Failed
+                    </button>
                 </div>
                 <div class="image-selection-toolbar-group">
                     ${modelSelector}
@@ -222,6 +225,9 @@ export class ImageSelectionDialog {
                 this.domElements.regenerate =
                     container.querySelector('#btn-img-regenerate') ||
                     document.querySelector('#btn-img-regenerate');
+                this.domElements.retryFailed =
+                    container.querySelector('#btn-img-retry') ||
+                    document.querySelector('#btn-img-retry');
                 this.domElements.modelSelect =
                     container.querySelector('#img-model-select') ||
                     document.querySelector('#img-model-select');
@@ -344,23 +350,6 @@ export class ImageSelectionDialog {
                 const slot = e.target.closest('.image-slot');
                 if (slot) {
                     const index = parseInt(slot.dataset.index, 10);
-                    const isMobile = window.innerWidth < 600;
-                    if (isMobile) {
-                        this._showLightbox(index);
-                    } else {
-                        this._toggleSelection(index);
-                    }
-                }
-            });
-
-            // Hover to enlarge (lightbox style) on desktop
-            this.domElements.grid.addEventListener('mouseover', (e) => {
-                const isMobile = window.innerWidth < 600;
-                if (isMobile) return;
-
-                const slot = e.target.closest('.image-slot');
-                if (slot) {
-                    const index = parseInt(slot.dataset.index, 10);
                     this._showLightbox(index);
                 }
             });
@@ -426,6 +415,12 @@ export class ImageSelectionDialog {
         if (this.domElements.regenerate) {
             this.domElements.regenerate.addEventListener('click', () =>
                 this._handleRegenerateAll(),
+            );
+        }
+
+        if (this.domElements.retryFailed) {
+            this.domElements.retryFailed.addEventListener('click', () =>
+                this._handleRetryFailed(),
             );
         }
 
@@ -642,6 +637,44 @@ export class ImageSelectionDialog {
         this._startGeneration(this.prompts, this.generatorOptions);
     }
 
+    _handleRetryFailed() {
+        if (this.isGenerating) {
+            this.generator.abort();
+        }
+
+        const failedIndices = this.slots
+            .map((s, i) => (s.status === 'error' ? i : null))
+            .filter((i) => i !== null);
+
+        if (failedIndices.length === 0) return;
+
+        const retryPrompts = failedIndices.map((i) => ({
+            prompt: this.prompts[i],
+            index: i,
+        }));
+
+        failedIndices.forEach((index) => {
+            this.slots[index] = { status: 'pending' };
+            const slotEl = this.domElements.grid.querySelector(
+                `.image-slot[data-index="${index}"]`,
+            );
+            if (slotEl) {
+                slotEl.className = 'image-slot pending';
+                slotEl.innerHTML = `
+                    <div class="image-slot-status">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <span>Retrying...</span>
+                    </div>
+                    <div class="image-slot-overlay"></div>
+                    <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
+                `;
+            }
+        });
+
+        this._updateUIState();
+        this._startGeneration(retryPrompts, this.generatorOptions);
+    }
+
     _handleConfirm() {
         const selectedImages = [];
         this.selectedIndices.forEach((index) => {
@@ -722,6 +755,14 @@ export class ImageSelectionDialog {
 
         if (this.domElements.deselectAll) {
             this.domElements.deselectAll.disabled = selectedCount === 0;
+        }
+
+        if (this.domElements.retryFailed) {
+            const hasErrors = this.slots.some((s) => s.status === 'error');
+            this.domElements.retryFailed.classList.toggle(
+                'hidden',
+                !hasErrors || this.isGenerating,
+            );
         }
     }
 }

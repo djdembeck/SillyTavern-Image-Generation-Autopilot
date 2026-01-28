@@ -12,19 +12,21 @@ function clampConcurrencyLimit(value) {
     )
 }
 
-function normalizePromptEntry(entry) {
+function normalizePromptEntry(entry, defaultIndex) {
     if (typeof entry === 'string') {
-        return { prompt: entry }
+        return { prompt: entry, index: defaultIndex }
     }
 
     if (entry && typeof entry === 'object') {
         return {
             prompt: typeof entry.prompt === 'string' ? entry.prompt : '',
-            modelId: typeof entry.modelId === 'string' ? entry.modelId : undefined,
+            modelId:
+                typeof entry.modelId === 'string' ? entry.modelId : undefined,
+            index: typeof entry.index === 'number' ? entry.index : defaultIndex,
         }
     }
 
-    return { prompt: '' }
+    return { prompt: '', index: defaultIndex }
 }
 
 function buildModelCycle(queue) {
@@ -87,7 +89,7 @@ class ParallelGenerator {
 
     async run(prompts, options = {}) {
         const entries = Array.isArray(prompts)
-            ? prompts.map(normalizePromptEntry)
+            ? prompts.map((p, i) => normalizePromptEntry(p, i))
             : []
         const total = entries.length
         const results = Array.from({ length: total })
@@ -112,11 +114,12 @@ class ParallelGenerator {
         const modelCycle = buildModelCycle(options.modelQueue)
         const tasks = entries.map((entry, index) => {
             const prompt = typeof entry.prompt === 'string' ? entry.prompt : ''
-            const modelId = entry.modelId?.trim()
-                ? entry.modelId.trim()
-                : modelCycle.length > 0
+            const modelId =
+                options.modelId ||
+                entry.modelId?.trim() ||
+                (modelCycle.length > 0
                     ? modelCycle[index % modelCycle.length]
-                    : undefined
+                    : undefined)
             return {
                 index,
                 prompt,
