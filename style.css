@@ -235,6 +235,11 @@
     border-color: rgba(255, 255, 255, 0.8);
 }
 
+.image-slot-selection-indicator:active {
+    transform: scale(0.95);
+    background: rgba(123, 125, 255, 0.8);
+}
+
 .image-slot.pending .image-slot-selection-indicator,
 .image-slot.error .image-slot-selection-indicator {
     display: none !important;
