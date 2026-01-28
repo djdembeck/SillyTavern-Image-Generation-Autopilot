@@ -610,6 +610,7 @@ export class ImageSelectionDialog {
             .map(() => ({ status: 'pending' }));
 
         if (this.domElements.grid) {
+            this.domElements.grid.scrollTo({ top: 0, behavior: 'smooth' });
             this.slots.forEach((_, index) => {
                 const slotEl = this.domElements.grid.querySelector(
                     `.image-slot[data-index="${index}"]`,

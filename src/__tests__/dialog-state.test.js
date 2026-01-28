@@ -20,6 +20,7 @@ const createMockElement = (id = '') => {
             contains: mock(() => false),
         },
         remove: mock(),
+        scrollTo: mock(),
         dataset: {},
         closest: mock(() => ({ dataset: { index: "0" } })),
         innerHTML: "",
