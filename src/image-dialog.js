@@ -187,22 +187,24 @@ export class ImageSelectionDialog {
                     manualWrapper.className =
                         'image-selection-popup manual-overlay';
                     manualWrapper.style.position = 'fixed';
-                    manualWrapper.style.top = '10%';
-                    manualWrapper.style.left = '10%';
-                    manualWrapper.style.width = '80%';
-                    manualWrapper.style.height = '80%';
-                    manualWrapper.style.maxWidth = '1000px';
-                    manualWrapper.style.maxHeight = '90vh';
-                    manualWrapper.style.zIndex = '99999';
-                    manualWrapper.style.background =
-                        'var(--SmartThemeBlur, #1c1c26)';
+                    const isMobile = window.innerWidth < 600;
+                    manualWrapper.style.top = isMobile ? '0' : '10%';
+                    manualWrapper.style.left = isMobile ? '0' : '10%';
+                    manualWrapper.style.width = isMobile ? '100%' : '80%';
+                    manualWrapper.style.height = isMobile ? '100%' : '80%';
+                    manualWrapper.style.maxWidth = isMobile ? '100%' : '1000px';
+                    manualWrapper.style.maxHeight = isMobile ? '100%' : '90vh';
+                    manualWrapper.style.zIndex = '1000000';
+                    manualWrapper.style.background = 'rgba(20, 20, 30, 0.98)';
                     manualWrapper.style.border =
                         '1px solid var(--SmartThemeBorder, #444)';
-                    manualWrapper.style.borderRadius = '12px';
-                    manualWrapper.style.padding = '20px';
+                    manualWrapper.style.borderRadius = isMobile ? '0' : '12px';
+                    manualWrapper.style.padding = isMobile ? '10px' : '20px';
                     manualWrapper.style.boxShadow = '0 0 50px rgba(0,0,0,0.8)';
                     manualWrapper.style.display = 'flex';
                     manualWrapper.style.flexDirection = 'column';
+                    manualWrapper.style.boxSizing = 'border-box';
+                    manualWrapper.style.overflow = 'hidden';
 
                     manualWrapper.innerHTML = this.content;
                     document.body.appendChild(manualWrapper);
@@ -218,9 +220,7 @@ export class ImageSelectionDialog {
             '[ImageSelectionDialog] Failed to find DOM elements after waiting',
         );
 
-        const popups = document.querySelectorAll(
-            '.popup-body, .popup-content, .mes_text',
-        );
+        const popups = document.querySelectorAll('.popup-body, .popup-content');
         console.log(
             '[ImageSelectionDialog] Debug - Popups found:',
             popups.length,

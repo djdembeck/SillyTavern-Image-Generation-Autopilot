@@ -3281,6 +3281,8 @@ async function handleIncomingMessage(messageId) {
         return
     }
 
+    await sleep(500)
+
     const token = state.chatToken
 
     if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
@@ -3295,9 +3297,13 @@ async function handleIncomingMessage(messageId) {
         return
     }
 
-    if (state.autoGenMessages.has(resolvedId)) {
-        return
-    }
+    log('Processing incoming message for prompts', {
+        messageId: resolvedId,
+        text:
+            message.mes.length > 100
+                ? message.mes.substring(0, 100) + '...'
+                : message.mes,
+    })
 
     const regex = parseRegexFromString(autoSettings.promptInjection.regex)
     if (!regex) {
