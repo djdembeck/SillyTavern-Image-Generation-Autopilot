@@ -2921,6 +2921,87 @@ async function callSdSlash(prompt, quiet) {
     }
 }
 
+async function applyModelOverride(modelId) {
+    const overrideModel = modelId?.trim()
+    if (!overrideModel) {
+        return null
+    }
+
+    const context = getCtx()
+    const sdSettings = context?.extensionSettings?.sd
+    const modelSelect = document.getElementById('sd_model')
+    const previousSettingsModel = sdSettings?.model
+    const previousSelectValue =
+        modelSelect instanceof HTMLSelectElement ? modelSelect.value : null
+    const selectOptions =
+        modelSelect instanceof HTMLSelectElement
+            ? Array.from(modelSelect.options)
+            : []
+    const selectHasOption = selectOptions.some(
+        (option) => option.value === overrideModel,
+    )
+    const needsSettingsChange =
+        !!sdSettings && previousSettingsModel !== overrideModel
+    const needsSelectChange =
+        selectHasOption && previousSelectValue !== overrideModel
+
+    if (!needsSettingsChange && !needsSelectChange) {
+        log('Model override skipped (already active)', {
+            overrideModel,
+            previousSettingsModel,
+            previousSelectValue,
+        })
+        return null
+    }
+
+    if (needsSettingsChange) {
+        sdSettings.model = overrideModel
+        log('Model override applied to settings', {
+            overrideModel,
+            previousSettingsModel,
+        })
+    }
+
+    if (needsSelectChange && modelSelect instanceof HTMLSelectElement) {
+        modelSelect.value = overrideModel
+        modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
+        log('Model override applied to select', {
+            overrideModel,
+            previousSelectValue,
+        })
+    }
+
+    if (needsSelectChange) {
+        await sleep(80)
+    }
+
+    return () => {
+        if (
+            needsSettingsChange &&
+            typeof previousSettingsModel !== 'undefined'
+        ) {
+            sdSettings.model = previousSettingsModel
+            log('Model override restored settings', {
+                previousSettingsModel,
+                overrideModel,
+            })
+        }
+
+        if (
+            needsSelectChange &&
+            modelSelect instanceof HTMLSelectElement &&
+            previousSelectValue !== null
+        ) {
+            modelSelect.value = previousSelectValue
+            modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
+            log('Model override restored select', {
+                previousSelectValue,
+                overrideModel,
+            })
+        }
+    }
+}
+
 async function callSdSlashWithModel(prompt, modelId, quiet = true) {
     const restoreModel = await applyModelOverride(modelId)
     try {
