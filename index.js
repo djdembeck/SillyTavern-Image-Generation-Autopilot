@@ -4298,20 +4298,31 @@ function getCurrentSettingsSnapshot() {
 // ==================== END PRESET MANAGEMENT ====================
 
 function injectReswipeButtonTemplate() {
-    let target = document.querySelector(
+    // Try a set of fallback selectors to support different SillyTavern themes/versions
+    const selectors = [
         '#message_template .mes_buttons .extraMesButtons',
-    )
-    if (!target) {
-        target = document.querySelector('#message_template .extraMesButtons')
+        '#message_template .mes__buttons .extraMesButtons',
+        '#message_template .extraMesButtons',
+        '.message_template .mes_buttons .extraMesButtons',
+        '.message_template .extraMesButtons',
+        '#message_template',
+    ]
+
+    let target = null
+    for (const s of selectors) {
+        target = document.querySelector(s)
+        if (target) break
     }
+
     if (!target) {
         console.warn(
-            '[Image-Generation-Autopilot] Message toolbar template not found',
+            '[Image-Generation-Autopilot] Message toolbar template not found, installing observer to wait for it',
         )
+        observeForMessageTemplate()
         return
     }
 
-    console.log('[Image-Generation-Autopilot] injectReswipeButtonTemplate target found')
+    console.log('[Image-Generation-Autopilot] injectReswipeButtonTemplate target found', { selector: target && target.tagName })
 
     if (!target.querySelector('.auto-multi-reswipe')) {
         const button = document.createElement('div')
@@ -4331,6 +4342,64 @@ function injectReswipeButtonTemplate() {
         button.setAttribute('tabindex', '0')
         button.style.display = 'none'
         target.prepend(button)
+    }
+}
+
+// Lightweight MutationObserver fallback: watches for the message template / toolbar to appear
+let _reswipeTemplateObserver = null
+function observeForMessageTemplate(timeoutMs = 30000) {
+    if (typeof document === 'undefined' || _reswipeTemplateObserver) return
+
+    try {
+        _reswipeTemplateObserver = new MutationObserver((mutations, observer) => {
+            try {
+                const candidates = [
+                    '#message_template .mes_buttons .extraMesButtons',
+                    '#message_template .mes__buttons .extraMesButtons',
+                    '#message_template .extraMesButtons',
+                    '.message_template .mes_buttons .extraMesButtons',
+                    '.message_template .extraMesButtons',
+                    '#message_template',
+                ]
+                for (const sel of candidates) {
+                    const node = document.querySelector(sel)
+                    if (node) {
+                        console.info('[Image-Generation-Autopilot] Message toolbar template appeared via observer', { sel })
+                        try {
+                            injectReswipeButtonTemplate()
+                        } catch (e) {
+                            console.warn('[Image-Generation-Autopilot] inject via observer failed', e)
+                        }
+                        observer.disconnect()
+                        _reswipeTemplateObserver = null
+                        return
+                    }
+                }
+            } catch (error) {
+                console.warn('[Image-Generation-Autopilot] Observer callback error', error)
+            }
+        })
+
+        _reswipeTemplateObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+        })
+
+        // Safety timeout: stop observing after a while to avoid leaks
+        setTimeout(() => {
+            if (_reswipeTemplateObserver) {
+                try {
+                    _reswipeTemplateObserver.disconnect()
+                } catch (e) {
+                    /* ignore */
+                }
+                _reswipeTemplateObserver = null
+                console.info('[Image-Generation-Autopilot] Message template observer timed out')
+            }
+        }, timeoutMs)
+    } catch (error) {
+        console.warn('[Image-Generation-Autopilot] Failed to install message template observer', error)
+        _reswipeTemplateObserver = null
     }
 }
 
