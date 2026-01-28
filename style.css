@@ -244,8 +244,9 @@
 }
 
 .image-slot-status {
-    position: absolute;
-    inset: 0;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
     display: flex;
     flex-direction: column;
     align-items: center;
