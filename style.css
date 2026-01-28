@@ -1,3 +1,10 @@
+.image-selection-dialog,
+.image-selection-dialog *,
+.image-selection-dialog *::before,
+.image-selection-dialog *::after {
+    box-sizing: border-box;
+}
+
 .image-selection-dialog {
     display: flex;
     flex-direction: column;
@@ -20,6 +27,7 @@
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.12);
     backdrop-filter: blur(12px);
+    position: relative;
 }
 
 .image-selection-header {
@@ -274,12 +282,12 @@
 .image-selection-lightbox {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.92);
-    backdrop-filter: blur(15px);
+    background: rgba(0, 0, 0, 0.94);
+    backdrop-filter: blur(20px);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    z-index: 2000;
     cursor: pointer;
 }
 
@@ -289,8 +297,12 @@
 
 .lightbox-content {
     position: relative;
-    max-width: 95%;
-    max-height: 95%;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
 }
 
 .lightbox-content img {
@@ -299,12 +311,16 @@
     object-fit: contain;
     border-radius: 12px;
     box-shadow: 0 30px 90px rgba(0, 0, 0, 0.9);
+    transition: transform 0.3s ease;
 }
 
+.lightbox-active .manual-dialog-close,
+.image-selection-dialog.lightbox-active .manual-dialog-close,
 .manual-overlay.lightbox-active .manual-dialog-close,
-.image-selection-popup.lightbox-active .manual-dialog-close,
-.image-selection-dialog.lightbox-active .manual-dialog-close {
+.image-selection-popup.lightbox-active .manual-dialog-close {
     display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 
 .lightbox-select-btn {
@@ -353,17 +369,21 @@
 .image-selection-dialog .image-selection-grid.count-1 { grid-template-columns: 1fr !important; max-width: 800px; margin: 0 auto; }
 .image-selection-dialog .image-selection-grid.count-2 { grid-template-columns: 1fr 1fr !important; }
 .image-selection-dialog .image-selection-grid.count-3, 
-.image-selection-dialog .image-selection-grid.count-4 { grid-template-columns: 1fr 1fr !important; }
+.image-selection-dialog .image-selection-grid.count-4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important; }
 .image-selection-dialog .image-selection-grid.count-5, 
 .image-selection-dialog .image-selection-grid.count-6, 
 .image-selection-dialog .image-selection-grid.count-7, 
-.image-selection-dialog .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)) !important; }
+.image-selection-dialog .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
 
 @media (max-width: 650px) {
     .image-selection-dialog .image-selection-grid {
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
-        padding: 12px;
-        gap: 10px;
+        grid-template-columns: 1fr 1fr !important;
+        padding: 8px !important;
+        gap: 8px !important;
+    }
+
+    .image-selection-dialog .image-selection-grid.count-1 {
+        grid-template-columns: 1fr !important;
     }
 
     .image-selection-dialog .image-selection-grid.count-2, 

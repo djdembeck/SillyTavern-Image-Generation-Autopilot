@@ -434,8 +434,9 @@ export class ImageSelectionDialog {
             this.domElements.lightboxImg.src = slot.result.result;
             this.domElements.lightbox.classList.remove('hidden');
             
-            const container = this.domElements.grid?.closest('.image-selection-dialog') || 
-                            this.domElements.grid?.closest('.image-selection-popup');
+            const container = this.domElements.grid?.closest('.manual-overlay') || 
+                            this.domElements.grid?.closest('.image-selection-popup') ||
+                            this.domElements.grid?.closest('.image-selection-dialog');
             if (container) {
                 container.classList.add('lightbox-active');
             }
@@ -448,8 +449,9 @@ export class ImageSelectionDialog {
         if (this.domElements.lightbox) {
             this.domElements.lightbox.classList.add('hidden');
             
-            const container = this.domElements.grid?.closest('.image-selection-dialog') || 
-                            this.domElements.grid?.closest('.image-selection-popup');
+            const container = this.domElements.grid?.closest('.manual-overlay') || 
+                            this.domElements.grid?.closest('.image-selection-popup') ||
+                            this.domElements.grid?.closest('.image-selection-dialog');
             if (container) {
                 container.classList.remove('lightbox-active');
             }
