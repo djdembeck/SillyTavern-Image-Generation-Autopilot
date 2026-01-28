@@ -3598,7 +3598,7 @@ async function handleIncomingMessage(messageId) {
         return
     }
 
-    const matches = getPicPromptMatches(message.mes, regex)
+    const matches = getPicPromptMatches(message?.mes, regex)
     if (!matches.length) {
         return
     }
@@ -4176,7 +4176,10 @@ function findMessageExtraButtonsBar(messageId) {
         return null
     }
 
-    const bar = root.querySelector('.mes_buttons .extraMesButtons')
+    let bar = root.querySelector('.mes_buttons .extraMesButtons')
+    if (!bar) {
+        bar = root.querySelector('.extraMesButtons')
+    }
     return bar
 }
 
@@ -4204,7 +4207,7 @@ async function queueAutoFill(messageId, button) {
     if (autoSettings?.promptInjection?.regex) {
         const regex = parseRegexFromString(autoSettings.promptInjection.regex)
         if (regex) {
-            const matches = getPicPromptMatches(message.mes, regex)
+            const matches = getPicPromptMatches(message?.mes, regex)
             prompts = matches
                 .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
                 .filter((p) => p.trim())
@@ -4254,7 +4257,7 @@ async function handleMessageRendered(messageId, origin) {
         settings.autoGeneration?.promptInjection?.regex,
     )
     const hasPicTags =
-        regex && getPicPromptMatches(message.mes, regex).length > 0
+        regex && getPicPromptMatches(message?.mes, regex).length > 0
 
     ensureReswipeButton(messageId, hasMedia || hasPicTags)
     ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
@@ -4295,15 +4298,20 @@ function getCurrentSettingsSnapshot() {
 // ==================== END PRESET MANAGEMENT ====================
 
 function injectReswipeButtonTemplate() {
-    const target = document.querySelector(
+    let target = document.querySelector(
         '#message_template .mes_buttons .extraMesButtons',
     )
+    if (!target) {
+        target = document.querySelector('#message_template .extraMesButtons')
+    }
     if (!target) {
         console.warn(
             '[Image-Generation-Autopilot] Message toolbar template not found',
         )
         return
     }
+
+    console.log('[Image-Generation-Autopilot] injectReswipeButtonTemplate target found')
 
     if (!target.querySelector('.auto-multi-reswipe')) {
         const button = document.createElement('div')
@@ -4386,27 +4394,40 @@ function ensureRewriteButton(messageId, shouldShow = true) {
 
 function refreshReswipeButtons() {
     const settings = getSettings()
+    console.log('[Image-Generation-Autopilot] refreshReswipeButtons invoked', { enabled: settings.enabled })
     const chat = getCtx().chat || []
     const messageElements = document.querySelectorAll('.mes[mesid]')
 
+    const regex = parseRegexFromString(
+        settings.autoGeneration?.promptInjection?.regex,
+    )
+
     messageElements.forEach((element) => {
-        const messageId = Number(element.getAttribute('mesid'))
-        if (!Number.isFinite(messageId)) {
-            return
+        try {
+            const messageId = Number(element.getAttribute('mesid'))
+            if (!Number.isFinite(messageId)) {
+                return
+            }
+
+            const message = chat[messageId]
+            if (!message) {
+                return
+            }
+
+            const hasMedia = getMediaCount(message) > 0
+
+            // Also check if message contains pic tags for reswipe trigger
+            const hasPicTags =
+                regex && getPicPromptMatches(message?.mes, regex).length > 0
+
+            const shouldShow = settings.enabled && (hasMedia || hasPicTags)
+            ensureReswipeButton(messageId, shouldShow)
+
+            const shouldShowRewrite = shouldShowPromptRewriteButton(message)
+            ensureRewriteButton(messageId, shouldShowRewrite)
+        } catch (error) {
+            console.warn('[Image-Generation-Autopilot] Error refreshing buttons for message', element, error)
         }
-
-        const message = chat[messageId]
-        const hasMedia = getMediaCount(message) > 0
-
-        // Also check if message contains pic tags for reswipe trigger
-        const regex = parseRegexFromString(settings.autoGeneration?.promptInjection?.regex)
-        const hasPicTags = regex && getPicPromptMatches(message.mes, regex).length > 0
-
-        const shouldShow = settings.enabled && (hasMedia || hasPicTags)
-        ensureReswipeButton(messageId, shouldShow)
-
-        const shouldShowRewrite = shouldShowPromptRewriteButton(message)
-        ensureRewriteButton(messageId, shouldShowRewrite)
     })
 }
 
@@ -4429,14 +4450,21 @@ async function init() {
         }
 
         ensureSettings()
-        console.info('[Image-Generation-Autopilot] init', {
-            perCharacterEnabled: getSettings()?.perCharacter?.enabled,
+        const settings = getSettings()
+        console.info('[Image-Generation-Autopilot] init settings', {
+            enabled: settings.enabled,
+            autoGenEnabled: settings.autoGeneration?.enabled,
+            perCharacterEnabled: settings.perCharacter?.enabled,
         })
         patchToastrForDebug()
         await buildSettingsPanel()
+        console.info('[Image-Generation-Autopilot] buildSettingsPanel done')
         applyPerCharacterOverrides()
+        console.info('[Image-Generation-Autopilot] applyPerCharacterOverrides done')
         injectReswipeButtonTemplate()
+        console.info('[Image-Generation-Autopilot] injectReswipeButtonTemplate done')
         refreshReswipeButtons()
+        console.info('[Image-Generation-Autopilot] refreshReswipeButtons done')
         syncProfileSelectOptions()
 
         const chat = document.getElementById('chat')
