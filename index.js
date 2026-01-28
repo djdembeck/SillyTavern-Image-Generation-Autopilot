@@ -3076,6 +3076,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
     
     const generatorOptions = {
         modelQueue: modelQueue,
+        quiet: true,
     }
 
     try {
