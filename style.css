@@ -177,66 +177,29 @@
     position: absolute;
     top: 0;
     left: 0;
-    bottom: 0;
-    right: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
     transition: transform 0.5s ease;
-}
-
-.image-slot-status {
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    right: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 0.9rem;
-    text-align: center;
-    padding: 15px;
-    z-index: 1;
-}
-
-.image-slot img {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transition: transform 0.5s ease;
-}
-
-.image-slot-status {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 0.9rem;
-    text-align: center;
-    padding: 15px;
-    z-index: 1;
-}
-
-.image-slot img {
-    position: relative;
     display: block;
+}
+
+.image-slot-status {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
-    aspect-ratio: 1 / 1;
-    object-fit: cover;
-    transition: transform 0.5s ease;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 15px;
+    z-index: 1;
 }
 
 @media (hover: hover) {
@@ -300,22 +263,6 @@
 .image-slot.pending .image-slot-selection-indicator,
 .image-slot.error .image-slot-selection-indicator {
     display: none !important;
-}
-
-.image-slot-status {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 1 / 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 0.9rem;
-    text-align: center;
-    padding: 15px;
-    z-index: 1;
 }
 
 .image-slot.pending .image-slot-status {
