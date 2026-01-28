@@ -929,18 +929,24 @@
 
 .image-selection-grid.count-1 {
     grid-template-columns: 1fr;
-    max-width: 500px;
+    max-width: 800px;
     margin: 0 auto;
 }
 
 .image-selection-grid.count-2 {
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
 }
 
 .image-selection-grid.count-3,
-.image-selection-grid.count-4,
-.image-selection-grid.count-5 {
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+.image-selection-grid.count-4 {
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+}
+
+.image-selection-grid.count-5,
+.image-selection-grid.count-6,
+.image-selection-grid.count-7,
+.image-selection-grid.count-8 {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 }
 
 .image-slot {
