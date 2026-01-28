@@ -164,9 +164,13 @@ export class ImageSelectionDialog {
                 this.domElements.cancel =
                     container.querySelector('#btn-img-cancel') ||
                     document.querySelector('#btn-img-cancel');
+                this.domElements.manualClose =
+                    container.querySelector('#manual-close-dialog') ||
+                    document.querySelector('#manual-close-dialog');
 
                 this._attachListeners();
                 this._syncGrid();
+                this._updateUIState();
                 return;
             }
 
@@ -223,8 +227,10 @@ export class ImageSelectionDialog {
                     manualWrapper.style.overflow = 'hidden';
                     manualWrapper.style.pointerEvents = 'all';
 
-                    manualWrapper.innerHTML = this.content;
-                    const innerDialog = manualWrapper.querySelector('.image-selection-dialog');
+                    manualWrapper.innerHTML = `<div id="manual-close-dialog" class="fa-solid fa-circle-xmark manual-dialog-close"></div>${this.content}`;
+                    const innerDialog = manualWrapper.querySelector(
+                        '.image-selection-dialog',
+                    );
                     if (innerDialog) {
                         innerDialog.style.height = '100%';
                         innerDialog.style.width = '100%';
@@ -302,6 +308,12 @@ export class ImageSelectionDialog {
                 this._handleCancel(),
             );
         }
+
+        if (this.domElements.manualClose) {
+            this.domElements.manualClose.addEventListener('click', () =>
+                this._handleClosing(),
+            );
+        }
     }
 
     async _startGeneration(prompts, options) {
@@ -376,9 +388,10 @@ export class ImageSelectionDialog {
         };
 
         this._renderSlot(index);
+        this._updateUIState();
     }
 
-    _toggleSelection(index, forceState = null) {
+    _toggleSelection(index, forceState = null, skipUiUpdate = false) {
         const slot = this.slots[index];
         if (!slot || slot.status !== 'success') return;
 
@@ -393,24 +406,32 @@ export class ImageSelectionDialog {
 
         if (!this.domElements.grid) return;
 
-        const slotEl = this.domElements.grid.querySelector(`.image-slot[data-index="${index}"]`);
+        const slotEl = this.domElements.grid.querySelector(
+            `.image-slot[data-index="${index}"]`,
+        );
         if (slotEl) {
             slotEl.classList.toggle('selected', newState);
+        }
+
+        if (!skipUiUpdate) {
+            this._updateUIState();
         }
     }
 
     _selectAll() {
         this.slots.forEach((slot, index) => {
             if (slot.status === 'success') {
-                this._toggleSelection(index, true);
+                this._toggleSelection(index, true, true);
             }
         });
+        this._updateUIState();
     }
 
     _deselectAll() {
         this.slots.forEach((_, index) => {
-            this._toggleSelection(index, false);
+            this._toggleSelection(index, false, true);
         });
+        this._updateUIState();
     }
 
     _removeManualOverlay() {
@@ -480,5 +501,28 @@ export class ImageSelectionDialog {
     }
     
     _updateUIState() {
+        if (!this.domElements.confirm) return;
+
+        const selectedCount = this.selectedIndices.size;
+        const totalSuccess = this.slots.filter(
+            (s) => s.status === 'success',
+        ).length;
+
+        this.domElements.confirm.disabled = selectedCount === 0;
+
+        const btnText =
+            selectedCount > 0
+                ? `Keep Selected (${selectedCount})`
+                : 'Keep Selected';
+        this.domElements.confirm.innerHTML = `<i class="fa-solid fa-check"></i> ${btnText}`;
+
+        if (this.domElements.selectAll) {
+            this.domElements.selectAll.disabled =
+                totalSuccess === 0 || selectedCount === totalSuccess;
+        }
+
+        if (this.domElements.deselectAll) {
+            this.domElements.deselectAll.disabled = selectedCount === 0;
+        }
     }
 }

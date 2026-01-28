@@ -1170,3 +1170,24 @@
     padding-top: 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+.manual-dialog-close {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    font-size: 24px;
+    cursor: pointer;
+    z-index: 2000000000;
+    color: rgba(255, 255, 255, 0.6);
+    transition: color 0.2s ease;
+}
+
+.manual-dialog-close:hover {
+    color: #ff5555;
+}
+
+.image-selection-dialog .menu_button:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    filter: grayscale(0.8);
+}
