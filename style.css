@@ -141,7 +141,7 @@
 }
 
 .image-selection-grid {
-    display: grid;
+    display: grid !important;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 20px;
     overflow-y: auto;
@@ -343,22 +343,26 @@
     100% { opacity: 0.4; }
 }
 
-.image-selection-grid.count-1 { grid-template-columns: 1fr; max-width: 800px; margin: 0 auto; }
-.image-selection-grid.count-2 { grid-template-columns: repeat(2, 1fr); }
-.image-selection-grid.count-3, .image-selection-grid.count-4 { grid-template-columns: repeat(2, 1fr); }
-.image-selection-grid.count-5, .image-selection-grid.count-6, .image-selection-grid.count-7, .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.image-selection-dialog .image-selection-grid.count-1 { grid-template-columns: 1fr !important; max-width: 800px; margin: 0 auto; }
+.image-selection-dialog .image-selection-grid.count-2 { grid-template-columns: 1fr 1fr !important; }
+.image-selection-dialog .image-selection-grid.count-3, 
+.image-selection-dialog .image-selection-grid.count-4 { grid-template-columns: 1fr 1fr !important; }
+.image-selection-dialog .image-selection-grid.count-5, 
+.image-selection-dialog .image-selection-grid.count-6, 
+.image-selection-dialog .image-selection-grid.count-7, 
+.image-selection-dialog .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)) !important; }
 
 @media (max-width: 650px) {
-    .image-selection-grid {
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        padding: 16px;
-        gap: 12px;
+    .image-selection-dialog .image-selection-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+        padding: 12px;
+        gap: 10px;
     }
 
-    .image-selection-grid.count-2, 
-    .image-selection-grid.count-3, 
-    .image-selection-grid.count-4 {
-        grid-template-columns: repeat(2, 1fr);
+    .image-selection-dialog .image-selection-grid.count-2, 
+    .image-selection-dialog .image-selection-grid.count-3, 
+    .image-selection-dialog .image-selection-grid.count-4 {
+        grid-template-columns: 1fr 1fr !important;
     }
 
     .image-selection-dialog {

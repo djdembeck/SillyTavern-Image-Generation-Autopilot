@@ -506,6 +506,7 @@ export class ImageSelectionDialog {
             slotEl.innerHTML = `
                 <img src="${imageUrl}" alt="${slotData.result.prompt}" />
                 <div class="image-slot-overlay"></div>
+                <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
             `;
             const isSelected = this.selectedIndices.has(index);
             slotEl.classList.toggle('selected', isSelected);
@@ -522,6 +523,7 @@ export class ImageSelectionDialog {
                     <span>Failed</span>
                     <span style="font-size: 0.7em; margin-top: 4px; opacity: 0.8;">${errorMsg}</span>
                 </div>
+                <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
             `;
         }
     }
