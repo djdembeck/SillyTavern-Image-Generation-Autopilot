@@ -55,18 +55,36 @@ export class ImageSelectionDialog {
             );
         }
 
-        this.popup = new this.PopupClass(
-            content,
-            undefined,
-            'image-selection-popup',
-        );
+        // Try to determine POPUP_TYPE.TEXT (usually 1)
+        const type =
+            window.POPUP_TYPE && window.POPUP_TYPE.TEXT
+                ? window.POPUP_TYPE.TEXT
+                : 1;
+
+        try {
+            this.popup = new this.PopupClass(
+                content,
+                type,
+                'image-selection-popup',
+                null,
+                null,
+            );
+        } catch (error) {
+            console.error('[ImageSelectionDialog] Popup creation failed:', error);
+            return;
+        }
 
         if (this.popup) {
             this.popup.wide = true;
             this.popup.large = true;
         }
 
-        this.popup.show();
+        try {
+            this.popup.show();
+        } catch (error) {
+            console.error('[ImageSelectionDialog] Popup.show failed:', error);
+        }
+
         this._bindEvents();
     }
 
