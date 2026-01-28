@@ -3984,7 +3984,14 @@ async function handleMessageRendered(messageId, origin) {
 
     const message = getCtx().chat?.[messageId]
     const hasMedia = getMediaCount(message) > 0
-    ensureReswipeButton(messageId, hasMedia)
+
+    const regex = parseRegexFromString(
+        settings.autoGeneration?.promptInjection?.regex,
+    )
+    const hasPicTags =
+        regex && getPicPromptMatches(message.mes, regex).length > 0
+
+    ensureReswipeButton(messageId, hasMedia || hasPicTags)
     ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
 
     if (!shouldAutoFill(message)) {
@@ -4351,11 +4358,6 @@ async function init() {
 
             if (rewriteTarget) {
                 await handleManualPromptRewrite(messageId)
-                return
-            }
-
-            const message = getCtx().chat?.[messageId]
-            if (!shouldAutoFill(message)) {
                 return
             }
 
