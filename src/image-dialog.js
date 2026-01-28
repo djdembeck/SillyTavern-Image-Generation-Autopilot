@@ -118,7 +118,7 @@ export class ImageSelectionDialog {
                 </div>
             `;
         }
-        const grid = `<div class="image-selection-grid" id="image-grid">${gridItems}</div>`;
+        const grid = `<div class="image-selection-grid count-${count}" id="image-grid">${gridItems}</div>`;
 
         const footer = `
             <div class="image-selection-footer">

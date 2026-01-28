@@ -919,12 +919,28 @@
 
 .image-selection-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     overflow-y: auto;
     padding: 4px;
     flex: 1;
     min-height: 300px;
+}
+
+.image-selection-grid.count-1 {
+    grid-template-columns: 1fr;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.image-selection-grid.count-2 {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.image-selection-grid.count-3,
+.image-selection-grid.count-4,
+.image-selection-grid.count-5 {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 .image-slot {
