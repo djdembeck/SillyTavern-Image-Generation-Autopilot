@@ -38,7 +38,7 @@ const defaultSettings = Object.freeze({
             picCountExact: 1,
             picCountMin: 1,
             picCountMax: 3,
-            regex: '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g',
+            regex: '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
             position: 'deep_system',
             depth: 0,
         },
@@ -378,13 +378,17 @@ function ensureSettings() {
                     count: clampCount(settings.targetCount),
                 },
             ]
-            settings.swipeModel = ''
         }
 
-        settings.modelQueue = sanitizeModelQueue(
-            settings.modelQueue,
-            clampCount(settings.targetCount),
-        )
+        const oldRegex = '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g'
+        const newRegex = '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g'
+        if (settings.autoGeneration?.promptInjection?.regex === oldRegex) {
+            console.log(
+                '[Image-Generation-Autopilot] Migrating regex to robust version',
+            )
+            settings.autoGeneration.promptInjection.regex = newRegex
+        }
+
         return settings
     } catch (error) {
         console.error(

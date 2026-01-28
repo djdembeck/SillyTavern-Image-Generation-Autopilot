@@ -190,14 +190,15 @@ export class ImageSelectionDialog {
                     const isMobile = window.innerWidth < 600;
 
                     if (isMobile) {
-                        manualWrapper.style.top = '0';
-                        manualWrapper.style.left = '0';
-                        manualWrapper.style.width = '100vw';
-                        manualWrapper.style.height = '100vh';
-                        manualWrapper.style.transform = 'none';
-                        manualWrapper.style.borderRadius = '0';
-                        manualWrapper.style.padding = '10px';
-                        manualWrapper.style.margin = '0';
+                        manualWrapper.style.setProperty('top', '0', 'important');
+                        manualWrapper.style.setProperty('left', '0', 'important');
+                        manualWrapper.style.setProperty('width', '100vw', 'important');
+                        manualWrapper.style.setProperty('height', '100vh', 'important');
+                        manualWrapper.style.setProperty('height', '100dvh', 'important');
+                        manualWrapper.style.setProperty('transform', 'none', 'important');
+                        manualWrapper.style.setProperty('border-radius', '0', 'important');
+                        manualWrapper.style.setProperty('padding', '10px', 'important');
+                        manualWrapper.style.setProperty('margin', '0', 'important');
                     } else {
                         manualWrapper.style.top = '5%';
                         manualWrapper.style.left = '50%';
@@ -210,7 +211,8 @@ export class ImageSelectionDialog {
                         manualWrapper.style.padding = '20px';
                     }
 
-                    manualWrapper.style.zIndex = '1000000000';
+                    manualWrapper.style.setProperty('z-index', '2147483647', 'important');
+                    manualWrapper.style.setProperty('position', 'fixed', 'important');
                     manualWrapper.style.background = 'rgba(20, 20, 30, 0.98)';
                     manualWrapper.style.border =
                         '1px solid var(--SmartThemeBorder, #444)';
