@@ -1493,6 +1493,327 @@ function getSwipePlan(settings) {
     return [{ id: fallbackModel, count: fallbackCount }]
 }
 
+
+function getPresetStorage() {
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            console.warn(
+                '[Image-Generation-Autopilot] Extension settings not available',
+            )
+            return {}
+        }
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
+        }
+        // Return a deep copy to avoid reference issues
+        const presets = JSON.parse(
+            JSON.stringify(ctx.extensionSettings[PRESET_STORAGE_KEY]),
+        )
+        console.log(
+            '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
+            presets,
+        )
+        return presets
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to get preset storage:',
+            error,
+        )
+        return {}
+    }
+}
+
+function savePresetToStorage(presets) {
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            console.warn(
+                '[Image-Generation-Autopilot] Extension settings not available',
+            )
+            return
+        }
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
+        }
+        console.log(
+            '[Image-Generation-Autopilot] Saving presets to extension settings:',
+            presets,
+        )
+        // Create a deep copy to avoid reference issues
+        const presetsCopy = JSON.parse(JSON.stringify(presets))
+        ctx.extensionSettings[PRESET_STORAGE_KEY] = presetsCopy
+        ctx.saveSettingsDebounced()
+        console.log('[Image-Generation-Autopilot] Presets saved successfully')
+    } catch (error) {
+        console.error(
+            '[Image-Generation-Autopilot] Failed to save preset storage:',
+            error,
+        )
+    }
+}
+
+function getAllPresets() {
+    return getPresetStorage()
+}
+
+function getPreset(id) {
+    const presets = getAllPresets()
+    return presets[id] || null
+}
+
+function savePreset(id, name, settings) {
+    const presets = getAllPresets()
+    // Exclude 'presets' property from saved preset settings to avoid circular reference
+    const { presets: _, ...settingsWithoutPresets } = settings
+    presets[id] = {
+        id,
+        name,
+        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
+        createdAt: new Date().toISOString(),
+    }
+    savePresetToStorage(presets)
+    return presets[id]
+}
+
+function deletePreset(id) {
+    const presets = getAllPresets()
+    delete presets[id]
+    savePresetToStorage(presets)
+}
+
+function handleRenamePreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        console.warn(
+            '[Image-Generation-Autopilot] Preset not found for rename:',
+            id,
+        )
+        return
+    }
+
+    const newName = prompt('Enter new name for preset:', preset.name)
+    if (!newName || newName.trim() === '') {
+        console.info('[Image-Generation-Autopilot] Rename cancelled')
+        return
+    }
+
+    const trimmedName = newName.trim()
+    if (trimmedName === preset.name) {
+        console.info('[Image-Generation-Autopilot] Name unchanged')
+        return
+    }
+
+    const presets = getAllPresets()
+    presets[id].name = trimmedName
+    savePresetToStorage(presets)
+    renderPresets()
+    console.info('[Image-Generation-Autopilot] Preset renamed:', {
+        id,
+        oldName: preset.name,
+        newName: trimmedName,
+    })
+}
+
+function loadPreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        console.warn('[Image-Generation-Autopilot] Preset not found:', id)
+        return false
+    }
+
+    const currentSettings = getSettings()
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
+
+    // Exclude 'presets' property from loaded preset settings
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
+
+    // Update settings - merge but exclude 'presets' property
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        const { presets, ...settingsWithoutPresets } = currentSettings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettingsWithoutPresets,
+        }
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function listPresets() {
+    const presets = getAllPresets()
+    return Object.values(presets).sort((a, b) => {
+        // Sort by name, then by creation date
+        if (a.name < b.name) return -1
+        if (a.name > b.name) return 1
+        return new Date(b.createdAt) - new Date(a.createdAt)
+    })
+}
+
+
+// ==================== PRESET UI HANDLERS ====================
+
+function handleSavePreset() {
+    const name = state.ui.presetNameInput?.value?.trim()
+    if (!name) {
+        console.warn('[Image-Generation-Autopilot] Preset name is required')
+        return
+    }
+
+    const currentSettings = getCurrentSettingsSnapshot()
+    const id = 'preset_' + Date.now()
+
+    savePreset(id, name, currentSettings)
+
+    // Clear input and re-render
+    state.ui.presetNameInput.value = ''
+    renderPresets()
+
+    console.info('[Image-Generation-Autopilot] Preset saved', { id, name })
+}
+
+function handleLoadPreset(id) {
+    const success = loadPreset(id)
+    if (success) {
+        renderPresets()
+        console.info('[Image-Generation-Autopilot] Preset loaded', { id })
+    }
+}
+
+function handleDeletePreset(id) {
+    if (!confirm('Are you sure you want to delete this preset?')) {
+        return
+    }
+
+    deletePreset(id)
+    renderPresets()
+    console.info('[Image-Generation-Autopilot] Preset deleted', { id })
+}
+
+function renderPresets() {
+    const presets = listPresets()
+    const container = state.ui.presetListContainer
+
+    if (!container) {
+        return
+    }
+
+    if (presets.length === 0) {
+        container.innerHTML = `
+            <p class="auto-multi-preset-empty" role="status">
+                <span class="fa-solid fa-folder-open" aria-hidden="true"></span>
+                <span>No presets saved yet. Create one above.</span>
+            </p>
+        `
+        return
+    }
+
+    container.innerHTML = presets
+        .map((preset) => {
+            const createdAt = new Date(preset.createdAt).toLocaleString()
+            return `
+            <div class="auto-multi-preset-item" data-preset-id="${preset.id}" role="listitem">
+                <button
+                    type="button"
+                    class="auto-multi-preset-body"
+                    title="Load this preset"
+                    aria-label="Load preset ${escapeHtml(preset.name)}"
+                >
+                    <div class="auto-multi-preset-info">
+                        <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
+                        <div class="auto-multi-preset-date">${createdAt}</div>
+                    </div>
+                </button>
+                <div class="auto-multi-preset-actions">
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-load"
+                        title="Load this preset"
+                        aria-label="Load preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-download" aria-hidden="true"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-rename"
+                        title="Rename this preset"
+                        aria-label="Rename preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-pen" aria-hidden="true"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-delete"
+                        title="Delete this preset"
+                        aria-label="Delete preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-trash" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </div>
+        `
+        })
+        .join('')
+
+    // Add event listeners to preset buttons
+    container.querySelectorAll('.auto-multi-preset-body').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleLoadPreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-load').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleLoadPreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-delete').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
+                .presetId
+            if (presetId) {
+                handleDeletePreset(presetId)
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-rename').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const presetItem = btn.closest('.auto-multi-preset-item')
+            console.log(
+                '[Image-Generation-Autopilot] Rename button clicked, presetItem:',
+                presetItem,
+            )
+            const presetId = presetItem?.dataset.presetId
+            console.log(
+                '[Image-Generation-Autopilot] Rename button clicked, presetId:',
+                presetId,
+            )
+            if (presetId) {
+                handleRenamePreset(presetId)
+            } else {
+                console.error(
+                    '[Image-Generation-Autopilot] Could not get presetId from rename button',
+                )
+            }
+        })
+    })
+}
+
 async function buildSettingsPanel() {
     const root =
         document.getElementById('extensions_settings2') ||
@@ -1969,7 +2290,7 @@ async function buildSettingsPanel() {
     state.ui.presetListContainer = presetListContainer
 
     // Add preset management event listeners
-    presetSaveButton?.addEventListener('click', handleSavePreset)
+    presetSaveButton?.addEventListener('click', () => handleSavePreset())
     presetNameInput?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             handleSavePreset()
@@ -1984,165 +2305,6 @@ async function buildSettingsPanel() {
     syncUiFromSettings()
 }
 
-// ==================== PRESET UI HANDLERS ====================
-
-function handleSavePreset() {
-    const name = state.ui.presetNameInput?.value?.trim()
-    if (!name) {
-        console.warn('[Image-Generation-Autopilot] Preset name is required')
-        return
-    }
-
-    const currentSettings = getCurrentSettingsSnapshot()
-    const id = 'preset_' + Date.now()
-
-    savePreset(id, name, currentSettings)
-
-    // Clear input and re-render
-    state.ui.presetNameInput.value = ''
-    renderPresets()
-
-    console.info('[Image-Generation-Autopilot] Preset saved', { id, name })
-}
-
-function handleLoadPreset(id) {
-    const success = loadPreset(id)
-    if (success) {
-        renderPresets()
-        console.info('[Image-Generation-Autopilot] Preset loaded', { id })
-    }
-}
-
-function handleDeletePreset(id) {
-    if (!confirm('Are you sure you want to delete this preset?')) {
-        return
-    }
-
-    deletePreset(id)
-    renderPresets()
-    console.info('[Image-Generation-Autopilot] Preset deleted', { id })
-}
-
-function renderPresets() {
-    const presets = listPresets()
-    const container = state.ui.presetListContainer
-
-    if (!container) {
-        return
-    }
-
-    if (presets.length === 0) {
-        container.innerHTML = `
-            <p class="auto-multi-preset-empty" role="status">
-                <span class="fa-solid fa-folder-open" aria-hidden="true"></span>
-                <span>No presets saved yet. Create one above.</span>
-            </p>
-        `
-        return
-    }
-
-    container.innerHTML = presets
-        .map((preset) => {
-            const createdAt = new Date(preset.createdAt).toLocaleString()
-            return `
-            <div class="auto-multi-preset-item" data-preset-id="${preset.id}" role="listitem">
-                <button
-                    type="button"
-                    class="auto-multi-preset-body"
-                    title="Load this preset"
-                    aria-label="Load preset ${escapeHtml(preset.name)}"
-                >
-                    <div class="auto-multi-preset-info">
-                        <div class="auto-multi-preset-name">${escapeHtml(preset.name)}</div>
-                        <div class="auto-multi-preset-date">${createdAt}</div>
-                    </div>
-                </button>
-                <div class="auto-multi-preset-actions">
-                    <button
-                        type="button"
-                        class="menu_button auto-multi-preset-load"
-                        title="Load this preset"
-                        aria-label="Load preset ${escapeHtml(preset.name)}"
-                    >
-                        <span class="fa-solid fa-download" aria-hidden="true"></span>
-                    </button>
-                    <button
-                        type="button"
-                        class="menu_button auto-multi-preset-rename"
-                        title="Rename this preset"
-                        aria-label="Rename preset ${escapeHtml(preset.name)}"
-                    >
-                        <span class="fa-solid fa-pen" aria-hidden="true"></span>
-                    </button>
-                    <button
-                        type="button"
-                        class="menu_button auto-multi-preset-delete"
-                        title="Delete this preset"
-                        aria-label="Delete preset ${escapeHtml(preset.name)}"
-                    >
-                        <span class="fa-solid fa-trash" aria-hidden="true"></span>
-                    </button>
-                </div>
-            </div>
-        `
-        })
-        .join('')
-
-    // Add event listeners to preset buttons
-    container.querySelectorAll('.auto-multi-preset-body').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
-                .presetId
-            if (presetId) {
-                handleLoadPreset(presetId)
-            }
-        })
-    })
-
-    container.querySelectorAll('.auto-multi-preset-load').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
-                .presetId
-            if (presetId) {
-                handleLoadPreset(presetId)
-            }
-        })
-    })
-
-    container.querySelectorAll('.auto-multi-preset-delete').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const presetId = btn.closest('.auto-multi-preset-item')?.dataset
-                .presetId
-            if (presetId) {
-                handleDeletePreset(presetId)
-            }
-        })
-    })
-
-    container.querySelectorAll('.auto-multi-preset-rename').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            const presetItem = btn.closest('.auto-multi-preset-item')
-            console.log(
-                '[Image-Generation-Autopilot] Rename button clicked, presetItem:',
-                presetItem,
-            )
-            const presetId = presetItem?.dataset.presetId
-            console.log(
-                '[Image-Generation-Autopilot] Rename button clicked, presetId:',
-                presetId,
-            )
-            if (presetId) {
-                handleRenamePreset(presetId)
-            } else {
-                console.error(
-                    '[Image-Generation-Autopilot] Could not get presetId from rename button',
-                )
-            }
-        })
-    })
-}
 
 function escapeHtml(text) {
     const div = document.createElement('div')
@@ -4125,165 +4287,6 @@ async function handleMessageRendered(messageId, origin) {
 // ==================== PRESET MANAGEMENT ====================
 
 const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
-
-function getPresetStorage() {
-    try {
-        const ctx = getCtx()
-        if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available',
-            )
-            return {}
-        }
-        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
-            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
-        }
-        // Return a deep copy to avoid reference issues
-        const presets = JSON.parse(
-            JSON.stringify(ctx.extensionSettings[PRESET_STORAGE_KEY]),
-        )
-        console.log(
-            '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
-            presets,
-        )
-        return presets
-    } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to get preset storage:',
-            error,
-        )
-        return {}
-    }
-}
-
-function savePresetToStorage(presets) {
-    try {
-        const ctx = getCtx()
-        if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available',
-            )
-            return
-        }
-        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
-            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
-        }
-        console.log(
-            '[Image-Generation-Autopilot] Saving presets to extension settings:',
-            presets,
-        )
-        // Create a deep copy to avoid reference issues
-        const presetsCopy = JSON.parse(JSON.stringify(presets))
-        ctx.extensionSettings[PRESET_STORAGE_KEY] = presetsCopy
-        ctx.saveSettingsDebounced()
-        console.log('[Image-Generation-Autopilot] Presets saved successfully')
-    } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to save preset storage:',
-            error,
-        )
-    }
-}
-
-function getAllPresets() {
-    return getPresetStorage()
-}
-
-function getPreset(id) {
-    const presets = getAllPresets()
-    return presets[id] || null
-}
-
-function savePreset(id, name, settings) {
-    const presets = getAllPresets()
-    // Exclude 'presets' property from saved preset settings to avoid circular reference
-    const { presets: _, ...settingsWithoutPresets } = settings
-    presets[id] = {
-        id,
-        name,
-        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
-        createdAt: new Date().toISOString(),
-    }
-    savePresetToStorage(presets)
-    return presets[id]
-}
-
-function deletePreset(id) {
-    const presets = getAllPresets()
-    delete presets[id]
-    savePresetToStorage(presets)
-}
-
-function handleRenamePreset(id) {
-    const preset = getPreset(id)
-    if (!preset) {
-        console.warn(
-            '[Image-Generation-Autopilot] Preset not found for rename:',
-            id,
-        )
-        return
-    }
-
-    const newName = prompt('Enter new name for preset:', preset.name)
-    if (!newName || newName.trim() === '') {
-        console.info('[Image-Generation-Autopilot] Rename cancelled')
-        return
-    }
-
-    const trimmedName = newName.trim()
-    if (trimmedName === preset.name) {
-        console.info('[Image-Generation-Autopilot] Name unchanged')
-        return
-    }
-
-    const presets = getAllPresets()
-    presets[id].name = trimmedName
-    savePresetToStorage(presets)
-    renderPresets()
-    console.info('[Image-Generation-Autopilot] Preset renamed:', {
-        id,
-        oldName: preset.name,
-        newName: trimmedName,
-    })
-}
-
-function loadPreset(id) {
-    const preset = getPreset(id)
-    if (!preset) {
-        console.warn('[Image-Generation-Autopilot] Preset not found:', id)
-        return false
-    }
-
-    const currentSettings = getSettings()
-    const newSettings = JSON.parse(JSON.stringify(preset.settings))
-
-    // Exclude 'presets' property from loaded preset settings
-    const { presets: _, ...newSettingsWithoutPresets } = newSettings
-
-    // Update settings - merge but exclude 'presets' property
-    const ctx = getCtx()
-    if (ctx?.extensionSettings?.[MODULE_NAME]) {
-        const { presets, ...settingsWithoutPresets } = currentSettings
-        ctx.extensionSettings[MODULE_NAME] = {
-            ...settingsWithoutPresets,
-            ...newSettingsWithoutPresets,
-        }
-    }
-
-    // Save and sync UI
-    saveSettings()
-    return true
-}
-
-function listPresets() {
-    const presets = getAllPresets()
-    return Object.values(presets).sort((a, b) => {
-        // Sort by name, then by creation date
-        if (a.name < b.name) return -1
-        if (a.name > b.name) return 1
-        return new Date(b.createdAt) - new Date(a.createdAt)
-    })
-}
 
 function getCurrentSettingsSnapshot() {
     return JSON.parse(JSON.stringify(getSettings()))
