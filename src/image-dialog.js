@@ -433,6 +433,13 @@ export class ImageSelectionDialog {
             this.domElements.lightbox.dataset.index = index;
             this.domElements.lightboxImg.src = slot.result.result;
             this.domElements.lightbox.classList.remove('hidden');
+            
+            const container = this.domElements.grid?.closest('.image-selection-dialog') || 
+                            this.domElements.grid?.closest('.image-selection-popup');
+            if (container) {
+                container.classList.add('lightbox-active');
+            }
+            
             this._updateLightboxSelectState(index);
         }
     }
@@ -440,6 +447,12 @@ export class ImageSelectionDialog {
     _hideLightbox() {
         if (this.domElements.lightbox) {
             this.domElements.lightbox.classList.add('hidden');
+            
+            const container = this.domElements.grid?.closest('.image-selection-dialog') || 
+                            this.domElements.grid?.closest('.image-selection-popup');
+            if (container) {
+                container.classList.remove('lightbox-active');
+            }
         }
     }
 
