@@ -857,6 +857,29 @@
     height: 100%;
     max-height: 80vh;
     font-family: 'Space Grotesk', 'DM Sans', sans-serif;
+    background: var(--SmartThemeBg, #1c1c26);
+    color: var(--SmartThemeBodyColor, #fff);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 600px) {
+    .image-selection-grid,
+    .image-selection-grid.count-1,
+    .image-selection-grid.count-2,
+    .image-selection-grid.count-3,
+    .image-selection-grid.count-4,
+    .image-selection-grid.count-5,
+    .image-selection-grid.count-6,
+    .image-selection-grid.count-7,
+    .image-selection-grid.count-8 {
+        grid-template-columns: 1fr !important;
+    }
+
+    .image-selection-dialog {
+        max-height: 90vh;
+    }
 }
 
 .image-selection-toolbar {
