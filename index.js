@@ -2948,7 +2948,10 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         return generator
     }
 
-    const dialog = new components.ImageSelectionDialog(generatorFactory)
+    const dialog = new components.ImageSelectionDialog({
+        generatorFactory,
+        PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
+    })
     
     const generatorOptions = {
         modelQueue: modelQueue,

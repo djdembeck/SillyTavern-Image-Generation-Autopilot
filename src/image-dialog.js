@@ -1,8 +1,28 @@
 import { ParallelGenerator } from './parallel-generator.js';
 
 export class ImageSelectionDialog {
-    constructor(generatorFactory) {
-        this.generatorFactory = generatorFactory || ((opts) => new ParallelGenerator(opts));
+    constructor(dependenciesOrFactory) {
+        let dependencies = {};
+        if (typeof dependenciesOrFactory === 'function') {
+            dependencies = { generatorFactory: dependenciesOrFactory };
+        } else if (dependenciesOrFactory) {
+            dependencies = dependenciesOrFactory;
+        }
+
+        this.PopupClass =
+            dependencies.PopupClass ||
+            window.Popup ||
+            class MockPopup {
+                constructor(c) {
+                    this.content = c;
+                    this.show = () => {};
+                }
+            };
+
+        this.generatorFactory =
+            dependencies.generatorFactory ||
+            ((opts) => new ParallelGenerator(opts));
+
         this.selectedIndices = new Set();
         this.slots = [];
         this.destination = 'new';
@@ -29,22 +49,22 @@ export class ImageSelectionDialog {
     _createPopup(count) {
         const content = this._buildHtml(count);
 
-        if (!window.Popup) {
+        if (!this.PopupClass && !window.Popup) {
             console.error(
-                '[ImageSelectionDialog] window.Popup is not defined! Using mock.',
+                '[ImageSelectionDialog] Popup class is not defined! Using mock.',
             );
         }
 
-        const PopupClass =
-            window.Popup ||
-            class MockPopup {
-                constructor(c) {
-                    this.content = c;
-                    this.show = () => {};
-                }
-            };
+        this.popup = new this.PopupClass(
+            content,
+            undefined,
+            'image-selection-popup',
+        );
 
-        this.popup = new PopupClass(content, undefined, 'image-selection-popup');
+        if (this.popup) {
+            this.popup.wide = true;
+            this.popup.large = true;
+        }
 
         this.popup.show();
         this._bindEvents();
