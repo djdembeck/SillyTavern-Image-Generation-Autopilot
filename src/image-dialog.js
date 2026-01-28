@@ -28,34 +28,28 @@ export class ImageSelectionDialog {
 
     _createPopup(count) {
         const content = this._buildHtml(count);
-        
-        const PopupClass = window.Popup || class MockPopup {
-            constructor(opts) { this.opts = opts; this.show = () => {}; }
-        };
 
-        this.popup = new PopupClass({
-            id: 'image-selection-dialog',
-            title: 'Generated Images',
-            content: content,
-            wide: true,
-            large: true,
-            customButtons: {
-                confirm: {
-                    text: 'Confirm Selection',
-                    color: 'primary',
-                    action: () => this._handleConfirm()
-                },
-                cancel: {
-                    text: 'Cancel',
-                    action: () => this._handleCancel()
+        if (!window.Popup) {
+            console.error(
+                '[ImageSelectionDialog] window.Popup is not defined! Using mock.',
+            );
+        }
+
+        const PopupClass =
+            window.Popup ||
+            class MockPopup {
+                constructor(c) {
+                    this.content = c;
+                    this.show = () => {};
                 }
-            },
-            onClosing: () => this._handleClosing()
-        });
+            };
+
+        this.popup = new PopupClass(content, undefined, 'image-selection-popup');
 
         this.popup.show();
         this._bindEvents();
     }
+
 
     _buildHtml(count) {
         const toolbar = `
@@ -88,7 +82,14 @@ export class ImageSelectionDialog {
         }
         const grid = `<div class="image-selection-grid" id="image-grid">${gridItems}</div>`;
 
-        return `<div class="image-selection-dialog">${toolbar}${grid}</div>`;
+        const footer = `
+            <div class="image-selection-footer">
+                <button id="btn-img-cancel" class="menu_button">Cancel</button>
+                <button id="btn-img-confirm" class="menu_button menu_button_icon"><i class="fa-solid fa-check"></i> Keep Selected</button>
+            </div>
+        `;
+
+        return `<div class="image-selection-dialog">${toolbar}${grid}${footer}</div>`;
     }
 
     async _bindEvents() {
@@ -118,6 +119,12 @@ export class ImageSelectionDialog {
                 this.domElements.destination =
                     container.querySelector('#img-dest-select') ||
                     document.querySelector('#img-dest-select');
+                this.domElements.confirm =
+                    container.querySelector('#btn-img-confirm') ||
+                    document.querySelector('#btn-img-confirm');
+                this.domElements.cancel =
+                    container.querySelector('#btn-img-cancel') ||
+                    document.querySelector('#btn-img-cancel');
 
                 this._attachListeners();
                 this._syncGrid();
@@ -131,6 +138,11 @@ export class ImageSelectionDialog {
         console.error(
             '[ImageSelectionDialog] Failed to find DOM elements after waiting',
         );
+        
+        const popups = document.querySelectorAll('.popup-body, .popup-content, .mes_text');
+        console.log('[ImageSelectionDialog] Debug - Popups found:', popups.length);
+        console.log('[ImageSelectionDialog] Debug - #image-grid found?', !!document.getElementById('image-grid'));
+        console.log('[ImageSelectionDialog] Debug - .image-selection-grid found?', !!document.querySelector('.image-selection-grid'));
     }
 
     _attachListeners() {
@@ -160,6 +172,18 @@ export class ImageSelectionDialog {
             this.domElements.destination.addEventListener('change', (e) => {
                 this.destination = e.target.value;
             });
+        }
+
+        if (this.domElements.confirm) {
+            this.domElements.confirm.addEventListener('click', () =>
+                this._handleConfirm(),
+            );
+        }
+
+        if (this.domElements.cancel) {
+            this.domElements.cancel.addEventListener('click', () =>
+                this._handleCancel(),
+            );
         }
     }
 
