@@ -32,15 +32,21 @@ export class ImageSelectionDialog {
         this.isGenerating = false;
         this.generator = null;
         this.domElements = {};
+        this.prompts = [];
+        this.generatorOptions = {};
     }
 
     show(prompts, options = {}) {
         return new Promise((resolve, reject) => {
             this.resolvePromise = resolve;
             this.rejectPromise = reject;
-            this.slots = new Array(prompts.length).fill(null).map(() => ({ status: 'pending' }));
+            this.prompts = prompts;
+            this.generatorOptions = options;
+            this.slots = new Array(prompts.length)
+                .fill(null)
+                .map(() => ({ status: 'pending' }));
             this.selectedIndices.clear();
-            
+
             this._createPopup(prompts.length);
             this._startGeneration(prompts, options);
         });
@@ -90,14 +96,34 @@ export class ImageSelectionDialog {
 
 
     _buildHtml(count) {
+        const header = `
+            <div class="image-selection-header">
+                <div class="image-selection-header__badge">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span>Generation Choice</span>
+                </div>
+                <div class="image-selection-header__text">
+                    <h5>Parallel Generation Results</h5>
+                    <p class="caption">Select the images you want to keep and choose their destination.</p>
+                </div>
+            </div>
+        `;
+
         const toolbar = `
             <div class="image-selection-toolbar">
                 <div class="image-selection-actions">
-                    <button class="image-selection-btn" id="btn-select-all">Select All</button>
-                    <button class="image-selection-btn" id="btn-deselect-all">Deselect All</button>
+                    <button class="image-selection-btn" id="btn-select-all" title="Select all successful generations">
+                        <i class="fa-solid fa-check-double"></i> Select All
+                    </button>
+                    <button class="image-selection-btn" id="btn-deselect-all" title="Clear selection">
+                        <i class="fa-solid fa-xmark"></i> Deselect All
+                    </button>
+                    <button class="image-selection-btn regenerate" id="btn-img-regenerate" title="Discard current results and generate again">
+                        <i class="fa-solid fa-rotate"></i> Regenerate All
+                    </button>
                 </div>
                 <div class="image-selection-destination">
-                    <label for="img-dest-select">Destination:</label>
+                    <span>Destination:</span>
                     <select id="img-dest-select">
                         <option value="new">New Message</option>
                         <option value="current">Current Message</option>
@@ -123,11 +149,11 @@ export class ImageSelectionDialog {
         const footer = `
             <div class="image-selection-footer">
                 <button id="btn-img-cancel" class="menu_button">Cancel</button>
-                <button id="btn-img-confirm" class="menu_button menu_button_icon"><i class="fa-solid fa-check"></i> Keep Selected</button>
+                <button id="btn-img-confirm" class="menu_button menu_button_icon primary"><i class="fa-solid fa-check"></i> Keep Selected</button>
             </div>
         `;
 
-        return `<div class="image-selection-dialog">${toolbar}${grid}${footer}</div>`;
+        return `<div class="image-selection-dialog">${header}${toolbar}${grid}${footer}</div>`;
     }
 
     async _bindEvents() {
@@ -164,6 +190,9 @@ export class ImageSelectionDialog {
                 this.domElements.cancel =
                     container.querySelector('#btn-img-cancel') ||
                     document.querySelector('#btn-img-cancel');
+                this.domElements.regenerate =
+                    container.querySelector('#btn-img-regenerate') ||
+                    document.querySelector('#btn-img-regenerate');
                 this.domElements.manualClose =
                     container.querySelector('#manual-close-dialog') ||
                     document.querySelector('#manual-close-dialog');
@@ -309,6 +338,12 @@ export class ImageSelectionDialog {
             );
         }
 
+        if (this.domElements.regenerate) {
+            this.domElements.regenerate.addEventListener('click', () =>
+                this._handleRegenerateAll(),
+            );
+        }
+
         if (this.domElements.manualClose) {
             this.domElements.manualClose.addEventListener('click', () =>
                 this._handleClosing(),
@@ -441,6 +476,38 @@ export class ImageSelectionDialog {
         if (overlay) {
             overlay.remove();
         }
+    }
+
+    _handleRegenerateAll() {
+        if (this.isGenerating) {
+            this.generator.abort();
+        }
+
+        this.selectedIndices.clear();
+        this.slots = new Array(this.prompts.length)
+            .fill(null)
+            .map(() => ({ status: 'pending' }));
+
+        if (this.domElements.grid) {
+            this.slots.forEach((_, index) => {
+                const slotEl = this.domElements.grid.querySelector(
+                    `.image-slot[data-index="${index}"]`,
+                );
+                if (slotEl) {
+                    slotEl.className = 'image-slot pending';
+                    slotEl.innerHTML = `
+                        <div class="image-slot-status">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i>
+                            <span>Generating...</span>
+                        </div>
+                        <div class="image-slot-overlay"></div>
+                    `;
+                }
+            });
+        }
+
+        this._updateUIState();
+        this._startGeneration(this.prompts, this.generatorOptions);
     }
 
     _handleConfirm() {
