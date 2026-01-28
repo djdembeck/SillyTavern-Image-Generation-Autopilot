@@ -24,6 +24,7 @@ const defaultSettings = Object.freeze({
         insertType: INSERT_TYPE.NEW_MESSAGE,
         promptRewrite: {
             enabled: false,
+            modelId: '',
         },
         promptInjection: {
             enabled: true,
@@ -330,6 +331,10 @@ function ensureSettings() {
         ) {
             settings.autoGeneration.promptRewrite.enabled =
                 defaultSettings.autoGeneration.promptRewrite.enabled
+        }
+
+        if (typeof settings.autoGeneration.promptRewrite.modelId !== 'string') {
+            settings.autoGeneration.promptRewrite.modelId = ''
         }
 
         if (!settings.autoGeneration.promptInjection) {
@@ -1606,6 +1611,9 @@ async function buildSettingsPanel() {
     const promptRewriteEnabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_prompt_rewrite_enabled')
     )
+    const promptRewriteModelSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_rewrite_model')
+    )
     const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_prompt_position')
     )
@@ -1701,6 +1709,7 @@ async function buildSettingsPanel() {
         promptLimitTypeSelect,
         promptRegexInput,
         promptRewriteEnabledInput,
+        promptRewriteModelSelect,
         promptPositionSelect,
         promptDepthInput,
         debugModeInput,
@@ -1856,6 +1865,12 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
+    promptRewriteModelSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptRewrite.modelId = promptRewriteModelSelect.value
+        saveSettings()
+    })
+
     promptPositionSelect?.addEventListener('change', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.position =
@@ -1965,6 +1980,7 @@ async function buildSettingsPanel() {
     renderPresets()
 
     syncModelSelectOptions()
+    syncProfileSelectOptions()
     syncUiFromSettings()
 }
 
@@ -2443,6 +2459,40 @@ function syncModelSelectOptions(showFeedback = false) {
     }
 }
 
+async function syncProfileSelectOptions(showFeedback = false) {
+    const ctx = getCtx()
+    let profiles = []
+    try {
+        const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
+        if (typeof result === 'string') {
+            profiles = JSON.parse(result)
+        }
+    } catch (error) {
+        console.warn('[Image-Generation-Autopilot] Failed to list profiles:', error)
+    }
+
+    const select = state.ui?.promptRewriteModelSelect
+    if (!select) return
+
+    const currentValue = select.value || ''
+    select.innerHTML = '<option value="">Default (Active chat model)</option>'
+
+    profiles.forEach((profileName) => {
+        const option = document.createElement('option')
+        option.value = profileName
+        option.textContent = profileName
+        select.appendChild(option)
+    })
+
+    if (currentValue && profiles.includes(currentValue)) {
+        select.value = currentValue
+    }
+
+    if (showFeedback) {
+        log('Profile list refreshed. Entries:', profiles.length)
+    }
+}
+
 function handleDocumentChange(event) {
     const target = event?.target
     if (target instanceof HTMLInputElement) {
@@ -2555,6 +2605,10 @@ function syncUiFromSettings() {
     if (state.ui.promptRewriteEnabledInput) {
         state.ui.promptRewriteEnabledInput.checked =
             settings.autoGeneration.promptRewrite.enabled
+    }
+    if (state.ui.promptRewriteModelSelect) {
+        state.ui.promptRewriteModelSelect.value =
+            settings.autoGeneration.promptRewrite.modelId || ''
     }
     if (state.ui.promptPositionSelect) {
         state.ui.promptPositionSelect.value =
@@ -3254,15 +3308,40 @@ function buildPromptRewriteSystem(injection) {
     return chunks.join('\n')
 }
 
-function buildPromptRewriteUser(originalPrompt) {
-    return `Rewrite this prompt:\n${originalPrompt}`
+function buildPromptRewriteUser(originalPrompt, contextText = '') {
+    const contextPart = contextText ? `Based on this scene context:\n"${contextText}"\n\n` : ''
+    return `${contextPart}Rewrite this prompt:\n${originalPrompt}`
 }
 
-async function callChatRewrite(originalPrompt, injection) {
-    const systemPrompt = buildPromptRewriteSystem(injection)
-    const userPrompt = buildPromptRewriteUser(originalPrompt)
+async function callChatRewrite(originalPrompt, injection, profileName = '') {
     const ctx = getCtx()
-    const startLength = ctx.chat?.length || 0
+    let originalProfile = null
+
+    if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
+        try {
+            originalProfile = await ctx.executeSlashCommandsWithOptions('/profile')
+            await ctx.executeSlashCommandsWithOptions(`/profile ${profileName}`)
+            await sleep(100)
+        } catch (error) {
+            console.warn('[Image-Generation-Autopilot] Failed to switch profile:', error)
+        }
+    }
+
+    let contextText = ''
+    const chat = ctx.chat || []
+    const settings = getSettings()
+    const regex = parseRegexFromString(settings.autoGeneration.promptInjection.regex)
+
+    for (let i = chat.length - 1; i >= 0; i--) {
+        if (!chat[i].is_user && chat[i].mes) {
+            contextText = chat[i].mes.replace(regex, '').trim()
+            if (contextText) break
+        }
+    }
+
+    const systemPrompt = buildPromptRewriteSystem(injection)
+    const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
+    const startLength = chat.length || 0
 
     const attempts = [
         async () => {
@@ -3300,6 +3379,9 @@ async function callChatRewrite(originalPrompt, injection) {
             const rewritten = normalizeRewriteResponse(result)
             if (rewritten) {
                 await cleanupRewriteMessages(startLength)
+                if (originalProfile && typeof ctx.executeSlashCommandsWithOptions === 'function') {
+                    await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+                }
                 return rewritten
             }
         } catch (error) {
@@ -3312,6 +3394,9 @@ async function callChatRewrite(originalPrompt, injection) {
         }
     }
 
+    if (originalProfile && typeof ctx.executeSlashCommandsWithOptions === 'function') {
+        await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+    }
     return ''
 }
 
@@ -3366,7 +3451,19 @@ async function handleIncomingMessage(messageId) {
 
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
-    for (const prompt of prompts) {
+    for (let prompt of prompts) {
+        if (autoSettings.promptRewrite.enabled) {
+            log('Rewriting prompt before generation', { original: prompt })
+            const rewritten = await callChatRewrite(
+                prompt,
+                autoSettings.promptInjection,
+                autoSettings.promptRewrite.modelId,
+            )
+            if (rewritten) {
+                log('Prompt rewritten successfully', { rewritten })
+                prompt = rewritten
+            }
+        }
         for (let i = 0; i < swipesPerImage; i += 1) {
             expandedPrompts.push(prompt)
         }
@@ -3436,6 +3533,8 @@ async function handleManualPromptRewrite(messageId) {
         log('Hammer action complete (images message deleted)', {
             lastImageMessageId,
         })
+        
+        await handleIncomingMessage(resolvedId)
         return
     }
 
@@ -4335,6 +4434,7 @@ async function init() {
         applyPerCharacterOverrides()
         injectReswipeButtonTemplate()
         refreshReswipeButtons()
+        syncProfileSelectOptions()
 
         const chat = document.getElementById('chat')
         chat?.addEventListener('click', async (event) => {

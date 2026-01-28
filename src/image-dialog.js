@@ -36,6 +36,8 @@ export class ImageSelectionDialog {
         this.generatorOptions = {};
         this.modelOptions = dependencies.modelOptions || [];
         this.selectedModelId = null;
+        this.editedPrompt = null;
+        this.currentCount = 0;
     }
 
     show(prompts, options = {}) {
@@ -44,6 +46,11 @@ export class ImageSelectionDialog {
             this.rejectPromise = reject;
             this.prompts = prompts;
             this.generatorOptions = options;
+            this.currentCount = prompts.length;
+            
+            const firstPrompt = prompts[0];
+            this.editedPrompt = typeof firstPrompt === 'string' ? firstPrompt : (firstPrompt?.prompt || '');
+            
             this.slots = new Array(prompts.length)
                 .fill(null)
                 .map(() => ({ status: 'pending' }));
@@ -140,9 +147,16 @@ export class ImageSelectionDialog {
                     <button class="image-selection-btn hidden" id="btn-img-retry" title="Retry only failed generations">
                         <i class="fa-solid fa-arrows-rotate"></i> Retry Failed
                     </button>
+                    <button class="image-selection-btn" id="btn-edit-prompt" title="Edit the working prompt">
+                        <i class="fa-solid fa-pen-to-square"></i> Edit Prompt
+                    </button>
                 </div>
                 <div class="image-selection-toolbar-group">
                     ${modelSelector}
+                    <div class="image-selection-count">
+                        <span><i class="fa-solid fa-hashtag"></i> Count:</span>
+                        <input type="number" id="img-count-input" min="1" max="12" step="1" value="${count}">
+                    </div>
                     <div class="image-selection-destination">
                         <span><i class="fa-solid fa-location-arrow"></i> Destination:</span>
                         <select id="img-dest-select">
@@ -150,6 +164,16 @@ export class ImageSelectionDialog {
                             <option value="current">Current Message</option>
                         </select>
                     </div>
+                </div>
+            </div>
+        `;
+
+        const promptEditor = `
+            <div class="image-selection-prompt-editor hidden" id="prompt-editor-container">
+                <textarea id="img-prompt-editor" class="text_pole" placeholder="Edit image prompt...">${this.editedPrompt}</textarea>
+                <div class="prompt-editor-actions">
+                    <button class="image-selection-btn primary" id="btn-prompt-apply">Apply & Regenerate</button>
+                    <button class="image-selection-btn" id="btn-prompt-close">Close</button>
                 </div>
             </div>
         `;
@@ -185,7 +209,7 @@ export class ImageSelectionDialog {
             </div>
         `;
 
-        return `<div class="image-selection-dialog">${header}${toolbar}${grid}${footer}${lightbox}</div>`;
+        return `<div class="image-selection-dialog">${header}${toolbar}${promptEditor}${grid}${footer}${lightbox}</div>`;
     }
 
     async _bindEvents() {
@@ -231,6 +255,24 @@ export class ImageSelectionDialog {
                 this.domElements.modelSelect =
                     container.querySelector('#img-model-select') ||
                     document.querySelector('#img-model-select');
+                this.domElements.countInput =
+                    container.querySelector('#img-count-input') ||
+                    document.querySelector('#img-count-input');
+                this.domElements.editPromptBtn =
+                    container.querySelector('#btn-edit-prompt') ||
+                    document.querySelector('#btn-edit-prompt');
+                this.domElements.promptEditorContainer =
+                    container.querySelector('#prompt-editor-container') ||
+                    document.querySelector('#prompt-editor-container');
+                this.domElements.promptTextarea =
+                    container.querySelector('#img-prompt-editor') ||
+                    document.querySelector('#img-prompt-editor');
+                this.domElements.promptApplyBtn =
+                    container.querySelector('#btn-prompt-apply') ||
+                    document.querySelector('#btn-prompt-apply');
+                this.domElements.promptCloseBtn =
+                    container.querySelector('#btn-prompt-close') ||
+                    document.querySelector('#btn-prompt-close');
                 this.domElements.lightbox =
                     container.querySelector('#image-selection-lightbox') ||
                     document.querySelector('#image-selection-lightbox');
@@ -430,6 +472,37 @@ export class ImageSelectionDialog {
                 this._handleClosing(),
             );
         }
+
+        if (this.domElements.countInput) {
+            this.domElements.countInput.addEventListener('change', (e) => {
+                this._handleCountChange(parseInt(e.target.value, 10));
+            });
+        }
+
+        if (this.domElements.editPromptBtn) {
+            this.domElements.editPromptBtn.addEventListener('click', () => {
+                this.domElements.promptEditorContainer.classList.toggle('hidden');
+            });
+        }
+
+        if (this.domElements.promptCloseBtn) {
+            this.domElements.promptCloseBtn.addEventListener('click', () => {
+                this.domElements.promptEditorContainer.classList.add('hidden');
+            });
+        }
+
+        if (this.domElements.promptApplyBtn) {
+            this.domElements.promptApplyBtn.addEventListener('click', () => {
+                this.domElements.promptEditorContainer.classList.add('hidden');
+                this._handleRegenerateAll();
+            });
+        }
+
+        if (this.domElements.promptTextarea) {
+            this.domElements.promptTextarea.addEventListener('input', (e) => {
+                this.editedPrompt = e.target.value;
+            });
+        }
     }
 
     _showLightbox(index) {
@@ -623,34 +696,44 @@ export class ImageSelectionDialog {
         }
     }
 
+    _handleCountChange(newCount) {
+        const val = parseInt(newCount, 10);
+        if (isNaN(val) || val < 1) return;
+        this.currentCount = val;
+    }
+
     _handleRegenerateAll() {
         if (this.isGenerating) {
             this.generator.abort();
         }
 
         this.selectedIndices.clear();
+        
+        const singlePrompt = this.editedPrompt;
+        this.prompts = new Array(this.currentCount).fill(singlePrompt);
+
         this.slots = new Array(this.prompts.length)
             .fill(null)
             .map(() => ({ status: 'pending' }));
 
         if (this.domElements.grid) {
             this.domElements.grid.scrollTo({ top: 0, behavior: 'smooth' });
-            this.slots.forEach((_, index) => {
-                const slotEl = this.domElements.grid.querySelector(
-                    `.image-slot[data-index="${index}"]`,
-                );
-                if (slotEl) {
-                    slotEl.className = 'image-slot pending';
-                    slotEl.innerHTML = `
+            this.domElements.grid.className = `image-selection-grid count-${this.prompts.length}`;
+            
+            let gridItems = '';
+            for (let i = 0; i < this.prompts.length; i++) {
+                gridItems += `
+                    <div class="image-slot pending" data-index="${i}">
                         <div class="image-slot-status">
                             <i class="fa-solid fa-circle-notch fa-spin"></i>
                             <span>Generating...</span>
                         </div>
                         <div class="image-slot-overlay"></div>
                         <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
-                    `;
-                }
-            });
+                    </div>
+                `;
+            }
+            this.domElements.grid.innerHTML = gridItems;
         }
 
         this._updateUIState();

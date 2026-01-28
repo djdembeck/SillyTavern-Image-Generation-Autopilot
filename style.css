@@ -400,7 +400,62 @@
 .image-selection-dialog .image-selection-grid.count-5, 
 .image-selection-dialog .image-selection-grid.count-6, 
 .image-selection-dialog .image-selection-grid.count-7, 
-.image-selection-dialog .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
+.image-selection-dialog .image-selection-grid.count-8,
+.image-selection-dialog .image-selection-grid.count-9,
+.image-selection-dialog .image-selection-grid.count-10,
+.image-selection-dialog .image-selection-grid.count-11,
+.image-selection-dialog .image-selection-grid.count-12 { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)) !important; }
+
+.image-selection-prompt-editor {
+    padding: 16px 24px;
+    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.image-selection-prompt-editor.hidden {
+    display: none !important;
+}
+
+#img-prompt-editor {
+    width: 100%;
+    min-height: 80px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
+    padding: 10px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    resize: vertical;
+}
+
+.prompt-editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.image-selection-count {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+#img-count-input {
+    width: 60px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-family: inherit;
+    outline: none;
+}
 
 @media (max-width: 800px) {
     .image-selection-dialog #image-grid:not(.count-1) {
