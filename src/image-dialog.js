@@ -197,7 +197,7 @@ export class ImageSelectionDialog {
                         manualWrapper.style.setProperty('height', '100dvh', 'important');
                         manualWrapper.style.setProperty('transform', 'none', 'important');
                         manualWrapper.style.setProperty('border-radius', '0', 'important');
-                        manualWrapper.style.setProperty('padding', '10px', 'important');
+                        manualWrapper.style.setProperty('padding', '0', 'important');
                         manualWrapper.style.setProperty('margin', '0', 'important');
                     } else {
                         manualWrapper.style.top = '5%';
@@ -208,7 +208,7 @@ export class ImageSelectionDialog {
                         manualWrapper.style.maxWidth = '1200px';
                         manualWrapper.style.maxHeight = '90vh';
                         manualWrapper.style.borderRadius = '12px';
-                        manualWrapper.style.padding = '20px';
+                        manualWrapper.style.padding = '0';
                     }
 
                     manualWrapper.style.setProperty('z-index', '2147483647', 'important');
@@ -224,6 +224,11 @@ export class ImageSelectionDialog {
                     manualWrapper.style.pointerEvents = 'all';
 
                     manualWrapper.innerHTML = this.content;
+                    const innerDialog = manualWrapper.querySelector('.image-selection-dialog');
+                    if (innerDialog) {
+                        innerDialog.style.height = '100%';
+                        innerDialog.style.width = '100%';
+                    }
                     document.body.appendChild(manualWrapper);
                     injectedFallback = true;
                 }
