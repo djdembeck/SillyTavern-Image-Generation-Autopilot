@@ -344,9 +344,9 @@
 }
 
 .image-selection-grid.count-1 { grid-template-columns: 1fr; max-width: 800px; margin: 0 auto; }
-.image-selection-grid.count-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); }
-.image-selection-grid.count-3, .image-selection-grid.count-4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr)); }
-.image-selection-grid.count-5, .image-selection-grid.count-6, .image-selection-grid.count-7, .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.image-selection-grid.count-2 { grid-template-columns: repeat(2, 1fr); }
+.image-selection-grid.count-3, .image-selection-grid.count-4 { grid-template-columns: repeat(2, 1fr); }
+.image-selection-grid.count-5, .image-selection-grid.count-6, .image-selection-grid.count-7, .image-selection-grid.count-8 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
 
 @media (max-width: 650px) {
     .image-selection-grid {
@@ -360,12 +360,25 @@
     }
 
     .image-selection-header {
-        padding: 16px;
+        padding: 12px 16px;
+    }
+
+    .image-selection-header__badge {
+        padding: 4px 10px;
+        font-size: 0.65rem;
+    }
+
+    .image-selection-header__text h5 {
+        font-size: 1.1rem;
+    }
+
+    .image-selection-header__text .caption {
+        font-size: 0.75rem;
     }
 
     .image-selection-toolbar {
-        padding: 12px 16px;
-        gap: 12px;
+        padding: 10px 16px;
+        gap: 10px;
     }
 
     .image-selection-actions {
@@ -377,15 +390,40 @@
         flex: 1;
         justify-content: center;
         font-size: 0.75rem;
+        padding: 6px 12px;
+    }
+
+    .image-selection-toolbar-group {
+        width: 100%;
+        gap: 8px;
+    }
+
+    .image-selection-model, .image-selection-destination {
+        flex: 1;
+        min-width: 0;
+        font-size: 0.75rem;
+        gap: 4px;
+    }
+
+    .image-selection-model span, .image-selection-destination span {
+        display: none;
+    }
+
+    .image-selection-model select, .image-selection-destination select {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        width: 100%;
     }
 
     .image-selection-footer {
-        padding: 15px 16px;
+        padding: 12px 16px;
     }
 
     .image-selection-dialog .menu_button {
         flex: 1;
         min-width: 0;
+        padding: 8px 12px;
+        font-size: 0.85rem;
     }
 }
 

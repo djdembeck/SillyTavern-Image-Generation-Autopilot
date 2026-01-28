@@ -700,6 +700,7 @@ export class ImageSelectionDialog {
         if (this.rejectPromise) {
             this.rejectPromise(new Error('Cancelled'));
         }
+        this.rejectPromise = null;
         this.resolvePromise = null;
 
         if (this.popup && typeof this.popup.hide === 'function') {
@@ -714,15 +715,15 @@ export class ImageSelectionDialog {
                 'Generation is still in progress. Are you sure you want to close?',
             );
             if (!confirmClose) {
-                this.generator.abort();
-            } else {
-                this.generator.abort();
+                return;
             }
+            this.generator.abort();
         }
 
-        if (this.resolvePromise) {
+        if (this.rejectPromise) {
             this.rejectPromise(new Error('Closed'));
         }
+        this.rejectPromise = null;
         this.resolvePromise = null;
         this._removeManualOverlay();
     }
