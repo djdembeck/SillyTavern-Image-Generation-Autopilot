@@ -1149,15 +1149,11 @@ function getSdModelOptions() {
 }
 
 function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
-    const fallback = typeof originalPrompt === 'string' ? originalPrompt : ''
-    if (typeof rewrittenText !== 'string') {
-        return fallback
+    if (typeof rewrittenText !== 'string' || !rewrittenText.trim()) {
+        return null
     }
 
     let cleaned = rewrittenText.trim()
-    if (!cleaned) {
-        return fallback
-    }
 
     cleaned = cleaned.replace(/^['"`]+|['"`]+$/g, '').trim()
 
@@ -3594,6 +3590,13 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     const systemPrompt = buildPromptRewriteSystem(injection)
     const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
     const startLength = chat.length || 0
+
+    log('Checking available generation methods', {
+        generateText: typeof ctx.generateText === 'function',
+        generateRaw: typeof ctx.generateRaw === 'function',
+        generate: typeof ctx.generate === 'function',
+        ctxKeys: Object.keys(ctx).filter(k => k.toLowerCase().includes('gen')),
+    })
 
     const attempts = [
         async () => {

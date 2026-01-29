@@ -999,9 +999,9 @@ export class ImageSelectionDialog {
                     this.domElements.promptTextarea.value = rewritten;
                 }
             } else if (rewritten === this.editedPrompt) {
-                console.warn('[ImageSelectionDialog] Rewrite returned identical prompt');
+                console.warn('[ImageSelectionDialog] Rewrite returned identical prompt', { rewritten });
             } else {
-                console.warn('[ImageSelectionDialog] Rewrite returned empty result');
+                console.warn('[ImageSelectionDialog] Rewrite returned empty or invalid result', { rewritten });
             }
         } catch (error) {
             console.error('[ImageSelectionDialog] Rewrite failed:', error);
