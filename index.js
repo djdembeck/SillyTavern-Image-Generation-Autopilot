@@ -2621,7 +2621,6 @@ function syncModelSelectOptions(showFeedback = false) {
 async function syncProfileSelectOptions(showFeedback = false) {
     const ctx = getCtx()
     let connectionProfiles = []
-    let completionPresets = []
     
     try {
         const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
@@ -2649,54 +2648,18 @@ async function syncProfileSelectOptions(showFeedback = false) {
         }
     }
 
-    const presetSelects = [
-        'settings_preset',
-        'settings_preset_novel',
-        'settings_preset_openai',
-        'settings_preset_textgenerationwebui'
-    ]
-
-    presetSelects.forEach(id => {
-        const select = document.getElementById(id)
-        if (select instanceof HTMLSelectElement) {
-            Array.from(select.options).forEach(o => {
-                const name = o.textContent?.trim() || o.value
-                if (name && !completionPresets.includes(name)) {
-                    completionPresets.push(name)
-                }
-            })
-        }
-    })
-
     const select = state.ui?.promptRewriteModelSelect
     if (!select) return
 
     const currentValue = select.value || ''
     select.innerHTML = '<option value="">Default (Active chat model)</option>'
 
-    if (connectionProfiles.length > 0) {
-        const group = document.createElement('optgroup')
-        group.label = 'Connection Profiles'
-        connectionProfiles.sort().forEach((name) => {
-            const option = document.createElement('option')
-            option.value = 'profile:' + name
-            option.textContent = name
-            group.appendChild(option)
-        })
-        select.appendChild(group)
-    }
-
-    if (completionPresets.length > 0) {
-        const group = document.createElement('optgroup')
-        group.label = 'Completion Presets'
-        completionPresets.sort().forEach((name) => {
-            const option = document.createElement('option')
-            option.value = 'preset:' + name
-            option.textContent = name
-            group.appendChild(option)
-        })
-        select.appendChild(group)
-    }
+    connectionProfiles.sort().forEach((name) => {
+        const option = document.createElement('option')
+        option.value = 'profile:' + name
+        option.textContent = name
+        select.appendChild(option)
+    })
 
     if (currentValue) {
         const exists = Array.from(select.options).some(o => o.value === currentValue)
@@ -2712,9 +2675,8 @@ async function syncProfileSelectOptions(showFeedback = false) {
     }
 
     if (showFeedback) {
-        log('Profile/Preset list refreshed.', { 
-            profiles: connectionProfiles.length, 
-            presets: completionPresets.length 
+        log('Profile list refreshed.', { 
+            profiles: connectionProfiles.length
         })
     }
 }
@@ -3587,8 +3549,6 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
 
     if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
         try {
-            const isProfile = profileName.startsWith('profile:')
-            const isPreset = profileName.startsWith('preset:')
             const realName = profileName.replace(/^(profile|preset):/, '')
 
             const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
@@ -3597,25 +3557,17 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
             const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
             originalPreset = presetResult?.pipe
 
-            log('Switching connection profile/preset for rewrite', { 
+            log('Switching connection profile for rewrite', { 
                 target: realName,
-                isProfile,
-                isPreset,
                 previousProfile: originalProfile, 
                 previousPreset: originalPreset 
             })
 
-            if (isProfile) {
-                await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
-            } else if (isPreset) {
-                await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
-            } else {
-                await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
-            }
+            await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
             
             await sleep(100)
         } catch (error) {
-            console.warn('[Image-Generation-Autopilot] Failed to switch profile/preset:', error)
+            console.warn('[Image-Generation-Autopilot] Failed to switch profile:', error)
         }
     }
 
