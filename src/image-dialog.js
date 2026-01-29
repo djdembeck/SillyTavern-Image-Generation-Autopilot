@@ -206,6 +206,8 @@ export class ImageSelectionDialog {
 
         const lightbox = `
             <div id="image-selection-lightbox" class="image-selection-lightbox hidden">
+                <div id="lightbox-prev" class="lightbox-nav-btn prev fa-solid fa-chevron-left"></div>
+                <div id="lightbox-next" class="lightbox-nav-btn next fa-solid fa-chevron-right"></div>
                 <div class="lightbox-content">
                     <img id="lightbox-img" src="" alt="Enlarged view" />
                     <div id="lightbox-select" class="lightbox-select-btn fa-solid fa-circle-check"></div>
@@ -289,6 +291,12 @@ export class ImageSelectionDialog {
                 this.domElements.lightboxSelect =
                     container.querySelector('#lightbox-select') ||
                     document.querySelector('#lightbox-select');
+                this.domElements.lightboxPrev =
+                    container.querySelector('#lightbox-prev') ||
+                    document.querySelector('#lightbox-prev');
+                this.domElements.lightboxNext =
+                    container.querySelector('#lightbox-next') ||
+                    document.querySelector('#lightbox-next');
                 this.domElements.manualClose =
                     container.querySelector('#manual-close-dialog') ||
                     document.querySelector('#manual-close-dialog');
@@ -422,6 +430,16 @@ export class ImageSelectionDialog {
                     this._updateLightboxSelectState(index);
                     return;
                 }
+                if (e.target.id === 'lightbox-prev') {
+                    e.stopPropagation();
+                    this._navigateLightbox(-1);
+                    return;
+                }
+                if (e.target.id === 'lightbox-next') {
+                    e.stopPropagation();
+                    this._navigateLightbox(1);
+                    return;
+                }
                 this._hideLightbox();
             });
         }
@@ -516,6 +534,19 @@ export class ImageSelectionDialog {
                 this.editedPrompt = e.target.value;
             });
         }
+
+        this._keydownHandler = (e) => {
+            if (this.domElements.lightbox && !this.domElements.lightbox.classList.contains('hidden')) {
+                if (e.key === 'ArrowLeft') {
+                    this._navigateLightbox(-1);
+                } else if (e.key === 'ArrowRight') {
+                    this._navigateLightbox(1);
+                } else if (e.key === 'Escape') {
+                    this._hideLightbox();
+                }
+            }
+        };
+        window.addEventListener('keydown', this._keydownHandler);
     }
 
     _showLightbox(index) {
@@ -535,6 +566,45 @@ export class ImageSelectionDialog {
             }
             
             this._updateLightboxSelectState(index);
+            this._updateLightboxNavState(index);
+        }
+    }
+
+    _navigateLightbox(direction) {
+        const currentIndex = parseInt(this.domElements.lightbox.dataset.index, 10);
+        if (isNaN(currentIndex)) return;
+
+        let nextIndex = currentIndex + direction;
+        
+        while (nextIndex >= 0 && nextIndex < this.slots.length) {
+            if (this.slots[nextIndex] && this.slots[nextIndex].status === 'success') {
+                this._showLightbox(nextIndex);
+                break;
+            }
+            nextIndex += direction;
+        }
+    }
+
+    _updateLightboxNavState(index) {
+        if (this.domElements.lightboxPrev && this.domElements.lightboxNext) {
+            let hasPrev = false;
+            for (let i = index - 1; i >= 0; i--) {
+                if (this.slots[i] && this.slots[i].status === 'success') {
+                    hasPrev = true;
+                    break;
+                }
+            }
+
+            let hasNext = false;
+            for (let i = index + 1; i < this.slots.length; i++) {
+                if (this.slots[i] && this.slots[i].status === 'success') {
+                    hasNext = true;
+                    break;
+                }
+            }
+
+            this.domElements.lightboxPrev.classList.toggle('disabled', !hasPrev);
+            this.domElements.lightboxNext.classList.toggle('disabled', !hasNext);
         }
     }
 
@@ -811,6 +881,7 @@ export class ImageSelectionDialog {
         if (this.popup && typeof this.popup.hide === 'function') {
             this.popup.hide();
         }
+        this._cleanup();
         this._removeManualOverlay();
     }
 
@@ -827,6 +898,7 @@ export class ImageSelectionDialog {
         if (this.popup && typeof this.popup.hide === 'function') {
             this.popup.hide();
         }
+        this._cleanup();
         this._removeManualOverlay();
     }
 
@@ -846,7 +918,15 @@ export class ImageSelectionDialog {
         }
         this.rejectPromise = null;
         this.resolvePromise = null;
+        this._cleanup();
         this._removeManualOverlay();
+    }
+    
+    _cleanup() {
+        if (this._keydownHandler) {
+            window.removeEventListener('keydown', this._keydownHandler);
+            this._keydownHandler = null;
+        }
     }
     
     _updateUIState() {
