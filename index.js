@@ -3557,10 +3557,22 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     log('callChatRewrite start', { originalPrompt, profileName, messageId })
     const ctx = getCtx()
     let originalProfile = null
+    let originalPreset = null
 
     if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
         try {
-            originalProfile = await ctx.executeSlashCommandsWithOptions('/profile')
+            const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
+            originalProfile = profileResult?.pipe
+            
+            const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
+            originalPreset = presetResult?.pipe
+
+            log('Switching connection profile for rewrite', { 
+                target: profileName, 
+                previousProfile: originalProfile, 
+                previousPreset: originalPreset 
+            })
+
             await ctx.executeSlashCommandsWithOptions(`/profile ${profileName}`)
             await sleep(100)
         } catch (error) {
@@ -3629,6 +3641,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     ]
 
     state.isRewriting = true
+    let rewritten = null
     try {
         for (const attempt of attempts) {
             try {
@@ -3636,10 +3649,11 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
                 const result = await attempt()
                 log('Rewrite attempt raw result:', result)
                 const rewrittenRaw = normalizeRewriteResponse(result)
-                const rewritten = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
-                if (rewritten) {
-                    log('Rewrite attempt success:', rewritten)
-                    return rewritten
+                const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
+                if (candidate) {
+                    log('Rewrite attempt success:', candidate)
+                    rewritten = candidate
+                    break
                 }
             } catch (error) {
                 console.warn(
@@ -3651,12 +3665,20 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     } finally {
         state.isRewriting = false
         await cleanupRewriteMessages(startLength)
+        
+        if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
+            if (originalProfile) {
+                log('Restoring connection profile', { originalProfile })
+                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+            }
+            if (originalPreset) {
+                log('Restoring completion preset', { originalPreset })
+                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+            }
+        }
     }
 
-    if (originalProfile && typeof ctx.executeSlashCommandsWithOptions === 'function') {
-        await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
-    }
-    return ''
+    return rewritten || ''
 }
 
 async function handleIncomingMessage(messageId) {
