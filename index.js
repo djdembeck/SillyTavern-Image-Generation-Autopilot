@@ -2622,54 +2622,49 @@ async function syncProfileSelectOptions(showFeedback = false) {
     const ctx = getCtx()
     let profiles = []
     
-    // @ts-ignore
-    const stProfiles = ctx.profiles || window.profiles || []
-    if (Array.isArray(stProfiles) && stProfiles.length > 0) {
-        profiles = stProfiles.map(p => typeof p === 'string' ? p : p.name).filter(Boolean)
+    try {
+        const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
+        if (result?.pipe) {
+            try {
+                const parsed = JSON.parse(result.pipe)
+                if (Array.isArray(parsed)) {
+                    profiles = parsed
+                }
+            } catch {
+                profiles = result.pipe.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+            }
+        }
+    } catch (error) {
+        console.warn('[Image-Generation-Autopilot] Failed to list profiles via slash command:', error)
     }
 
     if (profiles.length === 0) {
-        try {
-            const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
-            if (typeof result === 'string' && result.trim()) {
-                try {
-                    profiles = JSON.parse(result)
-                } catch {
-                    profiles = result.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
-                }
-            }
-        } catch (error) {
-            console.warn('[Image-Generation-Autopilot] Failed to list profiles via slash command:', error)
+        const connectionProfilesSelect = document.getElementById('connection_profiles')
+        if (connectionProfilesSelect instanceof HTMLSelectElement) {
+            profiles = Array.from(connectionProfilesSelect.options)
+                .map(o => o.textContent?.trim() || o.value)
+                .filter(p => p && p !== '<None>')
         }
     }
 
-    const presetSelect = document.getElementById('settings_preset')
-    if (presetSelect instanceof HTMLSelectElement) {
-        const presets = Array.from(presetSelect.options)
-            .map(o => o.textContent?.trim() || o.value)
-            .filter(Boolean)
-        
-        presets.forEach(p => {
-            if (!profiles.includes(p)) {
-                profiles.push(p)
-            }
-        })
-    }
+    const presetSelects = [
+        'settings_preset',
+        'settings_preset_novel',
+        'settings_preset_openai',
+        'settings_preset_textgenerationwebui'
+    ]
 
-    if (profiles.length === 0) {
-        const profileSelect = document.getElementById('profile_select')
-        if (profileSelect instanceof HTMLSelectElement) {
-            const domProfiles = Array.from(profileSelect.options)
-                .map(o => o.textContent?.trim() || o.value)
-                .filter(Boolean)
-            
-            domProfiles.forEach(p => {
-                if (!profiles.includes(p)) {
-                    profiles.push(p)
+    presetSelects.forEach(id => {
+        const select = document.getElementById(id)
+        if (select instanceof HTMLSelectElement) {
+            Array.from(select.options).forEach(o => {
+                const name = o.textContent?.trim() || o.value
+                if (name && !profiles.includes(name)) {
+                    profiles.push(name)
                 }
             })
         }
-    }
+    })
 
     const select = state.ui?.promptRewriteModelSelect
     if (!select) return
