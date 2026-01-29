@@ -3500,7 +3500,8 @@ function buildPromptRewriteSystem(injection) {
         'Your goal is to transform basic scene descriptions into highly detailed, visually descriptive prompts.',
         'Expand the input prompt with vivid sensory details, lighting, and composition elements.',
         'DO NOT just return the original prompt.',
-        'Return ONLY the detailed prompt text. No preamble, no quotes, no explanations.',
+        'Return ONLY the detailed prompt text in English.',
+        'Strictly NO preamble, NO quotes, NO explanations, and NO other languages.',
     ]
 
     if (injection?.mainPrompt?.trim()) {
@@ -3601,54 +3602,56 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
         ctxKeys: Object.keys(ctx).filter(k => k.toLowerCase().includes('gen')),
     })
 
-    const attempts = [
-        async () => {
-            if (typeof ctx.generateText === 'function') {
-                return ctx.generateText(`${systemPrompt}\n\n${userPrompt}`)
-            }
-            return null
-        },
-        async () => {
-            if (typeof ctx.generateRaw === 'function') {
-                return ctx.generateRaw([
+    const attempts = []
+    
+    if (typeof ctx.generateRaw === 'function') {
+        attempts.push({
+            name: 'generateRaw',
+            fn: async () => ctx.generateRaw([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+            ])
+        })
+    }
+    
+    if (typeof ctx.generate === 'function') {
+        attempts.push({
+            name: 'generate',
+            fn: async () => ctx.generate({
+                messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: userPrompt },
-                ])
-            }
-            return null
-        },
-        async () => {
-            if (typeof ctx.generate === 'function') {
-                return ctx.generate({
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt },
-                    ],
-                    quiet: true,
-                })
-            }
-            return null
-        },
-    ]
+                ],
+                quiet: true,
+            })
+        })
+    }
+
+    if (typeof ctx.generateText === 'function') {
+        attempts.push({
+            name: 'generateText',
+            fn: async () => ctx.generateText(`${systemPrompt}\n\n${userPrompt}`)
+        })
+    }
 
     state.isRewriting = true
     let rewritten = null
     try {
         for (const attempt of attempts) {
             try {
-                log('Rewrite attempt starting...')
-                const result = await attempt()
-                log('Rewrite attempt raw result:', result)
+                log(`Rewrite attempt starting (${attempt.name})...`)
+                const result = await attempt.fn()
+                log(`Rewrite attempt (${attempt.name}) raw result:`, result)
                 const rewrittenRaw = normalizeRewriteResponse(result)
                 const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
                 if (candidate) {
-                    log('Rewrite attempt success:', candidate)
+                    log(`Rewrite attempt (${attempt.name}) success:`, candidate)
                     rewritten = candidate
                     break
                 }
             } catch (error) {
                 console.warn(
-                    '[Image-Generation-Autopilot] Prompt rewrite attempt failed',
+                    `[Image-Generation-Autopilot] Prompt rewrite attempt (${attempt.name}) failed`,
                     error,
                 )
             }
