@@ -978,20 +978,28 @@ export class ImageSelectionDialog {
             return;
         }
 
-        const originalText = this.domElements.promptRewriteBtn.innerHTML;
+        const btn = this.domElements.promptRewriteBtn;
+        const icon = btn.querySelector('i');
+        const originalText = btn.lastChild.textContent;
+
         try {
             this.isRewriting = true;
-            this.domElements.promptRewriteBtn.disabled = true;
-            this.domElements.promptRewriteBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Rewriting...';
+            btn.disabled = true;
+            if (icon) {
+                icon.className = 'fa-solid fa-circle-notch fa-spin';
+            }
+            btn.lastChild.textContent = ' Rewriting...';
 
             const rewritten = await this.onRewrite(this.editedPrompt);
             console.log('[ImageSelectionDialog] Rewrite result received:', rewritten);
             
-            if (rewritten) {
+            if (rewritten && rewritten !== this.editedPrompt) {
                 this.editedPrompt = rewritten;
                 if (this.domElements.promptTextarea) {
                     this.domElements.promptTextarea.value = rewritten;
                 }
+            } else if (rewritten === this.editedPrompt) {
+                console.warn('[ImageSelectionDialog] Rewrite returned identical prompt');
             } else {
                 console.warn('[ImageSelectionDialog] Rewrite returned empty result');
             }
@@ -999,8 +1007,11 @@ export class ImageSelectionDialog {
             console.error('[ImageSelectionDialog] Rewrite failed:', error);
         } finally {
             this.isRewriting = false;
-            this.domElements.promptRewriteBtn.disabled = false;
-            this.domElements.promptRewriteBtn.innerHTML = originalText;
+            btn.disabled = false;
+            if (icon) {
+                icon.className = 'fa-solid fa-wand-magic-sparkles';
+            }
+            btn.lastChild.textContent = originalText;
         }
     }
 }

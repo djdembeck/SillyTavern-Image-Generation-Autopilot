@@ -3512,10 +3512,11 @@ function normalizeRewriteResponse(result) {
 
 function buildPromptRewriteSystem(injection) {
     const chunks = [
-        'You are a prompt rewriter for Stable Diffusion prompts.',
-        'Rewrite the prompt to be concise, focused, and high quality.',
-        'Preserve the subject and key details from the original prompt.',
-        'Return only the rewritten prompt with no extra text or quotes.',
+        'You are an expert Stable Diffusion prompt engineer.',
+        'Your goal is to transform basic scene descriptions into highly detailed, visually descriptive prompts.',
+        'Expand the input prompt with vivid sensory details, lighting, and composition elements.',
+        'DO NOT just return the original prompt.',
+        'Return ONLY the detailed prompt text. No preamble, no quotes, no explanations.',
     ]
 
     if (injection?.mainPrompt?.trim()) {
@@ -3550,10 +3551,10 @@ function buildPromptRewriteSystem(injection) {
 
 function buildPromptRewriteUser(originalPrompt, contextText = '') {
     if (!originalPrompt) {
-        return `Based on this scene context:\n"${contextText}"\n\nGenerate a high-quality, descriptive Stable Diffusion image prompt for this scene. Return ONLY the prompt.`
+        return `SCENE CONTEXT:\n"${contextText}"\n\nTask: Generate a brand new, highly detailed Stable Diffusion prompt based on this context.`
     }
-    const contextPart = contextText ? `Based on this scene context:\n"${contextText}"\n\n` : ''
-    return `${contextPart}Rewrite this prompt:\n${originalPrompt}`
+    const contextPart = contextText ? `SCENE CONTEXT:\n"${contextText}"\n\n` : ''
+    return `${contextPart}ORIGINAL PROMPT:\n"${originalPrompt}"\n\nTask: Rewrite and expand this prompt into a masterpiece.`
 }
 
 async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
