@@ -2620,28 +2620,30 @@ function syncModelSelectOptions(showFeedback = false) {
 
 async function syncProfileSelectOptions(showFeedback = false) {
     const ctx = getCtx()
-    let profiles = []
+    let connectionProfiles = []
+    let completionPresets = []
     
     try {
         const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
-        if (result?.pipe) {
+        const raw = result?.pipe || (typeof result === 'string' ? result : '')
+        if (raw.trim()) {
             try {
-                const parsed = JSON.parse(result.pipe)
+                const parsed = JSON.parse(raw)
                 if (Array.isArray(parsed)) {
-                    profiles = parsed
+                    connectionProfiles = parsed
                 }
             } catch {
-                profiles = result.pipe.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+                connectionProfiles = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
             }
         }
     } catch (error) {
         console.warn('[Image-Generation-Autopilot] Failed to list profiles via slash command:', error)
     }
 
-    if (profiles.length === 0) {
+    if (connectionProfiles.length === 0) {
         const connectionProfilesSelect = document.getElementById('connection_profiles')
         if (connectionProfilesSelect instanceof HTMLSelectElement) {
-            profiles = Array.from(connectionProfilesSelect.options)
+            connectionProfiles = Array.from(connectionProfilesSelect.options)
                 .map(o => o.textContent?.trim() || o.value)
                 .filter(p => p && p !== '<None>')
         }
@@ -2659,8 +2661,8 @@ async function syncProfileSelectOptions(showFeedback = false) {
         if (select instanceof HTMLSelectElement) {
             Array.from(select.options).forEach(o => {
                 const name = o.textContent?.trim() || o.value
-                if (name && !profiles.includes(name)) {
-                    profiles.push(name)
+                if (name && !completionPresets.includes(name)) {
+                    completionPresets.push(name)
                 }
             })
         }
@@ -2672,19 +2674,48 @@ async function syncProfileSelectOptions(showFeedback = false) {
     const currentValue = select.value || ''
     select.innerHTML = '<option value="">Default (Active chat model)</option>'
 
-    profiles.sort().forEach((profileName) => {
-        const option = document.createElement('option')
-        option.value = profileName
-        option.textContent = profileName
-        select.appendChild(option)
-    })
+    if (connectionProfiles.length > 0) {
+        const group = document.createElement('optgroup')
+        group.label = 'Connection Profiles'
+        connectionProfiles.sort().forEach((name) => {
+            const option = document.createElement('option')
+            option.value = 'profile:' + name
+            option.textContent = name
+            group.appendChild(option)
+        })
+        select.appendChild(group)
+    }
 
-    if (currentValue && profiles.includes(currentValue)) {
-        select.value = currentValue
+    if (completionPresets.length > 0) {
+        const group = document.createElement('optgroup')
+        group.label = 'Completion Presets'
+        completionPresets.sort().forEach((name) => {
+            const option = document.createElement('option')
+            option.value = 'preset:' + name
+            option.textContent = name
+            group.appendChild(option)
+        })
+        select.appendChild(group)
+    }
+
+    if (currentValue) {
+        const exists = Array.from(select.options).some(o => o.value === currentValue)
+        if (exists) {
+            select.value = currentValue
+        } else {
+            const baseName = currentValue.replace(/^(profile|preset):/, '')
+            const matchingOption = Array.from(select.options).find(o => o.textContent === baseName)
+            if (matchingOption) {
+                select.value = matchingOption.value
+            }
+        }
     }
 
     if (showFeedback) {
-        log('Profile/Preset list refreshed. Entries:', profiles.length)
+        log('Profile/Preset list refreshed.', { 
+            profiles: connectionProfiles.length, 
+            presets: completionPresets.length 
+        })
     }
 }
 
@@ -3556,22 +3587,35 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
 
     if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
         try {
+            const isProfile = profileName.startsWith('profile:')
+            const isPreset = profileName.startsWith('preset:')
+            const realName = profileName.replace(/^(profile|preset):/, '')
+
             const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
             originalProfile = profileResult?.pipe
             
             const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
             originalPreset = presetResult?.pipe
 
-            log('Switching connection profile for rewrite', { 
-                target: profileName, 
+            log('Switching connection profile/preset for rewrite', { 
+                target: realName,
+                isProfile,
+                isPreset,
                 previousProfile: originalProfile, 
                 previousPreset: originalPreset 
             })
 
-            await ctx.executeSlashCommandsWithOptions(`/profile ${profileName}`)
+            if (isProfile) {
+                await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+            } else if (isPreset) {
+                await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
+            } else {
+                await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+            }
+            
             await sleep(100)
         } catch (error) {
-            console.warn('[Image-Generation-Autopilot] Failed to switch profile:', error)
+            console.warn('[Image-Generation-Autopilot] Failed to switch profile/preset:', error)
         }
     }
 
