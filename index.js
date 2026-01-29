@@ -3334,10 +3334,12 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
         modelOptions,
         onRewrite: async (prompt) => {
+            log('Dialog requested rewrite', { prompt, sourceMessageId })
             return await callChatRewrite(
                 prompt,
                 settings.autoGeneration.promptInjection,
                 settings.autoGeneration.promptRewrite.modelId,
+                sourceMessageId,
             )
         },
     })
@@ -3555,6 +3557,7 @@ function buildPromptRewriteUser(originalPrompt, contextText = '') {
 }
 
 async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
+    log('callChatRewrite start', { originalPrompt, profileName, messageId })
     const ctx = getCtx()
     let originalProfile = null
 
@@ -3591,7 +3594,6 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
     const startLength = chat.length || 0
 
-    state.isRewriting = true
     const attempts = [
         async () => {
             if (typeof ctx.generateText === 'function') {
@@ -3622,27 +3624,29 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
         },
     ]
 
-    for (const attempt of attempts) {
-        try {
-            const result = await attempt()
-            const rewrittenRaw = normalizeRewriteResponse(result)
-            const rewritten = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
-            if (rewritten) {
-                await cleanupRewriteMessages(startLength)
-                if (originalProfile && typeof ctx.executeSlashCommandsWithOptions === 'function') {
-                    await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+    state.isRewriting = true
+    try {
+        for (const attempt of attempts) {
+            try {
+                log('Rewrite attempt starting...')
+                const result = await attempt()
+                log('Rewrite attempt raw result:', result)
+                const rewrittenRaw = normalizeRewriteResponse(result)
+                const rewritten = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
+                if (rewritten) {
+                    log('Rewrite attempt success:', rewritten)
+                    return rewritten
                 }
-                return rewritten
+            } catch (error) {
+                console.warn(
+                    '[Image-Generation-Autopilot] Prompt rewrite attempt failed',
+                    error,
+                )
             }
-        } catch (error) {
-            console.warn(
-                '[Image-Generation-Autopilot] Prompt rewrite attempt failed',
-                error,
-            )
-        } finally {
-            state.isRewriting = false
-            await cleanupRewriteMessages(startLength)
         }
+    } finally {
+        state.isRewriting = false
+        await cleanupRewriteMessages(startLength)
     }
 
     if (originalProfile && typeof ctx.executeSlashCommandsWithOptions === 'function') {

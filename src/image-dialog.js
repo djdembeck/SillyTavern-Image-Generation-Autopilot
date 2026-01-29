@@ -39,6 +39,7 @@ export class ImageSelectionDialog {
         this.editedPrompt = null;
         this.currentCount = 0;
         this.onRewrite = dependencies.onRewrite || null;
+        this.isRewriting = false;
     }
 
     show(prompts, options = {}) {
@@ -964,7 +965,18 @@ export class ImageSelectionDialog {
     }
 
     async _handlePromptRewrite() {
-        if (!this.onRewrite || this.isRewriting) return;
+        console.log('[ImageSelectionDialog] Rewrite button clicked', { 
+            hasOnRewrite: !!this.onRewrite, 
+            isRewriting: this.isRewriting,
+            prompt: this.editedPrompt 
+        });
+        
+        if (!this.onRewrite || this.isRewriting) {
+            console.warn('[ImageSelectionDialog] Rewrite aborted', { 
+                reason: !this.onRewrite ? 'No onRewrite callback' : 'Already rewriting' 
+            });
+            return;
+        }
 
         const originalText = this.domElements.promptRewriteBtn.innerHTML;
         try {
@@ -973,11 +985,15 @@ export class ImageSelectionDialog {
             this.domElements.promptRewriteBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Rewriting...';
 
             const rewritten = await this.onRewrite(this.editedPrompt);
+            console.log('[ImageSelectionDialog] Rewrite result received:', rewritten);
+            
             if (rewritten) {
                 this.editedPrompt = rewritten;
                 if (this.domElements.promptTextarea) {
                     this.domElements.promptTextarea.value = rewritten;
                 }
+            } else {
+                console.warn('[ImageSelectionDialog] Rewrite returned empty result');
             }
         } catch (error) {
             console.error('[ImageSelectionDialog] Rewrite failed:', error);
