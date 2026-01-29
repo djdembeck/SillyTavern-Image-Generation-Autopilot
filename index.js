@@ -54,6 +54,7 @@ const state = {
     chatToken: 0,
     toastPatched: false,
     ui: null,
+    isRewriting: false,
     progress: {
         messageId: null,
         container: null,
@@ -3146,6 +3147,9 @@ function insertPromptAtDepth(chat, prompt, role, depth) {
 }
 
 async function handlePromptInjection(eventData) {
+    if (state.isRewriting) {
+        return
+    }
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     if (!autoSettings?.enabled) {
@@ -3403,34 +3407,58 @@ async function handleDialogResult(dialogResult, triggerMessage) {
             imageCount: dialogResult.selected.length,
         })
     } else {
-        const newMessageId = await createPlaceholderImageMessage('')
-        if (Number.isFinite(newMessageId)) {
-            const newMessage = context.chat?.[newMessageId]
-            if (newMessage) {
-                for (const imageUrl of dialogResult.selected) {
-                    appendGeneratedMedia(newMessage, imageUrl, '', true)
-                }
+        const chat = context.chat || []
+        let targetMessageId = null
+        let targetMessage = null
 
-                let messageElement = document.querySelector(
-                    `.mes[mesid="${newMessageId}"]`,
+        // If "new message" is selected, check if the last message is already an image message from the same character
+        if (insertType === INSERT_TYPE.NEW_MESSAGE && chat.length > 0) {
+            const lastMessageIndex = chat.length - 1
+            const lastMessage = chat[lastMessageIndex]
+            const triggerName = triggerMessage?.name
+            
+            if (
+                !lastMessage.is_user && 
+                (!triggerName || lastMessage.name === triggerName) && 
+                hasGeneratedMedia(lastMessage)
+            ) {
+                targetMessageId = lastMessageIndex
+                targetMessage = lastMessage
+                log('Attaching to existing image message instead of creating new one', { targetMessageId })
+            }
+        }
+
+        if (targetMessage === null) {
+            targetMessageId = await createPlaceholderImageMessage('')
+            if (Number.isFinite(targetMessageId)) {
+                targetMessage = chat[targetMessageId]
+            }
+        }
+
+        if (targetMessage) {
+            for (const imageUrl of dialogResult.selected) {
+                appendGeneratedMedia(targetMessage, imageUrl, '', true)
+            }
+
+            let messageElement = document.querySelector(
+                `.mes[mesid="${targetMessageId}"]`,
+            )
+            if (!messageElement) {
+                messageElement = await waitForMessageElement(
+                    targetMessageId,
+                    2000,
                 )
-                if (!messageElement) {
-                    messageElement = await waitForMessageElement(
-                        newMessageId,
-                        2000,
-                    )
-                }
+            }
 
-                if (
-                    messageElement &&
-                    typeof window.appendMediaToMessage === 'function'
-                ) {
-                    sanitizeMessageMediaState(newMessage)
-                    window.appendMediaToMessage(newMessage, messageElement)
-                } else if (typeof window.updateMessageBlock === 'function') {
-                    sanitizeMessageMediaState(newMessage)
-                    window.updateMessageBlock(newMessageId, newMessage)
-                }
+            if (
+                messageElement &&
+                typeof window.appendMediaToMessage === 'function'
+            ) {
+                sanitizeMessageMediaState(targetMessage)
+                window.appendMediaToMessage(targetMessage, messageElement)
+            } else if (typeof window.updateMessageBlock === 'function') {
+                sanitizeMessageMediaState(targetMessage)
+                window.updateMessageBlock(targetMessageId, targetMessage)
             }
         }
 
@@ -3519,11 +3547,14 @@ function buildPromptRewriteSystem(injection) {
 }
 
 function buildPromptRewriteUser(originalPrompt, contextText = '') {
+    if (!originalPrompt) {
+        return `Based on this scene context:\n"${contextText}"\n\nGenerate a high-quality, descriptive Stable Diffusion image prompt for this scene. Return ONLY the prompt.`
+    }
     const contextPart = contextText ? `Based on this scene context:\n"${contextText}"\n\n` : ''
     return `${contextPart}Rewrite this prompt:\n${originalPrompt}`
 }
 
-async function callChatRewrite(originalPrompt, injection, profileName = '') {
+async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
     const ctx = getCtx()
     let originalProfile = null
 
@@ -3542,10 +3573,17 @@ async function callChatRewrite(originalPrompt, injection, profileName = '') {
     const settings = getSettings()
     const regex = parseRegexFromString(settings.autoGeneration.promptInjection.regex)
 
-    for (let i = chat.length - 1; i >= 0; i--) {
+    const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
+    for (let i = searchStart; i >= 0; i--) {
         if (!chat[i].is_user && chat[i].mes) {
-            contextText = chat[i].mes.replace(regex, '').trim()
-            if (contextText) break
+            const cleanMes = chat[i].mes.replace(regex, '').trim()
+            if (cleanMes) {
+                // If the message is exactly the same as the prompt, we don't need context
+                if (cleanMes.toLowerCase() !== originalPrompt.toLowerCase()) {
+                    contextText = cleanMes
+                }
+                break
+            }
         }
     }
 
@@ -3553,6 +3591,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '') {
     const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
     const startLength = chat.length || 0
 
+    state.isRewriting = true
     const attempts = [
         async () => {
             if (typeof ctx.generateText === 'function') {
@@ -3586,7 +3625,8 @@ async function callChatRewrite(originalPrompt, injection, profileName = '') {
     for (const attempt of attempts) {
         try {
             const result = await attempt()
-            const rewritten = normalizeRewriteResponse(result)
+            const rewrittenRaw = normalizeRewriteResponse(result)
+            const rewritten = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
             if (rewritten) {
                 await cleanupRewriteMessages(startLength)
                 if (originalProfile && typeof ctx.executeSlashCommandsWithOptions === 'function') {
@@ -3600,6 +3640,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '') {
                 error,
             )
         } finally {
+            state.isRewriting = false
             await cleanupRewriteMessages(startLength)
         }
     }
@@ -3668,6 +3709,7 @@ async function handleIncomingMessage(messageId) {
                 prompt,
                 autoSettings.promptInjection,
                 autoSettings.promptRewrite.modelId,
+                resolvedId,
             )
             if (rewritten) {
                 log('Prompt rewritten successfully', { rewritten })
@@ -4263,6 +4305,16 @@ async function queueAutoFill(messageId, button) {
     }
 
     if (!prompts.length) {
+        if (autoSettings.promptRewrite.enabled) {
+            log('Generating new prompt from context')
+            const generated = await callChatRewrite('', autoSettings.promptInjection, autoSettings.promptRewrite.modelId, messageId)
+            if (generated) {
+                prompts = [generated]
+            }
+        }
+    }
+
+    if (!prompts.length) {
         console.warn(
             '[Image-Generation-Autopilot] No prompts found in message for auto-fill',
         )
@@ -4307,7 +4359,7 @@ async function handleMessageRendered(messageId, origin) {
     const hasPicTags =
         regex && getPicPromptMatches(message?.mes, regex).length > 0
 
-    ensureReswipeButton(messageId, hasMedia || hasPicTags)
+    ensureReswipeButton(messageId, settings.enabled && (hasPicTags || !hasMedia))
     ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
 
     if (!shouldAutoFill(message)) {
@@ -4376,7 +4428,7 @@ function injectReswipeButtonTemplate() {
         const button = document.createElement('div')
         button.className =
             'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-        button.title = 'run image auto-swipe'
+        button.title = 'Generate more images for this message'
         button.setAttribute('tabindex', '0')
         button.style.display = 'none'
         target.prepend(button)
@@ -4386,7 +4438,7 @@ function injectReswipeButtonTemplate() {
         const button = document.createElement('div')
         button.className =
             'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
-        button.title = 'rewrite <pic> prompts and regenerate images'
+        button.title = 'Rewrite prompt and regenerate images'
         button.setAttribute('tabindex', '0')
         button.style.display = 'none'
         target.prepend(button)
@@ -4475,7 +4527,7 @@ function ensureReswipeButton(messageId, shouldShow = true) {
     const button = document.createElement('div')
     button.className =
         'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-    button.title = 'run image auto-swipe'
+    button.title = 'Generate more images for this message'
     button.setAttribute('tabindex', '0')
     bar.prepend(button)
 }
@@ -4504,7 +4556,7 @@ function ensureRewriteButton(messageId, shouldShow = true) {
     const button = document.createElement('div')
     button.className =
         'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
-    button.title = 'rewrite <pic> prompts and regenerate images'
+    button.title = 'Rewrite prompt and regenerate images'
     button.setAttribute('tabindex', '0')
     bar.prepend(button)
 }
@@ -4537,7 +4589,8 @@ function refreshReswipeButtons() {
             const hasPicTags =
                 regex && getPicPromptMatches(message?.mes, regex).length > 0
 
-            const shouldShow = settings.enabled && (hasMedia || hasPicTags)
+            // Show if it has tags OR if it has no images at all
+            const shouldShow = settings.enabled && (hasPicTags || !hasMedia)
             ensureReswipeButton(messageId, shouldShow)
 
             const shouldShowRewrite = shouldShowPromptRewriteButton(message)
