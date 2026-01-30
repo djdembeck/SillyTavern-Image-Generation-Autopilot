@@ -1,0 +1,9 @@
+{
+  "name": "sillytavern-image-generation-autopilot",
+  "version": "2.0.0",
+  "description": "Bun test infrastructure for SillyTavern-Image-Generation-Autopilot",
+  "scripts": {
+    "test": "bun test"
+  },
+  "type": "module"
+}
