@@ -1148,6 +1148,33 @@ function getSdModelOptions() {
         .filter((option) => option.value)
 }
 
+const FILLER_PATTERNS = [
+    /^(?:here(?:'s| is| are)?|sure[,!]?|of course[,!]?|certainly[,!]?|absolutely[,!]?)\s*[:!]?\s*/i,
+    /^(?:i(?:'ve| have)?|let me)\s+(?:created?|generated?|crafted|written?|prepared?|expanded?|rewritten?|transformed?)\s*[:.]?\s*/i,
+    /^(?:the|your|an?)\s+(?:enhanced|expanded|detailed|rewritten|improved|transformed)\s+prompt\s*(?:is|:)?\s*/i,
+    /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?))\s*[:.]?\s*/i,
+    /^(?:prompt|output|result|here you go)\s*[:]\s*/i,
+    /^["'"`]+\s*/,
+    /\s*["'"`]+$/,
+]
+
+function stripConversationalFiller(text) {
+    let result = text.trim()
+    let changed = true
+    while (changed) {
+        changed = false
+        for (const pattern of FILLER_PATTERNS) {
+            const stripped = result.replace(pattern, '')
+            if (stripped !== result) {
+                result = stripped.trim()
+                changed = true
+                break
+            }
+        }
+    }
+    return result
+}
+
 function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
     if (typeof rewrittenText !== 'string' || !rewrittenText.trim()) {
         return null
@@ -1155,26 +1182,32 @@ function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
 
     let cleaned = rewrittenText.trim()
 
+    const sdPromptMatch = cleaned.match(/<sd_prompt>([\s\S]*?)<\/sd_prompt>/i)
+    if (sdPromptMatch?.[1]?.trim()) {
+        return stripConversationalFiller(sdPromptMatch[1].trim())
+    }
+
     cleaned = cleaned.replace(/^['"`]+|['"`]+$/g, '').trim()
 
     if (regex) {
         const matches = getPicPromptMatches(cleaned, regex)
         if (matches.length && typeof matches[0]?.[1] === 'string') {
-            return matches[0][1].trim()
+            return stripConversationalFiller(matches[0][1].trim())
         }
     }
 
     const promptAttr = cleaned.match(/prompt\s*=\s*"([^"]+)"/i)
     if (promptAttr?.[1]) {
-        return promptAttr[1].trim()
+        return stripConversationalFiller(promptAttr[1].trim())
     }
 
     cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '')
     cleaned = cleaned.replace(/<[^>]+>/g, '')
     cleaned = cleaned.trim()
+    cleaned = stripConversationalFiller(cleaned)
 
     const firstLine = cleaned.split(/\r?\n/).find((line) => line.trim())
-    return firstLine?.trim() || cleaned || fallback
+    return firstLine?.trim() || cleaned || originalPrompt
 }
 
 async function cleanupRewriteMessages(startLength) {
@@ -3497,15 +3530,25 @@ function normalizeRewriteResponse(result) {
 function buildPromptRewriteSystem(injection) {
     const chunks = [
         'You are an expert Stable Diffusion prompt engineer.',
-        'Your goal is to transform basic scene descriptions into highly detailed, visually descriptive prompts.',
-        'Expand the input prompt with vivid sensory details, lighting, and composition elements.',
-        'DO NOT just return the original prompt.',
-        'Return ONLY the detailed prompt text in English.',
-        'Strictly NO preamble, NO quotes, NO explanations, and NO other languages.',
+        'Transform basic descriptions into detailed, visually descriptive prompts.',
+        '',
+        'RULES:',
+        '- Output ONLY the prompt wrapped in <sd_prompt>...</sd_prompt> tags',
+        '- NO preamble, NO explanations, NO quotes, NO markdown',
+        '- English only',
+        '- Expand with lighting, composition, camera angle, atmosphere, textures',
+        '',
+        'EXAMPLES:',
+        '',
+        'Input: a woman in a forest',
+        'Output: <sd_prompt>young woman standing in an enchanted forest, dappled sunlight filtering through ancient oak canopy, volumetric fog, detailed face, flowing auburn hair, emerald green dress, moss-covered trees, fireflies, photorealistic, 8k, cinematic lighting, shallow depth of field</sd_prompt>',
+        '',
+        'Input: cyberpunk city',
+        'Output: <sd_prompt>sprawling cyberpunk metropolis at night, neon holographic advertisements, rain-slicked streets reflecting pink and blue lights, flying vehicles, towering megastructures, dense urban atmosphere, blade runner aesthetic, hyperdetailed, octane render</sd_prompt>',
     ]
 
     if (injection?.mainPrompt?.trim()) {
-        chunks.push(`Global guidance: ${injection.mainPrompt.trim()}`)
+        chunks.push(`\nGlobal guidance: ${injection.mainPrompt.trim()}`)
     }
 
     if (injection?.instructionsPositive?.trim()) {
@@ -3536,10 +3579,10 @@ function buildPromptRewriteSystem(injection) {
 
 function buildPromptRewriteUser(originalPrompt, contextText = '') {
     if (!originalPrompt) {
-        return `SCENE CONTEXT:\n"${contextText}"\n\nTask: Generate a brand new, highly detailed Stable Diffusion prompt based on this context.`
+        return `SCENE CONTEXT:\n"${contextText}"\n\nTask: Generate a brand new, highly detailed Stable Diffusion prompt based on this context. Wrap it in <sd_prompt> tags.`
     }
     const contextPart = contextText ? `SCENE CONTEXT:\n"${contextText}"\n\n` : ''
-    return `${contextPart}ORIGINAL PROMPT:\n"${originalPrompt}"\n\nTask: Rewrite and expand this prompt into a masterpiece.`
+    return `${contextPart}ORIGINAL PROMPT:\n"${originalPrompt}"\n\nTask: Rewrite and expand this prompt into a masterpiece. Wrap it in <sd_prompt> tags.`
 }
 
 async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
