@@ -146,6 +146,9 @@ export class ImageSelectionDialog {
                     <button class="image-selection-btn regenerate" id="btn-img-regenerate" title="Discard current results and generate again">
                         <i class="fa-solid fa-rotate"></i> Regenerate All
                     </button>
+                    <button class="image-selection-btn regenerate hidden" id="btn-img-regenerate-selected" title="Regenerate only the selected images">
+                        <i class="fa-solid fa-rotate-right"></i> Regenerate Selected
+                    </button>
                     <button class="image-selection-btn hidden" id="btn-img-retry" title="Retry only failed generations">
                         <i class="fa-solid fa-arrows-rotate"></i> Retry Failed
                     </button>
@@ -256,6 +259,9 @@ export class ImageSelectionDialog {
                 this.domElements.regenerate =
                     container.querySelector('#btn-img-regenerate') ||
                     document.querySelector('#btn-img-regenerate');
+                this.domElements.regenerateSelected =
+                    container.querySelector('#btn-img-regenerate-selected') ||
+                    document.querySelector('#btn-img-regenerate-selected');
                 this.domElements.retryFailed =
                     container.querySelector('#btn-img-retry') ||
                     document.querySelector('#btn-img-retry');
@@ -484,6 +490,12 @@ export class ImageSelectionDialog {
         if (this.domElements.regenerate) {
             this.domElements.regenerate.addEventListener('click', () =>
                 this._handleRegenerateAll(),
+            );
+        }
+
+        if (this.domElements.regenerateSelected) {
+            this.domElements.regenerateSelected.addEventListener('click', () =>
+                this._handleRegenerateSelected(),
             );
         }
 
@@ -824,6 +836,45 @@ export class ImageSelectionDialog {
         this._startGeneration(this.prompts, this.generatorOptions);
     }
 
+    _handleRegenerateSelected() {
+        if (this.isGenerating) {
+            this.generator.abort();
+        }
+
+        const selectedIndices = Array.from(this.selectedIndices);
+        if (selectedIndices.length === 0) return;
+
+        selectedIndices.forEach((index) => {
+            this.selectedIndices.delete(index);
+        });
+
+        const regeneratePrompts = selectedIndices.map((index) => ({
+            prompt: this.editedPrompt,
+            index: index,
+        }));
+
+        selectedIndices.forEach((index) => {
+            this.slots[index] = { status: 'pending' };
+            const slotEl = this.domElements.grid.querySelector(
+                `.image-slot[data-index="${index}"]`,
+            );
+            if (slotEl) {
+                slotEl.className = 'image-slot pending';
+                slotEl.innerHTML = `
+                    <div class="image-slot-status">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <span>Regenerating...</span>
+                    </div>
+                    <div class="image-slot-overlay"></div>
+                    <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
+                `;
+            }
+        });
+
+        this._updateUIState();
+        this._startGeneration(regeneratePrompts, this.generatorOptions);
+    }
+
     _handleRetryFailed() {
         if (this.isGenerating) {
             this.generator.abort();
@@ -960,6 +1011,13 @@ export class ImageSelectionDialog {
             this.domElements.retryFailed.classList.toggle(
                 'hidden',
                 !hasErrors || this.isGenerating,
+            );
+        }
+
+        if (this.domElements.regenerateSelected) {
+            this.domElements.regenerateSelected.classList.toggle(
+                'hidden',
+                selectedCount === 0 || this.isGenerating,
             );
         }
     }
