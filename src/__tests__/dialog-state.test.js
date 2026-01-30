@@ -35,12 +35,24 @@ global.document = {
     body: createMockElement('body'),
 };
 
+const windowListeners = {};
 global.window = {
     Popup: class MockPopup {
         constructor(opts) {
             this.opts = opts;
             this.show = mock();
         }
+    },
+    addEventListener: mock((event, handler) => {
+        windowListeners[event] = handler;
+    }),
+    removeEventListener: mock((event, handler) => {
+        if (windowListeners[event] === handler) {
+            delete windowListeners[event];
+        }
+    }),
+    _triggerWindowEvent: (event, data) => {
+        if (windowListeners[event]) windowListeners[event](data);
     }
 };
 
