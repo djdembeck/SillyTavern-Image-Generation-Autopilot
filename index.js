@@ -2771,13 +2771,7 @@ function shouldShowPromptRewriteButton(message) {
         return false
     }
 
-    const text = message?.mes || ''
-    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
-    const hasPicPrompts =
-        !!regex && !!text ? getPicPromptMatches(text, regex).length > 0 : false
-    const hasImages = hasGeneratedMedia(message)
-
-    return hasPicPrompts || hasImages
+    return hasGeneratedMedia(message)
 }
 
 function syncUiFromSettings() {
@@ -3838,24 +3832,62 @@ async function handleManualPromptRewrite(messageId) {
         return
     }
 
-    const token = state.chatToken
-
     if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
         log('Rewrite ignored (insert mode disabled)')
         return
     }
 
     const context = getCtx()
-    let chat = context.chat || []
+    const chat = context.chat || []
     let resolvedId = typeof messageId === 'number' ? messageId : chat.length - 1
-    const message = chat?.[resolvedId]
-    if (!message || message.is_user || !message.mes) {
+    let message = chat?.[resolvedId]
+
+    if (!message || message.is_user) {
         log('Rewrite ignored (invalid message)', { resolvedId })
+        return
+    }
+
+    const regex = parseRegexFromString(autoSettings.promptInjection?.regex)
+    const hasPrompts = (msg) =>
+        msg?.mes && getPicPromptMatches(msg.mes, regex).length > 0
+
+    // If this message doesn't have prompts but has images, it might be a separate image message (New message mode).
+    // Try to find the source message with prompts (usually the one before).
+    if (!hasPrompts(message) && hasGeneratedMedia(message) && resolvedId > 0) {
+        const prevId = resolvedId - 1
+        const prevMsg = chat[prevId]
+        if (prevMsg && !prevMsg.is_user && hasPrompts(prevMsg)) {
+            log('Targeting previous message for prompts', { prevId })
+            resolvedId = prevId
+            message = prevMsg
+        }
+    }
+
+    if (!hasPrompts(message)) {
+        log('Rewrite ignored (no prompts found)', {
+            resolvedId,
+        })
         return
     }
 
     const lastImageMessageId = findLastGeneratedImageMessageId()
     if (Number.isFinite(lastImageMessageId)) {
+        // In Inline mode, we clear media instead of deleting the text message.
+        if (
+            lastImageMessageId === resolvedId &&
+            autoSettings.insertType === INSERT_TYPE.INLINE
+        ) {
+            log('Clearing media from inline message instead of deleting', {
+                resolvedId,
+            })
+            if (message.extra) {
+                message.extra.media = []
+                message.extra.media_index = 0
+            }
+            await handleIncomingMessage(resolvedId)
+            return
+        }
+
         log('Deleting last generated image message', { lastImageMessageId })
         const deleted = await deleteMessageById(lastImageMessageId)
         log('Delete result', { lastImageMessageId, deleted })
