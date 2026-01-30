@@ -1150,10 +1150,10 @@ function getSdModelOptions() {
 
 const FILLER_PATTERNS = [
     /^(?:here(?:'s| is| are)?|sure[,!]?|of course[,!]?|certainly[,!]?|absolutely[,!]?)\s*[:!]?\s*/i,
-    /^(?:i(?:'ve| have)?|let me)\s+(?:created?|generated?|crafted|written?|prepared?|expanded?|rewritten?|transformed?)\s*[:.]?\s*/i,
+    /^(?:i(?:'ve| have)?|let me)\s+(?:created?|generated?|crafted|written?|prepared?|expanded?|rewritten?|transformed?)\s*(?:the\s+)?(?:prompt|image|description)\s*[:.]?\s*/i,
     /^(?:the|your|an?)\s+(?:enhanced|expanded|detailed|rewritten|improved|transformed)\s+prompt\s*(?:is|:)?\s*/i,
-    /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?))\s*[:.]?\s*/i,
-    /^(?:prompt|output|result|here you go)\s*[:]\s*/i,
+    /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?|variations?))\s*(?:for\s+[^:]+)?[:.]?\s*/i,
+    /^(?:prompt|output|result|here you go|expanded prompt)\s*[:]\s*/i,
     /^["'"`]+\s*/,
     /\s*["'"`]+$/,
 ]
@@ -3579,10 +3579,10 @@ function buildPromptRewriteSystem(injection) {
 
 function buildPromptRewriteUser(originalPrompt, contextText = '') {
     if (!originalPrompt) {
-        return `SCENE CONTEXT:\n"${contextText}"\n\nTask: Generate a brand new, highly detailed Stable Diffusion prompt based on this context. Wrap it in <sd_prompt> tags.`
+        return `DESCRIPTION OF THE SCENE:\n"${contextText}"\n\nTask: Generate a highly detailed Stable Diffusion prompt based ONLY on the description provided above. Wrap it in <sd_prompt> tags.`
     }
-    const contextPart = contextText ? `SCENE CONTEXT:\n"${contextText}"\n\n` : ''
-    return `${contextPart}ORIGINAL PROMPT:\n"${originalPrompt}"\n\nTask: Rewrite and expand this prompt into a masterpiece. Wrap it in <sd_prompt> tags.`
+    const contextPart = contextText ? `DESCRIPTION OF THE SCENE:\n"${contextText}"\n\n` : ''
+    return `${contextPart}EXISTING PROMPT (OPTIONAL):\n"${originalPrompt}"\n\nTask: Rewrite and expand the existing prompt into a masterpiece. Use the "DESCRIPTION OF THE SCENE" as your primary source of details and atmosphere. Return ONLY the final detailed prompt text wrapped in <sd_prompt> tags.`
 }
 
 async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
@@ -3621,28 +3621,42 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     const regex = parseRegexFromString(settings.autoGeneration.promptInjection.regex)
 
     const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
-    for (let i = searchStart; i >= 0; i--) {
-        if (!chat[i].is_user && chat[i].mes) {
-            const cleanMes = chat[i].mes.replace(regex, '').trim()
-            if (cleanMes) {
-                // If the message is exactly the same as the prompt, we don't need context
-                if (cleanMes.toLowerCase() !== originalPrompt.toLowerCase()) {
+    
+    if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
+        const cleanMes = chat[messageId].mes.replace(regex, '').trim()
+        if (cleanMes) {
+            contextText = cleanMes
+        }
+    }
+
+    if (!contextText) {
+        for (let i = searchStart - 1; i >= 0; i--) {
+            if (!chat[i].is_user && chat[i].mes) {
+                const cleanMes = chat[i].mes.replace(regex, '').trim()
+                if (cleanMes) {
                     contextText = cleanMes
+                    break
                 }
-                break
             }
         }
     }
+
+    if (!contextText && typeof messageId === 'number' && messageId > 0) {
+        const prevMsg = chat[messageId - 1]
+        if (prevMsg?.is_user && prevMsg.mes) {
+            contextText = prevMsg.mes.trim()
+        }
+    }
+
+    log('callChatRewrite context found', { contextText: contextText.substring(0, 100) + '...' })
 
     const systemPrompt = buildPromptRewriteSystem(injection)
     const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
     const startLength = chat.length || 0
 
-    log('Checking available generation methods', {
-        generateText: typeof ctx.generateText === 'function',
-        generateRaw: typeof ctx.generateRaw === 'function',
-        generate: typeof ctx.generate === 'function',
-        ctxKeys: Object.keys(ctx).filter(k => k.toLowerCase().includes('gen')),
+    log('callChatRewrite prompts', {
+        systemPrompt: systemPrompt.substring(0, 100) + '...',
+        userPrompt: userPrompt.substring(0, 200) + '...',
     })
 
     const attempts = []
@@ -4360,6 +4374,7 @@ async function queueAutoFill(messageId, button) {
     const autoSettings = settings.autoGeneration
 
     let prompts = []
+    let needsExpansion = false
 
     if (autoSettings?.promptInjection?.regex) {
         const regex = parseRegexFromString(autoSettings.promptInjection.regex)
@@ -4368,6 +4383,10 @@ async function queueAutoFill(messageId, button) {
             prompts = matches
                 .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
                 .filter((p) => p.trim())
+            
+            if (prompts.length > 0) {
+                needsExpansion = true
+            }
         }
     }
 
@@ -4377,6 +4396,7 @@ async function queueAutoFill(messageId, button) {
             const generated = await callChatRewrite('', autoSettings.promptInjection, autoSettings.promptRewrite.modelId, messageId)
             if (generated) {
                 prompts = [generated]
+                needsExpansion = false
             }
         }
     }
@@ -4390,7 +4410,20 @@ async function queueAutoFill(messageId, button) {
 
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
-    for (const prompt of prompts) {
+    for (let prompt of prompts) {
+        if (needsExpansion && autoSettings.promptRewrite.enabled) {
+            log('Rewriting prompt for auto-fill', { original: prompt })
+            const rewritten = await callChatRewrite(
+                prompt,
+                autoSettings.promptInjection,
+                autoSettings.promptRewrite.modelId,
+                messageId,
+            )
+            if (rewritten) {
+                log('Prompt rewritten successfully', { rewritten })
+                prompt = rewritten
+            }
+        }
         for (let i = 0; i < swipesPerImage; i += 1) {
             expandedPrompts.push(prompt)
         }
