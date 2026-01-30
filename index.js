@@ -4574,7 +4574,7 @@ function injectReswipeButtonTemplate() {
     if (!target.querySelector('.auto-multi-reswipe')) {
         const button = document.createElement('div')
         button.className =
-            'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
+            'mes_button auto-multi-reswipe fa-solid fa-wand-magic-sparkles interactable'
         button.title = 'Generate more images for this message'
         button.setAttribute('tabindex', '0')
         button.style.display = 'none'
@@ -4673,7 +4673,7 @@ function ensureReswipeButton(messageId, shouldShow = true) {
 
     const button = document.createElement('div')
     button.className =
-        'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
+        'mes_button auto-multi-reswipe fa-solid fa-wand-magic-sparkles interactable'
     button.title = 'Generate more images for this message'
     button.setAttribute('tabindex', '0')
     bar.prepend(button)
@@ -4785,45 +4785,50 @@ async function init() {
         syncProfileSelectOptions()
 
         const chat = document.getElementById('chat')
-        chat?.addEventListener('click', async (event) => {
-            const reswipeTarget = event.target.closest('.auto-multi-reswipe')
-            const rewriteTarget = event.target.closest('.auto-multi-rewrite')
+        chat?.addEventListener(
+            'click',
+            async (event) => {
+                const reswipeTarget = event.target.closest('.auto-multi-reswipe')
+                const rewriteTarget = event.target.closest('.auto-multi-rewrite')
 
-            if (!reswipeTarget && !rewriteTarget) {
-                return
-            }
+                if (!reswipeTarget && !rewriteTarget) {
+                    return
+                }
 
-            event.preventDefault()
-            event.stopPropagation()
+                event.preventDefault()
+                event.stopPropagation()
+                event.stopImmediatePropagation()
 
-            const target = reswipeTarget || rewriteTarget
-            const messageElement = target.closest('.mes')
-            const messageId = Number(messageElement?.getAttribute('mesid'))
-            if (!Number.isFinite(messageId)) {
-                return
-            }
+                const target = reswipeTarget || rewriteTarget
+                const messageElement = target.closest('.mes')
+                const messageId = Number(messageElement?.getAttribute('mesid'))
+                if (!Number.isFinite(messageId)) {
+                    return
+                }
 
-            const settings = getSettings()
-            if (!settings.enabled) {
-                return
-            }
+                const settings = getSettings()
+                if (!settings.enabled) {
+                    return
+                }
 
-            if (rewriteTarget) {
-                await handleManualPromptRewrite(messageId)
-                return
-            }
+                if (rewriteTarget) {
+                    await handleManualPromptRewrite(messageId)
+                    return
+                }
 
-            const paintbrush = await waitForPaintbrush(messageId)
-            if (!paintbrush) {
-                console.warn(
-                    '[Image-Generation-Autopilot] No SD control found for message',
-                    messageId,
-                )
-                return
-            }
+                const paintbrush = await waitForPaintbrush(messageId)
+                if (!paintbrush) {
+                    console.warn(
+                        '[Image-Generation-Autopilot] No SD control found for message',
+                        messageId,
+                    )
+                    return
+                }
 
-            queueAutoFill(messageId, paintbrush)
-        })
+                queueAutoFill(messageId, paintbrush)
+            },
+            true,
+        )
 
         eventSource.on(
             eventTypes.CHARACTER_MESSAGE_RENDERED,
