@@ -120,11 +120,11 @@ class ParallelGenerator {
                 (modelCycle.length > 0
                     ? modelCycle[index % modelCycle.length]
                     : undefined)
-            return {
-                index,
-                prompt,
-                modelId,
-            }
+    return {
+      index: entry.index,
+      prompt,
+      modelId,
+    }
         })
 
         const stats = { completed: 0, failed: 0 }
