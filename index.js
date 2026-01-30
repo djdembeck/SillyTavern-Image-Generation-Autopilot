@@ -1154,7 +1154,7 @@ const FILLER_PATTERNS = [
     /^(?:the|your|an?)\s+(?:enhanced|expanded|detailed|rewritten|improved|transformed)\s+prompt\s*(?:is|:)?\s*/i,
     /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?|variations?))\s*(?:for\s+[^:]+)?[:.]?\s*/i,
     /^(?:prompt|output|result|here you go|expanded prompt)\s*[:]\s*/i,
-    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题)\s*[:!。,，]?\s*/i,
+    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题|你的消息是空的|不知道你想了解什么|我会尽力帮助你|欢迎和我聊聊)\s*[:!。,，？！]?\s*/i,
     /^["'"`]+\s*/,
     /\s*["'"`]+$/,
 ]
@@ -1206,6 +1206,12 @@ function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
     cleaned = cleaned.replace(/<[^>]+>/g, '')
     cleaned = cleaned.trim()
     cleaned = stripConversationalFiller(cleaned)
+
+    const hasChinese = /[\u4e00-\u9fa5]/.test(cleaned)
+    if (hasChinese && !sdPromptMatch) {
+        log('Rejected rewrite result due to Chinese characters without tags', { cleaned })
+        return originalPrompt
+    }
 
     const firstLine = cleaned.split(/\r?\n/).find((line) => line.trim())
     return firstLine?.trim() || cleaned || originalPrompt
