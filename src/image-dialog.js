@@ -1045,8 +1045,8 @@ export class ImageSelectionDialog {
             }
             btn.lastChild.textContent = ' Rewriting...';
 
-            const rewritten = await this.onRewrite(this.editedPrompt);
-            logger.info('Rewrite result received:', rewritten);
+    const rewritten = await this.onRewrite(this.editedPrompt);
+    logger.debug('Rewrite result received:', rewritten);
             
             if (rewritten && rewritten !== this.editedPrompt) {
                 this.editedPrompt = rewritten;

@@ -4462,8 +4462,8 @@ function observeForMessageTemplate(timeoutMs = 30000) {
                 ]
                 for (const sel of candidates) {
                     const node = document.querySelector(sel)
-                    if (node) {
-                        logger.info('Message toolbar template appeared via observer', { sel })
+    if (node) {
+      logger.debug('Message toolbar template appeared via observer', { sel })
                         try {
                             injectReswipeButtonTemplate()
                         } catch (e) {
@@ -4492,8 +4492,8 @@ function observeForMessageTemplate(timeoutMs = 30000) {
                 } catch (e) {
                     /* ignore */
                 }
-                _reswipeTemplateObserver = null
-                logger.info('Message template observer timed out')
+      _reswipeTemplateObserver = null
+      logger.debug('Message template observer timed out')
             }
         }, timeoutMs)
     } catch (error) {
@@ -4620,20 +4620,20 @@ async function init() {
 
         ensureSettings()
         const settings = getSettings()
-        logger.info('init settings', {
-            enabled: settings.enabled,
-            autoGenEnabled: settings.autoGeneration?.enabled,
-            perCharacterEnabled: settings.perCharacter?.enabled,
-        })
+  logger.debug('init settings', {
+    enabled: settings.enabled,
+    autoGenEnabled: settings.autoGeneration?.enabled,
+    perCharacterEnabled: settings.perCharacter?.enabled,
+  })
         patchToastrForDebug()
-        await buildSettingsPanel()
-        logger.info('buildSettingsPanel done')
-        applyPerCharacterOverrides()
-        logger.info('applyPerCharacterOverrides done')
-        injectReswipeButtonTemplate()
-        logger.info('injectReswipeButtonTemplate done')
-        refreshReswipeButtons()
-        logger.info('refreshReswipeButtons done')
+  await buildSettingsPanel()
+  logger.debug('buildSettingsPanel done')
+  applyPerCharacterOverrides()
+  logger.debug('applyPerCharacterOverrides done')
+  injectReswipeButtonTemplate()
+  logger.debug('injectReswipeButtonTemplate done')
+  refreshReswipeButtons()
+  logger.debug('refreshReswipeButtons done')
         syncProfileSelectOptions()
 
         const chat = document.getElementById('chat')
