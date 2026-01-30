@@ -1154,6 +1154,7 @@ const FILLER_PATTERNS = [
     /^(?:the|your|an?)\s+(?:enhanced|expanded|detailed|rewritten|improved|transformed)\s+prompt\s*(?:is|:)?\s*/i,
     /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?|variations?))\s*(?:for\s+[^:]+)?[:.]?\s*/i,
     /^(?:prompt|output|result|here you go|expanded prompt)\s*[:]\s*/i,
+    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题)\s*[:!。,，]?\s*/i,
     /^["'"`]+\s*/,
     /\s*["'"`]+$/,
 ]
@@ -3529,22 +3530,22 @@ function normalizeRewriteResponse(result) {
 
 function buildPromptRewriteSystem(injection) {
     const chunks = [
-        'You are an expert Stable Diffusion prompt engineer.',
-        'Transform basic descriptions into detailed, visually descriptive prompts.',
+        '# STABLE DIFFUSION PROMPT GENERATOR',
+        'Your role: Expert technical prompt engineer for Stable Diffusion.',
+        'MANDATORY: ALL OUTPUT MUST BE IN ENGLISH.',
+        'MANDATORY: NO CONVERSATION. NO GREETINGS. NO PREAMBLE. NO CHINESE.',
         '',
-        'RULES:',
-        '- Output ONLY the prompt wrapped in <sd_prompt>...</sd_prompt> tags',
-        '- NO preamble, NO explanations, NO quotes, NO markdown',
-        '- English only',
-        '- Expand with lighting, composition, camera angle, atmosphere, textures',
+        '## OUTPUT FORMAT',
+        'Wrap the technical prompt in tags: <sd_prompt>technical_prompt_here</sd_prompt>',
         '',
-        'EXAMPLES:',
+        '## QUALITY RULES',
+        '- Focus on lighting, textures, camera angle, and artistic style.',
+        '- Use comma-separated descriptive phrases.',
+        '- Expand the input context into a vivid cinematic scene description.',
         '',
-        'Input: a woman in a forest',
-        'Output: <sd_prompt>young woman standing in an enchanted forest, dappled sunlight filtering through ancient oak canopy, volumetric fog, detailed face, flowing auburn hair, emerald green dress, moss-covered trees, fireflies, photorealistic, 8k, cinematic lighting, shallow depth of field</sd_prompt>',
-        '',
-        'Input: cyberpunk city',
-        'Output: <sd_prompt>sprawling cyberpunk metropolis at night, neon holographic advertisements, rain-slicked streets reflecting pink and blue lights, flying vehicles, towering megastructures, dense urban atmosphere, blade runner aesthetic, hyperdetailed, octane render</sd_prompt>',
+        '## EXAMPLES',
+        'Input Description: "A red car in the rain"',
+        'Output: <sd_prompt>sleek red sports car parked on a rainy city street at night, puddles reflecting neon lights, cinematic lighting, hyper-realistic, 8k, detailed water drops on polished metal</sd_prompt>',
     ]
 
     if (injection?.mainPrompt?.trim()) {
@@ -3578,11 +3579,10 @@ function buildPromptRewriteSystem(injection) {
 }
 
 function buildPromptRewriteUser(originalPrompt, contextText = '') {
-    if (!originalPrompt) {
-        return `DESCRIPTION OF THE SCENE:\n"${contextText}"\n\nTask: Generate a highly detailed Stable Diffusion prompt based ONLY on the description provided above. Wrap it in <sd_prompt> tags.`
-    }
-    const contextPart = contextText ? `DESCRIPTION OF THE SCENE:\n"${contextText}"\n\n` : ''
-    return `${contextPart}EXISTING PROMPT (OPTIONAL):\n"${originalPrompt}"\n\nTask: Rewrite and expand the existing prompt into a masterpiece. Use the "DESCRIPTION OF THE SCENE" as your primary source of details and atmosphere. Return ONLY the final detailed prompt text wrapped in <sd_prompt> tags.`
+    const contextPart = contextText ? `STORY CONTEXT:\n${contextText}\n\n` : ''
+    const promptPart = originalPrompt ? `EXISTING PROMPT:\n${originalPrompt}\n\n` : ''
+    
+    return `${contextPart}${promptPart}INSTRUCTION: Generate an expanded technical Stable Diffusion prompt based on the story context above. Wrap the result in <sd_prompt>...</sd_prompt> tags. Output ONLY English.`
 }
 
 async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
@@ -3660,17 +3660,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     })
 
     const attempts = []
-    
-    if (typeof ctx.generateRaw === 'function') {
-        attempts.push({
-            name: 'generateRaw',
-            fn: async () => ctx.generateRaw([
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-            ])
-        })
-    }
-    
+
     if (typeof ctx.generate === 'function') {
         attempts.push({
             name: 'generate',
@@ -3681,6 +3671,13 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
                 ],
                 quiet: true,
             })
+        })
+    }
+
+    if (typeof ctx.generateRaw === 'function') {
+        attempts.push({
+            name: 'generateRaw',
+            fn: async () => ctx.generateRaw(`${systemPrompt}\n\n${userPrompt}`)
         })
     }
 
