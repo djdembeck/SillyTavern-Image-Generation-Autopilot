@@ -3670,14 +3670,20 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     if (typeof ctx.generateRaw === 'function') {
         attempts.push({
             name: 'generateRaw',
-            fn: async () => ctx.generateRaw(`${systemPrompt}\n\n${userPrompt}`)
+            fn: async () => ctx.generateRaw({
+                prompt: userPrompt,
+                systemPrompt: systemPrompt,
+            })
         })
     }
 
     if (typeof ctx.generateText === 'function') {
         attempts.push({
             name: 'generateText',
-            fn: async () => ctx.generateText(`${systemPrompt}\n\n${userPrompt}`)
+            fn: async () => ctx.generateText({
+                prompt: userPrompt,
+                systemPrompt: systemPrompt,
+            })
         })
     }
 
