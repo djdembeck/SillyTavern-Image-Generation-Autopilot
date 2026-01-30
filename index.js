@@ -3661,19 +3661,6 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
 
     const attempts = []
 
-    if (typeof ctx.generate === 'function') {
-        attempts.push({
-            name: 'generate',
-            fn: async () => ctx.generate({
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                ],
-                quiet: true,
-            })
-        })
-    }
-
     if (typeof ctx.generateRaw === 'function') {
         attempts.push({
             name: 'generateRaw',
@@ -3685,6 +3672,20 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
         attempts.push({
             name: 'generateText',
             fn: async () => ctx.generateText(`${systemPrompt}\n\n${userPrompt}`)
+        })
+    }
+
+    if (typeof ctx.generate === 'function') {
+        attempts.push({
+            name: 'generate',
+            fn: async () => ctx.generate({
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                ],
+                quiet: true,
+                stream: false,
+            })
         })
     }
 
@@ -3730,15 +3731,20 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
 }
 
 async function handleIncomingMessage(messageId) {
+    if (state.isRewriting) {
+        log('Ignoring incoming message (currently rewriting)')
+        return
+    }
+
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     if (!autoSettings?.enabled) {
         return
     }
 
-    await sleep(500)
-
     const token = state.chatToken
+    await sleep(500)
+    if (token !== state.chatToken) return
 
     if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
         return
