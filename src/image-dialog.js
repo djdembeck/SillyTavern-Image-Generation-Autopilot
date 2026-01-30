@@ -1,11 +1,23 @@
 import { ParallelGenerator } from './parallel-generator.js';
 
 const MODULE_NAME = 'ImageSelectionDialog';
+
+function isDebugMode() {
+  if (typeof window !== 'undefined' && window.extensionSettings?.autoMultiImageSwipes?.debugMode) {
+    return true;
+  }
+  return false;
+}
+
 const logger = {
-    debug: (...args) => console.debug(`[${MODULE_NAME}]`, ...args),
-    info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
-    warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
-    error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
+  debug: (...args) => {
+    if (isDebugMode()) {
+      console.debug(`[${MODULE_NAME}]`, ...args);
+    }
+  },
+  info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
+  warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
+  error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
 };
 
 export class ImageSelectionDialog {
