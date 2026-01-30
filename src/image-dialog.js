@@ -1,5 +1,13 @@
 import { ParallelGenerator } from './parallel-generator.js';
 
+const MODULE_NAME = 'ImageSelectionDialog';
+const logger = {
+    debug: (...args) => console.debug(`[${MODULE_NAME}]`, ...args),
+    info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
+    warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
+    error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
+};
+
 export class ImageSelectionDialog {
     constructor(dependenciesOrFactory) {
         let dependencies = {};
@@ -67,9 +75,7 @@ export class ImageSelectionDialog {
         this.content = this._buildHtml(count);
 
         if (!this.PopupClass && !window.Popup) {
-            console.error(
-                '[ImageSelectionDialog] Popup class is not defined! Using mock.',
-            );
+            logger.error('Popup class is not defined! Using mock.');
         }
 
         // Try to determine POPUP_TYPE.TEXT (usually 1)
@@ -87,7 +93,7 @@ export class ImageSelectionDialog {
                 null,
             );
         } catch (error) {
-            console.error('[ImageSelectionDialog] Popup creation failed:', error);
+            logger.error('Popup creation failed:', error);
             return;
         }
 
@@ -99,7 +105,7 @@ export class ImageSelectionDialog {
         try {
             this.popup.show();
         } catch (error) {
-            console.error('[ImageSelectionDialog] Popup.show failed:', error);
+            logger.error('Popup.show failed:', error);
         }
 
         this._bindEvents();
@@ -318,15 +324,11 @@ export class ImageSelectionDialog {
             if (!grid && !injectedFallback && attempts > 10) {
                 const wrapper = document.querySelector('.image-selection-popup');
                 if (wrapper) {
-                    console.warn(
-                        '[ImageSelectionDialog] Wrapper found but grid missing. Injecting content manually.',
-                    );
+                    logger.warn('Wrapper found but grid missing. Injecting content manually.');
                     wrapper.innerHTML = this.content;
                     injectedFallback = true;
                 } else if (attempts > 20) {
-                    console.warn(
-                        '[ImageSelectionDialog] No popup found. Creating manual overlay.',
-                    );
+                    logger.warn('No popup found. Creating manual overlay.');
                     const manualWrapper = document.createElement('div');
                     manualWrapper.className =
                         'image-selection-popup manual-overlay';
@@ -384,27 +386,13 @@ export class ImageSelectionDialog {
             attempts++;
         }
 
-        console.error(
-            '[ImageSelectionDialog] Failed to find DOM elements after waiting',
-        );
+        logger.error('Failed to find DOM elements after waiting');
 
         const popups = document.querySelectorAll('.popup-body, .popup-content');
-        console.log(
-            '[ImageSelectionDialog] Debug - Popups found:',
-            popups.length,
-        );
-        console.log(
-            '[ImageSelectionDialog] Debug - #image-grid found?',
-            !!document.getElementById('image-grid'),
-        );
-        console.log(
-            '[ImageSelectionDialog] Debug - .image-selection-grid found?',
-            !!document.querySelector('.image-selection-grid'),
-        );
-        console.log(
-            '[ImageSelectionDialog] Debug - .image-selection-popup found?',
-            !!document.querySelector('.image-selection-popup'),
-        );
+        logger.debug('Debug - Popups found:', popups.length);
+        logger.debug('Debug - #image-grid found?', !!document.getElementById('image-grid'));
+        logger.debug('Debug - .image-selection-grid found?', !!document.querySelector('.image-selection-grid'));
+        logger.debug('Debug - .image-selection-popup found?', !!document.querySelector('.image-selection-popup'));
     }
 
 
@@ -663,7 +651,7 @@ export class ImageSelectionDialog {
         try {
             await this.generator.run(prompts, genOptions);
         } catch (err) {
-            console.error('Generation error:', err);
+            logger.error('Generation error:', err);
         } finally {
             this.isGenerating = false;
             this._updateUIState();
@@ -702,10 +690,7 @@ export class ImageSelectionDialog {
             const isSelected = this.selectedIndices.has(index);
             slotEl.classList.toggle('selected', isSelected);
         } else if (slotData.status === 'error') {
-            console.error(
-                '[ImageSelectionDialog] Slot error:',
-                slotData.result.error,
-            );
+            logger.error('Slot error:', slotData.result.error);
             const errorMsg = slotData.result.error?.message || 'Unknown error';
             slotEl.classList.add('error');
             slotEl.innerHTML = `
@@ -1023,15 +1008,15 @@ export class ImageSelectionDialog {
     }
 
     async _handlePromptRewrite() {
-        console.log('[ImageSelectionDialog] Rewrite button clicked', { 
-            hasOnRewrite: !!this.onRewrite, 
+        logger.info('Rewrite button clicked', {
+            hasOnRewrite: !!this.onRewrite,
             isRewriting: this.isRewriting,
-            prompt: this.editedPrompt 
+            prompt: this.editedPrompt
         });
         
         if (!this.onRewrite || this.isRewriting) {
-            console.warn('[ImageSelectionDialog] Rewrite aborted', { 
-                reason: !this.onRewrite ? 'No onRewrite callback' : 'Already rewriting' 
+            logger.warn('Rewrite aborted', {
+                reason: !this.onRewrite ? 'No onRewrite callback' : 'Already rewriting'
             });
             return;
         }
@@ -1049,7 +1034,7 @@ export class ImageSelectionDialog {
             btn.lastChild.textContent = ' Rewriting...';
 
             const rewritten = await this.onRewrite(this.editedPrompt);
-            console.log('[ImageSelectionDialog] Rewrite result received:', rewritten);
+            logger.info('Rewrite result received:', rewritten);
             
             if (rewritten && rewritten !== this.editedPrompt) {
                 this.editedPrompt = rewritten;
@@ -1057,12 +1042,12 @@ export class ImageSelectionDialog {
                     this.domElements.promptTextarea.value = rewritten;
                 }
             } else if (rewritten === this.editedPrompt) {
-                console.warn('[ImageSelectionDialog] Rewrite returned identical prompt', { rewritten });
+                logger.warn('Rewrite returned identical prompt', { rewritten });
             } else {
-                console.warn('[ImageSelectionDialog] Rewrite returned empty or invalid result', { rewritten });
+                logger.warn('Rewrite returned empty or invalid result', { rewritten });
             }
         } catch (error) {
-            console.error('[ImageSelectionDialog] Rewrite failed:', error);
+            logger.error('Rewrite failed:', error);
         } finally {
             this.isRewriting = false;
             btn.disabled = false;

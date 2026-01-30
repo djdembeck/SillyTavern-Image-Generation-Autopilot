@@ -83,6 +83,17 @@ const state = {
     },
 }
 
+const logger = {
+    debug: (...args) => {
+        if (getSettings().debugMode) {
+            console.log(`[${MODULE_NAME}]`, ...args)
+        }
+    },
+    info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
+    warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
+    error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
+}
+
 function resolveTemplateRoot() {
     /** @type {HTMLScriptElement[]} */
     const candidates = []
@@ -152,26 +163,23 @@ async function initComponents() {
         state.components.ParallelGenerator = generatorModule.ParallelGenerator
         state.components.ImageSelectionDialog = dialogModule.ImageSelectionDialog
 
-        log('Components initialized:', Object.keys(state.components))
+        logger.debug('Components initialized:', Object.keys(state.components))
         return state.components
     } catch (error) {
-        console.error('[Image-Generation-Autopilot] Failed to load components', error)
+        logger.error('Failed to load components', error)
         throw error
     }
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-const log = (...args) => {
-    if (!getSettings().debugMode) return
-    console.log('[Image-Generation-Autopilot]', ...args)
-}
+const log = (...args) => logger.debug(...args)
 
 function logPerCharacter(action, payload) {
     const settings = getSettings()
     if (!settings?.debugMode && !settings?.perCharacter?.enabled) {
         return
     }
-    console.log('[Image-Generation-Autopilot][PerCharacter]', action, payload)
+    logger.debug('[PerCharacter]', action, payload)
 }
 
 function patchToastrForDebug() {
@@ -194,18 +202,15 @@ function patchToastrForDebug() {
                     message.includes('Invalid swipe ID')
                 ) {
                     console.groupCollapsed(
-                        '[Image-Generation-Autopilot] Invalid swipe ID toast',
+                        `[${MODULE_NAME}] Invalid swipe ID toast`,
                     )
-                    console.log('message:', message)
-                    console.log('title:', title)
+                    logger.debug('message:', message)
+                    logger.debug('title:', title)
                     console.trace('toast stack')
                     console.groupEnd()
                 }
             } catch (error) {
-                console.warn(
-                    '[Image-Generation-Autopilot] Toast debug failed',
-                    error,
-                )
+                logger.warn('Toast debug failed', error)
             }
 
             return fn?.call?.(window.toastr, message, title, options)
@@ -237,9 +242,7 @@ function ensureSettings() {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available, using defaults',
-            )
+            logger.warn('Extension settings not available, using defaults')
             return { ...defaultSettings }
         }
         const { extensionSettings } = ctx
@@ -263,18 +266,12 @@ function ensureSettings() {
                     // Check if this is a circular reference (the presets property contains the preset itself)
                     if (preset.settings.presets[presetId] === preset) {
                         presetsWithCircularRefs.push(presetId)
-                        console.log(
-                            '[Image-Generation-Autopilot] Found preset with circular reference:',
-                            { presetId, presetName: preset.name },
-                        )
+                        logger.debug('Found preset with circular reference:', { presetId, presetName: preset.name })
                     }
                 }
             }
             if (presetsWithCircularRefs.length > 0) {
-                console.log(
-                    '[Image-Generation-Autopilot] Clearing presets with circular references:',
-                    presetsWithCircularRefs,
-                )
+                logger.debug('Clearing presets with circular references:', presetsWithCircularRefs)
                 for (const presetId of presetsWithCircularRefs) {
                     delete settings.presets[presetId]
                 }
@@ -292,9 +289,7 @@ function ensureSettings() {
                 Object.keys(extensionSettings[PRESET_STORAGE_KEY]).length <
                 Object.keys(settings.presets).length
             ) {
-                console.log(
-                    '[Image-Generation-Autopilot] Migrating presets from old location to separate storage key',
-                )
+                logger.debug('Migrating presets from old location to separate storage key')
                 extensionSettings[PRESET_STORAGE_KEY] = JSON.parse(
                     JSON.stringify(settings.presets),
                 )
@@ -389,18 +384,13 @@ function ensureSettings() {
         const oldRegex = '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g'
         const newRegex = '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g'
         if (settings.autoGeneration?.promptInjection?.regex === oldRegex) {
-            console.log(
-                '[Image-Generation-Autopilot] Migrating regex to robust version',
-            )
+            logger.debug('Migrating regex to robust version')
             settings.autoGeneration.promptInjection.regex = newRegex
         }
 
         return settings
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to ensure settings:',
-            error,
-        )
+        logger.error('Failed to ensure settings:', error)
         return { ...defaultSettings }
     }
 }
@@ -418,10 +408,7 @@ function saveSettings() {
         syncUiFromSettings()
         syncPerCharacterStorage()
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to save settings:',
-            error,
-        )
+        logger.error('Failed to save settings:', error)
     }
 }
 
@@ -764,16 +751,11 @@ function ensurePerCharacterDefaults(settings, forceSnapshot = false) {
 }
 
 function applyPerCharacterOverrides() {
-    console.info('[Image-Generation-Autopilot][PerCharacter] apply invoked')
+    logger.debug('[PerCharacter] apply invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] apply skipped',
-            {
-                reason: 'disabled',
-            },
-        )
+        logger.debug('[PerCharacter] apply skipped', { reason: 'disabled' })
         return
     }
     const ctx = getCtx()
@@ -785,17 +767,7 @@ function applyPerCharacterOverrides() {
         if (Object.keys(defaults).length) {
             applySettingsSnapshot(settings, defaults)
         }
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] apply skipped',
-            {
-                reason: 'no-character',
-                characterId: record.characterId,
-                source: record.source,
-                name2: getCtx()?.name2,
-                groupId: getCtx()?.groupId,
-                chatCharacterId: getCtx()?.chat_metadata?.character_id,
-            },
-        )
+        logger.debug('[PerCharacter] apply skipped', { reason: 'no-character', characterId: record.characterId, source: record.source, name2: getCtx()?.name2, groupId: getCtx()?.groupId, chatCharacterId: getCtx()?.chat_metadata?.character_id })
         syncUiFromSettings()
         return
     }
@@ -847,16 +819,11 @@ function applyPerCharacterOverrides() {
 }
 
 function syncPerCharacterStorage() {
-    console.info('[Image-Generation-Autopilot][PerCharacter] save invoked')
+    logger.debug('[PerCharacter] save invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] save skipped',
-            {
-                reason: 'disabled',
-            },
-        )
+        logger.debug('[PerCharacter] save skipped', { reason: 'disabled' })
         return
     }
     const ctx = getCtx()
@@ -864,17 +831,7 @@ function syncPerCharacterStorage() {
     const character = record.character
     const canonical = resolveCharacterById(ctx, record.characterId)
     if (!character && !canonical) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] save skipped',
-            {
-                reason: 'no-character',
-                characterId: record.characterId,
-                source: record.source,
-                name2: getCtx()?.name2,
-                groupId: getCtx()?.groupId,
-                chatCharacterId: getCtx()?.chat_metadata?.character_id,
-            },
-        )
+        logger.debug('[PerCharacter] save skipped', { reason: 'no-character', characterId: record.characterId, source: record.source, name2: getCtx()?.name2, groupId: getCtx()?.groupId, chatCharacterId: getCtx()?.chat_metadata?.character_id })
         return
     }
     const store = getCharacterExtensionStore(canonical || character)
@@ -922,26 +879,15 @@ function syncPerCharacterStorage() {
                     })
                 })
                 .catch((error) => {
-                    console.warn(
-                        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField failed',
-                        error,
-                    )
+                    logger.warn('[PerCharacter] writeExtensionField failed', error)
                 })
             return
         }
 
-        console.warn(
-            '[Image-Generation-Autopilot][PerCharacter] writeExtensionField skipped (no characterId)',
-            {
-                characterId: record.characterId,
-                source: record.source,
-            },
-        )
+        logger.warn('[PerCharacter] writeExtensionField skipped (no characterId)', { characterId: record.characterId, source: record.source })
     }
 
-    console.warn(
-        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField unavailable',
-    )
+    logger.warn('[PerCharacter] writeExtensionField unavailable')
 }
 
 // ==================== PRESET CHARACTER INTEGRATION ====================
@@ -949,7 +895,7 @@ function syncPerCharacterStorage() {
 function applyPresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
-        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        logger.warn('Preset not found:', presetId)
         return false
     }
 
@@ -982,7 +928,7 @@ function applyPresetToCharacter(presetId) {
 function savePresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
-        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        logger.warn('Preset not found:', presetId)
         return false
     }
 
@@ -1020,10 +966,7 @@ function loadPresetToCharacter(presetId) {
         if (settings.perCharacter?.enabled) {
             syncPerCharacterStorage()
         }
-        console.info(
-            '[Image-Generation-Autopilot] Preset loaded to character',
-            { presetId },
-        )
+        logger.info('Preset loaded to character', { presetId })
     }
     return success
 }
@@ -1101,10 +1044,7 @@ function parseRegexFromString(raw) {
                 flags.includes('g') ? flags : `${flags}g`,
             )
         } catch (error) {
-            console.warn(
-                '[Image-Generation-Autopilot] Invalid regex string',
-                error,
-            )
+            logger.warn('Invalid regex string', error)
             return null
         }
     }
@@ -1112,7 +1052,7 @@ function parseRegexFromString(raw) {
     try {
         return new RegExp(source, 'g')
     } catch (error) {
-        console.warn('[Image-Generation-Autopilot] Invalid regex string', error)
+        logger.warn('Invalid regex string', error)
         return null
     }
 }
@@ -1535,9 +1475,7 @@ function getPresetStorage() {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available',
-            )
+            logger.warn('Extension settings not available')
             return {}
         }
         if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
@@ -1547,16 +1485,10 @@ function getPresetStorage() {
         const presets = JSON.parse(
             JSON.stringify(ctx.extensionSettings[PRESET_STORAGE_KEY]),
         )
-        console.log(
-            '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
-            presets,
-        )
+        logger.debug('Retrieved presets from extension settings:', presets)
         return presets
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to get preset storage:',
-            error,
-        )
+        logger.error('Failed to get preset storage:', error)
         return {}
     }
 }
@@ -1565,28 +1497,20 @@ function savePresetToStorage(presets) {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available',
-            )
+            logger.warn('Extension settings not available')
             return
         }
         if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
             ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
         }
-        console.log(
-            '[Image-Generation-Autopilot] Saving presets to extension settings:',
-            presets,
-        )
+        logger.debug('Saving presets to extension settings:', presets)
         // Create a deep copy to avoid reference issues
         const presetsCopy = JSON.parse(JSON.stringify(presets))
         ctx.extensionSettings[PRESET_STORAGE_KEY] = presetsCopy
         ctx.saveSettingsDebounced()
-        console.log('[Image-Generation-Autopilot] Presets saved successfully')
+        logger.info('Presets saved successfully')
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to save preset storage:',
-            error,
-        )
+        logger.error('Failed to save preset storage:', error)
     }
 }
 
@@ -1622,22 +1546,19 @@ function deletePreset(id) {
 function handleRenamePreset(id) {
     const preset = getPreset(id)
     if (!preset) {
-        console.warn(
-            '[Image-Generation-Autopilot] Preset not found for rename:',
-            id,
-        )
+        logger.warn('Preset not found for rename:', id)
         return
     }
 
     const newName = prompt('Enter new name for preset:', preset.name)
     if (!newName || newName.trim() === '') {
-        console.info('[Image-Generation-Autopilot] Rename cancelled')
+        logger.info('Rename cancelled')
         return
     }
 
     const trimmedName = newName.trim()
     if (trimmedName === preset.name) {
-        console.info('[Image-Generation-Autopilot] Name unchanged')
+        logger.info('Name unchanged')
         return
     }
 
@@ -1645,17 +1566,13 @@ function handleRenamePreset(id) {
     presets[id].name = trimmedName
     savePresetToStorage(presets)
     renderPresets()
-    console.info('[Image-Generation-Autopilot] Preset renamed:', {
-        id,
-        oldName: preset.name,
-        newName: trimmedName,
-    })
+    logger.info('Preset renamed:', { id, oldName: preset.name, newName: trimmedName })
 }
 
 function loadPreset(id) {
     const preset = getPreset(id)
     if (!preset) {
-        console.warn('[Image-Generation-Autopilot] Preset not found:', id)
+        logger.warn('Preset not found:', id)
         return false
     }
 
@@ -1696,7 +1613,7 @@ function listPresets() {
 function handleSavePreset() {
     const name = state.ui.presetNameInput?.value?.trim()
     if (!name) {
-        console.warn('[Image-Generation-Autopilot] Preset name is required')
+        logger.warn('Preset name is required')
         return
     }
 
@@ -1709,14 +1626,14 @@ function handleSavePreset() {
     state.ui.presetNameInput.value = ''
     renderPresets()
 
-    console.info('[Image-Generation-Autopilot] Preset saved', { id, name })
+    logger.info('Preset saved', { id, name })
 }
 
 function handleLoadPreset(id) {
     const success = loadPreset(id)
     if (success) {
         renderPresets()
-        console.info('[Image-Generation-Autopilot] Preset loaded', { id })
+        logger.info('Preset loaded', { id })
     }
 }
 
@@ -1727,7 +1644,7 @@ function handleDeletePreset(id) {
 
     deletePreset(id)
     renderPresets()
-    console.info('[Image-Generation-Autopilot] Preset deleted', { id })
+    logger.info('Preset deleted', { id })
 }
 
 function renderPresets() {
@@ -1831,21 +1748,13 @@ function renderPresets() {
             e.preventDefault()
             e.stopPropagation()
             const presetItem = btn.closest('.auto-multi-preset-item')
-            console.log(
-                '[Image-Generation-Autopilot] Rename button clicked, presetItem:',
-                presetItem,
-            )
+            logger.debug('Rename button clicked, presetItem:', presetItem)
             const presetId = presetItem?.dataset.presetId
-            console.log(
-                '[Image-Generation-Autopilot] Rename button clicked, presetId:',
-                presetId,
-            )
+            logger.debug('Rename button clicked, presetId:', presetId)
             if (presetId) {
                 handleRenamePreset(presetId)
             } else {
-                console.error(
-                    '[Image-Generation-Autopilot] Could not get presetId from rename button',
-                )
+                logger.error('Could not get presetId from rename button')
             }
         })
     })
@@ -1856,9 +1765,7 @@ async function buildSettingsPanel() {
         document.getElementById('extensions_settings2') ||
         document.getElementById('extensions_settings')
     if (!root) {
-        console.warn(
-            '[Image-Generation-Autopilot] Could not find extension settings container.',
-        )
+        logger.warn('Could not find extension settings container.')
         return
     }
 
@@ -1874,10 +1781,7 @@ async function buildSettingsPanel() {
             'settings',
         )
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to load settings template',
-            error,
-        )
+        logger.error('Failed to load settings template', error)
         return
     }
 
@@ -1885,7 +1789,7 @@ async function buildSettingsPanel() {
     template.innerHTML = html.trim()
     const container = template.content.firstElementChild
     if (!container) {
-        console.warn('[Image-Generation-Autopilot] Settings template empty')
+        logger.warn('Settings template empty')
         return
     }
 
@@ -2012,9 +1916,7 @@ async function buildSettingsPanel() {
             concurrencyCounter
         )
     ) {
-        console.warn(
-            '[Image-Generation-Autopilot] Settings template missing inputs',
-        )
+        logger.warn('Settings template missing inputs')
         return
     }
 
@@ -2040,9 +1942,7 @@ async function buildSettingsPanel() {
             picCountMaxInput
         )
     ) {
-        console.warn(
-            '[Image-Generation-Autopilot] Auto-generation inputs missing',
-        )
+        logger.warn('Auto-generation inputs missing')
     }
 
     // Initialize state.ui object early to avoid null reference errors
@@ -2097,7 +1997,7 @@ async function buildSettingsPanel() {
 
     concurrencyInput.addEventListener('input', () => {
         const value = concurrencyInput.value
-        console.log('[Image-Generation-Autopilot] Concurrency slider input:', value)
+        logger.debug('Concurrency slider input:', value)
         if (concurrencyCounter) {
             concurrencyCounter.textContent = String(value)
         }
@@ -2119,7 +2019,7 @@ async function buildSettingsPanel() {
         if (characterEnabledInput.checked) {
             ensurePerCharacterDefaults(current, true)
         }
-        console.info('[Image-Generation-Autopilot][PerCharacter] toggle', {
+        logger.debug('[PerCharacter] toggle', {
             enabled: characterEnabledInput.checked,
         })
         saveSettings()
@@ -2350,16 +2250,11 @@ function escapeHtml(text) {
 }
 
 function resetPerCharacterSettingsToDefaults() {
-    console.info('[Image-Generation-Autopilot][PerCharacter] reset invoked')
+    logger.debug('[PerCharacter] reset invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] reset skipped',
-            {
-                reason: 'disabled',
-            },
-        )
+        logger.debug('[PerCharacter] reset skipped', { reason: 'disabled' })
         return
     }
     const ctx = getCtx()
@@ -2367,13 +2262,7 @@ function resetPerCharacterSettingsToDefaults() {
     const character = record.character
     const canonical = resolveCharacterById(ctx, record.characterId)
     if (!character && !canonical) {
-        console.warn(
-            '[Image-Generation-Autopilot][PerCharacter] reset skipped (no character)',
-            {
-                characterId: record.characterId,
-                source: record.source,
-            },
-        )
+        logger.warn('[PerCharacter] reset skipped (no character)', { characterId: record.characterId, source: record.source })
         return
     }
 
@@ -2425,28 +2314,17 @@ function resetPerCharacterSettingsToDefaults() {
                     })
                 })
                 .catch((error) => {
-                    console.warn(
-                        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField reset failed',
-                        error,
-                    )
+                    logger.warn('[PerCharacter] writeExtensionField reset failed', error)
                 })
         } else {
-            console.warn(
-                '[Image-Generation-Autopilot][PerCharacter] writeExtensionField reset skipped (no characterId)',
-                {
-                    characterId: record.characterId,
-                    source: record.source,
-                },
-            )
+            logger.warn('[PerCharacter] writeExtensionField reset skipped (no characterId)', { characterId: record.characterId, source: record.source })
         }
     }
 
     applyPerCharacterOverrides()
 
     const characterName = getCharacterIdentity(canonical || character)
-    console.info(
-        `[Image-Generation-Autopilot][PerCharacter] Reset complete for ${characterName}`,
-    )
+    logger.debug(`[PerCharacter] Reset complete for ${characterName}`)
     if (
         typeof window.toastr === 'object' &&
         typeof window.toastr.success === 'function'
@@ -2676,7 +2554,7 @@ async function syncProfileSelectOptions(showFeedback = false) {
             }
         }
     } catch (error) {
-        console.warn('[Image-Generation-Autopilot] Failed to list profiles via slash command:', error)
+        logger.warn('Failed to list profiles via slash command:', error)
     }
 
     if (connectionProfiles.length === 0) {
@@ -2739,12 +2617,7 @@ function handleDocumentChange(event) {
             if (target.checked) {
                 ensurePerCharacterDefaults(current, true)
             }
-            console.info(
-                '[Image-Generation-Autopilot][PerCharacter] toggle (doc)',
-                {
-                    enabled: target.checked,
-                },
-            )
+            logger.debug('[PerCharacter] toggle (doc)', { enabled: target.checked })
             saveSettings()
             applyPerCharacterOverrides()
         }
@@ -3206,10 +3079,7 @@ async function resolveSlashCommandParser() {
             return module.SlashCommandParser
         }
     } catch (error) {
-        console.warn(
-            '[Image-Generation-Autopilot] Failed to import SlashCommandParser',
-            error,
-        )
+        logger.warn('Failed to import SlashCommandParser', error)
     }
 
     return null
@@ -3219,9 +3089,7 @@ async function callSdSlash(prompt, quiet) {
     const parser = await resolveSlashCommandParser()
     const command = parser?.commands?.sd
     if (!command?.callback) {
-        console.warn(
-            '[Image-Generation-Autopilot] SlashCommandParser sd not available',
-        )
+        logger.warn('SlashCommandParser sd not available')
         return null
     }
 
@@ -3231,10 +3099,7 @@ async function callSdSlash(prompt, quiet) {
             prompt,
         )
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Slash command sd failed',
-            error,
-        )
+        logger.error('Slash command sd failed', error)
         return null
     }
 }
@@ -3611,7 +3476,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
             
             await sleep(100)
         } catch (error) {
-            console.warn('[Image-Generation-Autopilot] Failed to switch profile:', error)
+            logger.warn('Failed to switch profile:', error)
         }
     }
 
@@ -3711,10 +3576,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
                     break
                 }
             } catch (error) {
-                console.warn(
-                    `[Image-Generation-Autopilot] Prompt rewrite attempt (${attempt.name}) failed`,
-                    error,
-                )
+                logger.warn(`Prompt rewrite attempt (${attempt.name}) failed`, error)
             }
         }
     } finally {
@@ -3820,7 +3682,7 @@ async function handleIncomingMessage(messageId) {
         )
         await handleDialogResult(result, message)
     } catch (error) {
-        console.warn('[Image-Generation-Autopilot] Auto-generation failed', error)
+        logger.warn('Auto-generation failed', error)
     }
 }
 async function handleManualPromptRewrite(messageId) {
@@ -4326,10 +4188,7 @@ async function deleteMessageById(messageId, options = {}) {
             }
         }
     } catch (error) {
-        console.warn(
-            '[Image-Generation-Autopilot] Failed to delete message',
-            error,
-        )
+        logger.warn('Failed to delete message', error)
     }
 
     return handled
@@ -4449,9 +4308,7 @@ async function queueAutoFill(messageId, button) {
     }
 
     if (!prompts.length) {
-        console.warn(
-            '[Image-Generation-Autopilot] No prompts found in message for auto-fill',
-        )
+        logger.warn('No prompts found in message for auto-fill')
         return
     }
 
@@ -4485,7 +4342,7 @@ async function queueAutoFill(messageId, button) {
         )
         await handleDialogResult(result, message)
     } catch (error) {
-        console.warn('[Image-Generation-Autopilot] Auto-fill failed', error)
+        logger.warn('Auto-fill failed', error)
     } finally {
         state.runningMessages.delete(messageId)
     }
@@ -4524,10 +4381,7 @@ async function handleMessageRendered(messageId, origin) {
     state.seenMessages.add(messageId)
     const button = await waitForPaintbrush(messageId)
     if (!button) {
-        console.warn(
-            '[Image-Generation-Autopilot] No SD control found for message',
-            messageId,
-        )
+        logger.warn('No SD control found for message', messageId)
         return
     }
 
@@ -4562,14 +4416,12 @@ function injectReswipeButtonTemplate() {
     }
 
     if (!target) {
-        console.warn(
-            '[Image-Generation-Autopilot] Message toolbar template not found, installing observer to wait for it',
-        )
+        logger.warn('Message toolbar template not found, installing observer to wait for it')
         observeForMessageTemplate()
         return
     }
 
-    console.log('[Image-Generation-Autopilot] injectReswipeButtonTemplate target found', { selector: target && target.tagName })
+    logger.debug('injectReswipeButtonTemplate target found', { selector: target && target.tagName })
 
     if (!target.querySelector('.auto-multi-reswipe')) {
         const button = document.createElement('div')
@@ -4611,11 +4463,11 @@ function observeForMessageTemplate(timeoutMs = 30000) {
                 for (const sel of candidates) {
                     const node = document.querySelector(sel)
                     if (node) {
-                        console.info('[Image-Generation-Autopilot] Message toolbar template appeared via observer', { sel })
+                        logger.info('Message toolbar template appeared via observer', { sel })
                         try {
                             injectReswipeButtonTemplate()
                         } catch (e) {
-                            console.warn('[Image-Generation-Autopilot] inject via observer failed', e)
+                            logger.warn('inject via observer failed', e)
                         }
                         observer.disconnect()
                         _reswipeTemplateObserver = null
@@ -4623,7 +4475,7 @@ function observeForMessageTemplate(timeoutMs = 30000) {
                     }
                 }
             } catch (error) {
-                console.warn('[Image-Generation-Autopilot] Observer callback error', error)
+                logger.warn('Observer callback error', error)
             }
         })
 
@@ -4641,11 +4493,11 @@ function observeForMessageTemplate(timeoutMs = 30000) {
                     /* ignore */
                 }
                 _reswipeTemplateObserver = null
-                console.info('[Image-Generation-Autopilot] Message template observer timed out')
+                logger.info('Message template observer timed out')
             }
         }, timeoutMs)
     } catch (error) {
-        console.warn('[Image-Generation-Autopilot] Failed to install message template observer', error)
+        logger.warn('Failed to install message template observer', error)
         _reswipeTemplateObserver = null
     }
 }
@@ -4710,7 +4562,7 @@ function ensureRewriteButton(messageId, shouldShow = true) {
 
 function refreshReswipeButtons() {
     const settings = getSettings()
-    console.log('[Image-Generation-Autopilot] refreshReswipeButtons invoked', { enabled: settings.enabled })
+    logger.debug('refreshReswipeButtons invoked', { enabled: settings.enabled })
     const chat = getCtx().chat || []
     const messageElements = document.querySelectorAll('.mes[mesid]')
 
@@ -4743,7 +4595,7 @@ function refreshReswipeButtons() {
             const shouldShowRewrite = shouldShowPromptRewriteButton(message)
             ensureRewriteButton(messageId, shouldShowRewrite)
         } catch (error) {
-            console.warn('[Image-Generation-Autopilot] Error refreshing buttons for message', element, error)
+            logger.warn('Error refreshing buttons for message', element, error)
         }
     })
 }
@@ -4768,20 +4620,20 @@ async function init() {
 
         ensureSettings()
         const settings = getSettings()
-        console.info('[Image-Generation-Autopilot] init settings', {
+        logger.info('init settings', {
             enabled: settings.enabled,
             autoGenEnabled: settings.autoGeneration?.enabled,
             perCharacterEnabled: settings.perCharacter?.enabled,
         })
         patchToastrForDebug()
         await buildSettingsPanel()
-        console.info('[Image-Generation-Autopilot] buildSettingsPanel done')
+        logger.info('buildSettingsPanel done')
         applyPerCharacterOverrides()
-        console.info('[Image-Generation-Autopilot] applyPerCharacterOverrides done')
+        logger.info('applyPerCharacterOverrides done')
         injectReswipeButtonTemplate()
-        console.info('[Image-Generation-Autopilot] injectReswipeButtonTemplate done')
+        logger.info('injectReswipeButtonTemplate done')
         refreshReswipeButtons()
-        console.info('[Image-Generation-Autopilot] refreshReswipeButtons done')
+        logger.info('refreshReswipeButtons done')
         syncProfileSelectOptions()
 
         const chat = document.getElementById('chat')
@@ -4818,10 +4670,7 @@ async function init() {
 
                 const paintbrush = await waitForPaintbrush(messageId)
                 if (!paintbrush) {
-                    console.warn(
-                        '[Image-Generation-Autopilot] No SD control found for message',
-                        messageId,
-                    )
+                    logger.warn('No SD control found for message', messageId)
                     return
                 }
 
@@ -4869,10 +4718,7 @@ async function init() {
         state.initialized = true
         log('Initialized')
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Initialization failed:',
-            error,
-        )
+        logger.error('Initialization failed:', error)
         // Reset initialization state to allow retry
         state.initialized = false
     }
@@ -4882,15 +4728,13 @@ async function init() {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.eventSource || !ctx.eventTypes) {
-            console.warn(
-                '[Image-Generation-Autopilot] Context not ready, retrying...',
-            )
+            logger.warn('Context not ready, retrying...')
             setTimeout(() => bootstrap(), 100)
             return
         }
         ctx.eventSource.on(ctx.eventTypes.APP_READY, () => void init())
     } catch (error) {
-        console.error('[Image-Generation-Autopilot] Bootstrap failed:', error)
+        logger.error('Bootstrap failed:', error)
         setTimeout(() => bootstrap(), 100)
     }
 })()
