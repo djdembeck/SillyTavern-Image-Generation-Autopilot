@@ -423,6 +423,36 @@
     transition: transform 0.2s ease-out;
 }
 
+@keyframes slide-in-right {
+    from {
+        transform: translate3d(100%, 0, 0);
+        opacity: 0;
+    }
+    to {
+        transform: translate3d(0, 0, 0);
+        opacity: 1;
+    }
+}
+
+@keyframes slide-in-left {
+    from {
+        transform: translate3d(-100%, 0, 0);
+        opacity: 0;
+    }
+    to {
+        transform: translate3d(0, 0, 0);
+        opacity: 1;
+    }
+}
+
+.lightbox-content img.slide-in-right {
+    animation: slide-in-right 0.3s ease-out forwards;
+}
+
+.lightbox-content img.slide-in-left {
+    animation: slide-in-left 0.3s ease-out forwards;
+}
+
 .manual-dialog-close {
     position: absolute;
     top: 20px;

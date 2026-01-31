@@ -501,9 +501,6 @@ export class ImageSelectionDialog {
 
                     setTimeout(() => {
                         this._navigateLightbox(navDirection);
-                        img.style.transition = '';
-                        img.style.transform = '';
-                        img.style.opacity = '';
                     }, 200);
                 } else {
                     img.classList.add('swipe-reset');
@@ -645,20 +642,13 @@ export class ImageSelectionDialog {
             delete this.domElements.lightbox.dataset.swipeFrom;
 
             this.domElements.lightbox.dataset.index = index;
+            this.domElements.lightboxImg.classList.remove('swipe-reset', 'swiping', 'slide-in-left', 'slide-in-right');
+            void this.domElements.lightboxImg.offsetWidth;
+
             this.domElements.lightboxImg.src = slot.result.result;
-            this.domElements.lightboxImg.classList.remove('swipe-reset', 'swiping');
 
             if (swipeFrom) {
-                const enterX = swipeFrom === 'right' ? window.innerWidth : -window.innerWidth;
-                this.domElements.lightboxImg.style.transition = 'none';
-                this.domElements.lightboxImg.style.transform = `translate3d(${enterX}px, 0, 0)`;
-                this.domElements.lightboxImg.style.opacity = '0';
-
-                requestAnimationFrame(() => {
-                    this.domElements.lightboxImg.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
-                    this.domElements.lightboxImg.style.transform = 'translate3d(0, 0, 0)';
-                    this.domElements.lightboxImg.style.opacity = '1';
-                });
+                this.domElements.lightboxImg.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
             } else {
                 this.domElements.lightboxImg.style.transform = '';
                 this.domElements.lightboxImg.style.opacity = '';
