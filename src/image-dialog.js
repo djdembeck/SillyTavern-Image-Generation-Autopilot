@@ -496,6 +496,8 @@ export class ImageSelectionDialog {
                     img.style.transform = `translate3d(${exitX}px, 0, 0)`;
                     img.style.opacity = '0';
 
+                    this.domElements.lightbox.dataset.slideDirection = direction === -1 ? 'right' : 'left';
+
                     setTimeout(() => {
                         this._navigateLightbox(direction);
                         img.style.transition = '';
@@ -638,12 +640,30 @@ export class ImageSelectionDialog {
         if (!slot || slot.status !== 'success') return;
 
         if (this.domElements.lightbox && this.domElements.lightboxImg) {
+            const slideDirection = this.domElements.lightbox.dataset.slideDirection;
+            delete this.domElements.lightbox.dataset.slideDirection;
+
             this.domElements.lightbox.dataset.index = index;
             this.domElements.lightboxImg.src = slot.result.result;
-            this.domElements.lightboxImg.style.transform = '';
-            this.domElements.lightboxImg.style.opacity = '';
-            this.domElements.lightboxImg.style.transition = '';
             this.domElements.lightboxImg.classList.remove('swipe-reset', 'swiping');
+
+            if (slideDirection) {
+                const enterX = slideDirection === 'left' ? window.innerWidth : -window.innerWidth;
+                this.domElements.lightboxImg.style.transition = 'none';
+                this.domElements.lightboxImg.style.transform = `translate3d(${enterX}px, 0, 0)`;
+                this.domElements.lightboxImg.style.opacity = '0';
+
+                requestAnimationFrame(() => {
+                    this.domElements.lightboxImg.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
+                    this.domElements.lightboxImg.style.transform = 'translate3d(0, 0, 0)';
+                    this.domElements.lightboxImg.style.opacity = '1';
+                });
+            } else {
+                this.domElements.lightboxImg.style.transform = '';
+                this.domElements.lightboxImg.style.opacity = '';
+                this.domElements.lightboxImg.style.transition = '';
+            }
+
             this.domElements.lightbox.classList.remove('hidden');
             
             const container = this.domElements.grid?.closest('.manual-overlay') || 
