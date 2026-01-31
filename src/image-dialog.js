@@ -552,20 +552,20 @@ export class ImageSelectionDialog {
             if (this.domElements.lightbox && !this.domElements.lightbox.classList.contains('hidden')) {
                 if (e.key === 'ArrowLeft') {
                     e.preventDefault();
-                    e.stopPropagation();
+                    e.stopImmediatePropagation();
                     this._navigateLightbox(-1);
                 } else if (e.key === 'ArrowRight') {
                     e.preventDefault();
-                    e.stopPropagation();
+                    e.stopImmediatePropagation();
                     this._navigateLightbox(1);
                 } else if (e.key === 'Escape') {
                     e.preventDefault();
-                    e.stopPropagation();
+                    e.stopImmediatePropagation();
                     this._hideLightbox();
                 }
             }
         };
-        window.addEventListener('keydown', this._keydownHandler);
+        window.addEventListener('keydown', this._keydownHandler, true);
     }
 
     _showLightbox(index) {
