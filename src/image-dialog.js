@@ -449,6 +449,31 @@ export class ImageSelectionDialog {
                 }
                 this._hideLightbox();
             });
+
+            let touchStartX = 0;
+            let touchStartY = 0;
+            const SWIPE_THRESHOLD = 50;
+
+            this.domElements.lightbox.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }, { passive: true });
+
+            this.domElements.lightbox.addEventListener('touchend', (e) => {
+                const touchEndX = e.changedTouches[0].clientX;
+                const touchEndY = e.changedTouches[0].clientY;
+                const deltaX = touchEndX - touchStartX;
+                const deltaY = touchEndY - touchStartY;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > SWIPE_THRESHOLD) {
+                    e.preventDefault();
+                    if (deltaX > 0) {
+                        this._navigateLightbox(-1);
+                    } else {
+                        this._navigateLightbox(1);
+                    }
+                }
+            }, { passive: false });
         }
 
         if (this.domElements.modelSelect) {
