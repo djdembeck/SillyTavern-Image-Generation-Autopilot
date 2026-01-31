@@ -59,16 +59,16 @@
                         <h5>Toggle the autopilot</h5>
                     </div>
                     <p class="caption">
-                        Enable swipe automation and automatic image creation.
+                        Enable image generation automation and dialog-based selection.
                     </p>
                 </header>
                 <label class="checkbox_label auto-multi-toggle" title="Toggle automatic image generation from assistant replies.">
                     <input type="checkbox" id="auto_multi_auto_gen_enabled" />
                     <span>Enable auto image generation</span>
                 </label>
-                <label class="checkbox_label auto-multi-toggle" title="Toggle automatic swipe requests for each new SD image message.">
+                <label class="checkbox_label auto-multi-toggle" title="Toggle automatic image generation for each new SD image message.">
                     <input type="checkbox" id="auto_multi_image_enabled" />
-                    <span>Enable auto-swipes</span>
+                    <span>Enable auto-generations</span>
                 </label>
             </section>
 
@@ -286,15 +286,7 @@
                         </label>
                     </div>
                 </div>
-                <div class="range-block">
-                    <div class="range-block-title">
-                        <span data-i18n="Parallel Generation Concurrency">Parallel Generation Concurrency</span>
-                        <span class="range-block-counter" id="auto_swipe_concurrency_counter">Unlimited</span>
-                    </div>
-                    <input type="range" id="auto_swipe_concurrency" name="auto_swipe_concurrency"
-                           min="0" max="8" step="1" value="0" />
-                    <small data-i18n="Number of images to generate in parallel (0 = Unlimited, 1-8)">Number of images to generate in parallel (0 = Unlimited, 1-8)</small>
-                </div>
+
             </section>
 
             <section
@@ -326,7 +318,7 @@
                     </div>
                 </header>
                 <p class="caption">
-                    Each row pins a model + swipe count. Leave the list empty to
+                    Each row pins a model + image count. Leave the list empty to
                     mirror the SD panel selection.
                 </p>
                 <label
@@ -352,15 +344,15 @@
                             <i class="fa-solid fa-wave-square"></i> Timing &
                             strategy
                         </p>
-                        <h5>Dial in swipe cadence</h5>
+                        <h5>Generation pacing</h5>
                     </div>
                     <p class="caption">
-                        Tune swipe pacing for slow or fast backends.
+                        Control concurrency and pacing for slow or fast backends.
                     </p>
                 </header>
                 <div class="auto-multi-grid">
-                    <label title="Default number of swipes per model when added to the queue.">
-                        <span>Default swipes per model</span>
+                    <label title="Default number of images per model when added to the queue.">
+                        <span>Default images per model</span>
                         <input
                             type="number"
                             min="1"
@@ -370,8 +362,8 @@
                             class="text_pole"
                         />
                     </label>
-                    <label title="Delay between swipe requests to avoid provider rate limits.">
-                        <span>Delay between swipes (ms)</span>
+                    <label title="Delay between generation requests to avoid provider rate limits.">
+                        <span>Delay between requests (ms)</span>
                         <input
                             type="number"
                             min="0"
@@ -381,7 +373,19 @@
                             class="text_pole"
                         />
                     </label>
+                    <label title="Number of images to generate in parallel (0 = Unlimited, 1-8).">
+                        <span>Concurrency</span>
+                        <input
+                            type="number"
+                            min="0"
+                            max="8"
+                            step="1"
+                            id="auto_swipe_concurrency"
+                            class="text_pole"
+                        />
+                    </label>
                 </div>
+                <small>Number of images to generate in parallel (0 = Unlimited, 1-8)</small>
             </section>
 
             <section class="auto-multi-panel auto-multi-panel--presets" id="auto_multi_presets_panel">

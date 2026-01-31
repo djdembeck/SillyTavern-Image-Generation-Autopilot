@@ -1900,10 +1900,6 @@ async function buildSettingsPanel() {
     const concurrencyInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_swipe_concurrency')
     )
-    const concurrencyCounter = /** @type {HTMLElement | null} */ (
-        container.querySelector('#auto_swipe_concurrency_counter')
-    )
-
     if (
         !(
             enabledInput &&
@@ -1912,8 +1908,7 @@ async function buildSettingsPanel() {
             delayInput &&
             summary &&
             modelRowsContainer &&
-            concurrencyInput &&
-            concurrencyCounter
+            concurrencyInput
         )
     ) {
         logger.warn('Settings template missing inputs')
@@ -1983,7 +1978,6 @@ async function buildSettingsPanel() {
         characterEnabledInput,
         characterResetButton,
         concurrencyInput,
-        concurrencyCounter,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -1995,12 +1989,9 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-    concurrencyInput.addEventListener('input', () => {
+    concurrencyInput.addEventListener('change', () => {
         const value = parseInt(concurrencyInput.value, 10)
-        logger.debug('Concurrency slider input:', value)
-        if (concurrencyCounter) {
-            concurrencyCounter.textContent = value === 0 ? 'Unlimited' : String(value)
-        }
+        logger.debug('Concurrency input changed:', value)
         const current = getSettings()
         current.concurrency = Number.isFinite(value) ? value : 0
         saveSettings()
@@ -2758,9 +2749,6 @@ function syncUiFromSettings() {
     if (state.ui.concurrencyInput) {
         state.ui.concurrencyInput.value = String(concurrencyValue)
     }
-    if (state.ui.concurrencyCounter) {
-        state.ui.concurrencyCounter.innerText = concurrencyValue === 0 ? 'Unlimited' : String(concurrencyValue)
-    }
 
     updatePicCountFieldVisibility(
         state.ui.container,
@@ -2817,14 +2805,14 @@ function syncUiFromSettings() {
 
     const plan = getSwipePlan(settings)
     if (!plan.length) {
-        state.ui.summary.textContent = 'No swipe queue configured.'
+        state.ui.summary.textContent = 'No generation queue configured.'
         return
     }
 
     const segments = plan.map((entry) => {
         const label = getModelLabel(entry.id)
         const suffix = entry.count === 1 ? '' : 's'
-        return `${entry.count} swipe${suffix} on ${label}`
+        return `${entry.count} image${suffix} on ${label}`
     })
 
     if (settings.autoGeneration.enabled) {
@@ -2836,18 +2824,18 @@ function syncUiFromSettings() {
     }
 
     const baseStrategyBlurb = settings.delayMs <= 0
-          ? 'Swipes run sequentially without pacing between requests.'
-          : 'Swipes run sequentially with pacing between requests.'
+          ? 'Images generate sequentially without pacing between requests.'
+          : 'Images generate sequentially with pacing between requests.'
     const queueBlurb = !queueEnabled
-        ? 'Model queue disabled; using default swipes per model.'
+        ? 'Model queue disabled; using default images per model.'
         : ''
     const strategyBlurb = [baseStrategyBlurb, queueBlurb]
         .filter(Boolean)
         .join(' ')
     const delayBlurb =
         settings.delayMs <= 0
-            ? 'with no delay between swipes.'
-            : `with ${settings.delayMs} ms between swipes.`
+            ? 'with no delay between requests.'
+            : `with ${settings.delayMs} ms between requests.`
     state.ui.summary.textContent = `Will queue ${segments.join(', ')} ${delayBlurb} ${strategyBlurb}`
 }
 
@@ -2870,11 +2858,11 @@ function ensureGlobalProgressElement(messageId) {
         container.className = 'auto-multi-global-progress'
         container.innerHTML = `
             <div class="auto-multi-global-progress__meta">
-                <span class="auto-multi-global-progress__status">Preparing swipe queue…</span>
+                <span class="auto-multi-global-progress__status">Preparing generation queue…</span>
                 <span class="auto-multi-global-progress__ratio">0 / 0</span>
             </div>
             <progress value="0" max="1"></progress>
-            <button type="button" class="menu_button fa-solid fa-stop auto-multi-global-progress__stop" title="Abort the current auto swipe queue"></button>
+            <button type="button" class="menu_button fa-solid fa-stop auto-multi-global-progress__stop" title="Abort the current auto generation queue"></button>
         `
         if (lastMessage?.parentElement) {
             lastMessage.after(container)
@@ -2890,7 +2878,7 @@ function ensureGlobalProgressElement(messageId) {
         stopButton?.addEventListener('click', () => {
             state.chatToken += 1
             state.abortInProgress = true
-            log('Auto swipe queue aborted manually.')
+            log('Auto generation queue aborted manually.')
             clearProgress()
         })
     }
@@ -2954,7 +2942,7 @@ function updateProgressUi(messageId, current, target, waiting, labelText = '') {
     const displayCurrent = Math.min(clampedCurrent + 1, safeTarget)
     const descriptor =
         labelText ||
-        (waiting ? 'Preparing swipe queue…' : 'Image Generation Autopilot')
+        (waiting ? 'Preparing generation queue…' : 'Image Generation Autopilot')
 
     entry.container.classList.toggle('waiting', !!waiting)
     entry.statusLabel.textContent = descriptor
