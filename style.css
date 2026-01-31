@@ -446,11 +446,11 @@
 }
 
 .lightbox-content img.slide-in-right {
-    animation: slide-in-right 0.3s ease-out forwards;
+    animation: slide-in-right 0.25s ease-out forwards;
 }
 
 .lightbox-content img.slide-in-left {
-    animation: slide-in-left 0.3s ease-out forwards;
+    animation: slide-in-left 0.25s ease-out forwards;
 }
 
 .manual-dialog-close {
