@@ -489,17 +489,18 @@ export class ImageSelectionDialog {
 
                 if (isSwiping && Math.abs(deltaX) > SWIPE_THRESHOLD) {
                     e.preventDefault();
-                    const direction = deltaX > 0 ? -1 : 1;
-                    const exitX = direction === -1 ? window.innerWidth : -window.innerWidth;
+                    const swipeLeft = deltaX < 0;
+                    const navDirection = swipeLeft ? 1 : -1;
+                    const exitX = swipeLeft ? -window.innerWidth : window.innerWidth;
 
                     img.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
                     img.style.transform = `translate3d(${exitX}px, 0, 0)`;
                     img.style.opacity = '0';
 
-                    this.domElements.lightbox.dataset.slideDirection = direction === -1 ? 'right' : 'left';
+                    this.domElements.lightbox.dataset.swipeFrom = swipeLeft ? 'right' : 'left';
 
                     setTimeout(() => {
-                        this._navigateLightbox(direction);
+                        this._navigateLightbox(navDirection);
                         img.style.transition = '';
                         img.style.transform = '';
                         img.style.opacity = '';
@@ -640,15 +641,15 @@ export class ImageSelectionDialog {
         if (!slot || slot.status !== 'success') return;
 
         if (this.domElements.lightbox && this.domElements.lightboxImg) {
-            const slideDirection = this.domElements.lightbox.dataset.slideDirection;
-            delete this.domElements.lightbox.dataset.slideDirection;
+            const swipeFrom = this.domElements.lightbox.dataset.swipeFrom;
+            delete this.domElements.lightbox.dataset.swipeFrom;
 
             this.domElements.lightbox.dataset.index = index;
             this.domElements.lightboxImg.src = slot.result.result;
             this.domElements.lightboxImg.classList.remove('swipe-reset', 'swiping');
 
-            if (slideDirection) {
-                const enterX = slideDirection === 'left' ? window.innerWidth : -window.innerWidth;
+            if (swipeFrom) {
+                const enterX = swipeFrom === 'right' ? window.innerWidth : -window.innerWidth;
                 this.domElements.lightboxImg.style.transition = 'none';
                 this.domElements.lightboxImg.style.transform = `translate3d(${enterX}px, 0, 0)`;
                 this.domElements.lightboxImg.style.opacity = '0';
