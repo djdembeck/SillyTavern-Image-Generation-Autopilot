@@ -531,6 +531,7 @@ export class ImageSelectionDialog {
 
         if (this.domElements.promptApplyBtn) {
             this.domElements.promptApplyBtn.addEventListener('click', () => {
+                this.domElements.promptApplyBtn.classList.remove('highlight');
                 this.domElements.promptEditorContainer.classList.add('hidden');
                 this._handleRegenerateAll();
             });
@@ -545,6 +546,9 @@ export class ImageSelectionDialog {
         if (this.domElements.promptTextarea) {
             this.domElements.promptTextarea.addEventListener('input', (e) => {
                 this.editedPrompt = e.target.value;
+                if (this.domElements.promptApplyBtn) {
+                    this.domElements.promptApplyBtn.classList.remove('highlight');
+                }
             });
         }
 
@@ -1058,6 +1062,9 @@ export class ImageSelectionDialog {
                 this.editedPrompt = rewritten;
                 if (this.domElements.promptTextarea) {
                     this.domElements.promptTextarea.value = rewritten;
+                }
+                if (this.domElements.promptApplyBtn) {
+                    this.domElements.promptApplyBtn.classList.add('highlight');
                 }
             } else if (rewritten === this.editedPrompt) {
                 logger.warn('Rewrite returned identical prompt', { rewritten });
