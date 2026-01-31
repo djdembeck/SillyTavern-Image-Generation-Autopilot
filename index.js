@@ -1870,9 +1870,6 @@ async function buildSettingsPanel() {
     const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_regex')
     )
-    const promptRewriteEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_rewrite_enabled')
-    )
     const promptRewriteModelSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_prompt_rewrite_model')
     )
@@ -1927,7 +1924,6 @@ async function buildSettingsPanel() {
             promptLimitInput &&
             promptLimitTypeSelect &&
             promptRegexInput &&
-            promptRewriteEnabledInput &&
             promptPositionSelect &&
             promptDepthInput &&
             debugModeInput &&
@@ -1961,7 +1957,6 @@ async function buildSettingsPanel() {
         promptLimitInput,
         promptLimitTypeSelect,
         promptRegexInput,
-        promptRewriteEnabledInput,
         promptRewriteModelSelect,
         promptPositionSelect,
         promptDepthInput,
@@ -2104,13 +2099,6 @@ async function buildSettingsPanel() {
     promptRegexInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.regex = promptRegexInput.value
-        saveSettings()
-    })
-
-    promptRewriteEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptRewrite.enabled =
-            promptRewriteEnabledInput.checked
         saveSettings()
     })
 
@@ -2621,6 +2609,7 @@ function handleDocumentChange(event) {
 
     if (target.id === 'sd_model') {
         syncModelSelectOptions()
+        syncProfileSelectOptions()
     }
 }
 
@@ -2687,10 +2676,6 @@ function syncUiFromSettings() {
     if (state.ui.promptRegexInput) {
         state.ui.promptRegexInput.value =
             settings.autoGeneration.promptInjection.regex
-    }
-    if (state.ui.promptRewriteEnabledInput) {
-        state.ui.promptRewriteEnabledInput.checked =
-            settings.autoGeneration.promptRewrite.enabled
     }
     if (state.ui.promptRewriteModelSelect) {
         state.ui.promptRewriteModelSelect.value =
@@ -2794,6 +2779,7 @@ function syncUiFromSettings() {
     settings.modelQueue = configuredQueue
     renderModelQueueRows(configuredQueue)
     syncModelSelectOptions()
+    syncProfileSelectOptions()
     if (settings.enabled) {
         applyQueueEnabledState(queueEnabled)
     }
@@ -3643,19 +3629,6 @@ async function handleIncomingMessage(messageId) {
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
     for (let prompt of prompts) {
-        if (autoSettings.promptRewrite.enabled) {
-            log('Rewriting prompt before generation', { original: prompt })
-            const rewritten = await callChatRewrite(
-                prompt,
-                autoSettings.promptInjection,
-                autoSettings.promptRewrite.modelId,
-                resolvedId,
-            )
-            if (rewritten) {
-                log('Prompt rewritten successfully', { rewritten })
-                prompt = rewritten
-            }
-        }
         for (let i = 0; i < swipesPerImage; i += 1) {
             expandedPrompts.push(prompt)
         }
@@ -4268,7 +4241,6 @@ async function queueAutoFill(messageId, button) {
     const autoSettings = settings.autoGeneration
 
     let prompts = []
-    let needsExpansion = false
 
     if (autoSettings?.promptInjection?.regex) {
         const regex = parseRegexFromString(autoSettings.promptInjection.regex)
@@ -4277,21 +4249,6 @@ async function queueAutoFill(messageId, button) {
             prompts = matches
                 .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
                 .filter((p) => p.trim())
-            
-            if (prompts.length > 0) {
-                needsExpansion = true
-            }
-        }
-    }
-
-    if (!prompts.length) {
-        if (autoSettings.promptRewrite.enabled) {
-            log('Generating new prompt from context')
-            const generated = await callChatRewrite('', autoSettings.promptInjection, autoSettings.promptRewrite.modelId, messageId)
-            if (generated) {
-                prompts = [generated]
-                needsExpansion = false
-            }
         }
     }
 
@@ -4303,19 +4260,6 @@ async function queueAutoFill(messageId, button) {
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
     for (let prompt of prompts) {
-        if (needsExpansion && autoSettings.promptRewrite.enabled) {
-            log('Rewriting prompt for auto-fill', { original: prompt })
-            const rewritten = await callChatRewrite(
-                prompt,
-                autoSettings.promptInjection,
-                autoSettings.promptRewrite.modelId,
-                messageId,
-            )
-            if (rewritten) {
-                log('Prompt rewritten successfully', { rewritten })
-                prompt = rewritten
-            }
-        }
         for (let i = 0; i < swipesPerImage; i += 1) {
             expandedPrompts.push(prompt)
         }
@@ -4622,7 +4566,6 @@ async function init() {
   logger.debug('injectReswipeButtonTemplate done')
   refreshReswipeButtons()
   logger.debug('refreshReswipeButtons done')
-        syncProfileSelectOptions()
 
         const chat = document.getElementById('chat')
         chat?.addEventListener(
