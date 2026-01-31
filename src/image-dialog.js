@@ -452,17 +452,17 @@ export class ImageSelectionDialog {
 
             let touchStartX = 0;
             let touchStartY = 0;
-            let currentX = 0;
+            let isSwiping = false;
             const SWIPE_THRESHOLD = 80;
             const img = this.domElements.lightboxImg;
 
             this.domElements.lightbox.addEventListener('touchstart', (e) => {
                 touchStartX = e.touches[0].clientX;
                 touchStartY = e.touches[0].clientY;
-                currentX = 0;
+                isSwiping = false;
                 if (img) {
                     img.classList.add('swiping');
-                    img.classList.remove('swipe-left', 'swipe-right', 'swipe-reset');
+                    img.classList.remove('swipe-reset');
                 }
             }, { passive: true });
 
@@ -473,9 +473,10 @@ export class ImageSelectionDialog {
                 const deltaX = touchX - touchStartX;
                 const deltaY = touchY - touchStartY;
 
-                if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                    currentX = deltaX * 0.6;
-                    img.style.transform = `translateX(${currentX}px) rotate(${currentX * 0.02}deg)`;
+                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+                    isSwiping = true;
+                    const translateX = deltaX * 0.5;
+                    img.style.transform = `translate3d(${translateX}px, 0, 0)`;
                 }
             }, { passive: true });
 
@@ -486,22 +487,27 @@ export class ImageSelectionDialog {
                 const deltaX = e.changedTouches[0].clientX - touchStartX;
                 const deltaY = e.changedTouches[0].clientY - touchStartY;
 
-                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > SWIPE_THRESHOLD) {
+                if (isSwiping && Math.abs(deltaX) > SWIPE_THRESHOLD) {
                     e.preventDefault();
                     const direction = deltaX > 0 ? -1 : 1;
-                    img.classList.add(deltaX > 0 ? 'swipe-right' : 'swipe-left');
+                    const exitX = direction === -1 ? window.innerWidth : -window.innerWidth;
+
+                    img.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
+                    img.style.transform = `translate3d(${exitX}px, 0, 0)`;
+                    img.style.opacity = '0';
 
                     setTimeout(() => {
                         this._navigateLightbox(direction);
-                        img.classList.remove('swipe-left', 'swipe-right');
+                        img.style.transition = '';
                         img.style.transform = '';
-                    }, 250);
+                        img.style.opacity = '';
+                    }, 200);
                 } else {
                     img.classList.add('swipe-reset');
+                    img.style.transform = '';
                     setTimeout(() => {
                         img.classList.remove('swipe-reset');
-                        img.style.transform = '';
-                    }, 250);
+                    }, 200);
                 }
             }, { passive: false });
         }
@@ -635,7 +641,9 @@ export class ImageSelectionDialog {
             this.domElements.lightbox.dataset.index = index;
             this.domElements.lightboxImg.src = slot.result.result;
             this.domElements.lightboxImg.style.transform = '';
-            this.domElements.lightboxImg.classList.remove('swipe-left', 'swipe-right', 'swipe-reset', 'swiping');
+            this.domElements.lightboxImg.style.opacity = '';
+            this.domElements.lightboxImg.style.transition = '';
+            this.domElements.lightboxImg.classList.remove('swipe-reset', 'swiping');
             this.domElements.lightbox.classList.remove('hidden');
             
             const container = this.domElements.grid?.closest('.manual-overlay') || 
