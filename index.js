@@ -11,7 +11,7 @@ const defaultSettings = Object.freeze({
     targetCount: 4,
     delayMs: 800,
     swipeTimeoutMs: 120000,
-    concurrency: 4,
+    concurrency: 0,
     modelQueue: [],
     modelQueueEnabled: true,
     swipeModel: '',
@@ -1996,13 +1996,13 @@ async function buildSettingsPanel() {
     })
 
     concurrencyInput.addEventListener('input', () => {
-        const value = concurrencyInput.value
+        const value = parseInt(concurrencyInput.value, 10)
         logger.debug('Concurrency slider input:', value)
         if (concurrencyCounter) {
-            concurrencyCounter.textContent = String(value)
+            concurrencyCounter.textContent = value === 0 ? 'Unlimited' : String(value)
         }
         const current = getSettings()
-        current.concurrency = parseInt(value, 10) || 4
+        current.concurrency = Number.isFinite(value) ? value : 0
         saveSettings()
     })
 
@@ -2754,13 +2754,12 @@ function syncUiFromSettings() {
         )
     }
 
+    const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
     if (state.ui.concurrencyInput) {
-        state.ui.concurrencyInput.value = String(settings.concurrency || 4)
+        state.ui.concurrencyInput.value = String(concurrencyValue)
     }
     if (state.ui.concurrencyCounter) {
-        state.ui.concurrencyCounter.innerText = String(
-            settings.concurrency || 4,
-        )
+        state.ui.concurrencyCounter.innerText = concurrencyValue === 0 ? 'Unlimited' : String(concurrencyValue)
     }
 
     updatePicCountFieldVisibility(
@@ -3203,8 +3202,9 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
     const modelOptions = getSdModelOptions()
 
     const generatorFactory = (options) => {
+        const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
         const generator = new components.ParallelGenerator({
-            concurrencyLimit: settings.concurrency || 4,
+            concurrencyLimit: concurrencyValue,
             callSdSlash: async (prompt, quiet, modelId) => {
                 return callSdSlashWithModel(prompt, modelId, quiet)
             },

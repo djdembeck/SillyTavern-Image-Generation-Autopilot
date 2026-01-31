@@ -1,6 +1,6 @@
-const DEFAULT_CONCURRENCY_LIMIT = 4
+const DEFAULT_CONCURRENCY_LIMIT = 0
 const MAX_CONCURRENCY_LIMIT = 8
-const MIN_CONCURRENCY_LIMIT = 1
+const MIN_CONCURRENCY_LIMIT = 0
 
 function clampConcurrencyLimit(value) {
     if (!Number.isFinite(value)) {
@@ -129,7 +129,7 @@ class ParallelGenerator {
 
         const stats = { completed: 0, failed: 0 }
         let nextIndex = 0
-        const workerCount = Math.min(this.concurrencyLimit, total)
+        const workerCount = this.concurrencyLimit === 0 ? total : Math.min(this.concurrencyLimit, total)
         const retryLimit = Number.isFinite(options.retryLimit)
             ? options.retryLimit
             : 1
