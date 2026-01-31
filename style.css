@@ -410,6 +410,37 @@
     pointer-events: none;
 }
 
+.lightbox-content img.swiping {
+    transition: transform 0.1s ease-out;
+}
+
+.lightbox-content img.swipe-left {
+    animation: swipe-out-left 0.25s ease-in forwards;
+}
+
+.lightbox-content img.swipe-right {
+    animation: swipe-out-right 0.25s ease-in forwards;
+}
+
+.lightbox-content img.swipe-reset {
+    transition: transform 0.25s ease-out;
+    transform: translateX(0) !important;
+}
+
+@keyframes swipe-out-left {
+    to {
+        transform: translateX(-100%) rotate(-5deg);
+        opacity: 0;
+    }
+}
+
+@keyframes swipe-out-right {
+    to {
+        transform: translateX(100%) rotate(5deg);
+        opacity: 0;
+    }
+}
+
 .manual-dialog-close {
     position: absolute;
     top: 20px;

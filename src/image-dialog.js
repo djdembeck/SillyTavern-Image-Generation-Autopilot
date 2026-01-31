@@ -452,26 +452,56 @@ export class ImageSelectionDialog {
 
             let touchStartX = 0;
             let touchStartY = 0;
-            const SWIPE_THRESHOLD = 50;
+            let currentX = 0;
+            const SWIPE_THRESHOLD = 80;
+            const img = this.domElements.lightboxImg;
 
             this.domElements.lightbox.addEventListener('touchstart', (e) => {
                 touchStartX = e.touches[0].clientX;
                 touchStartY = e.touches[0].clientY;
+                currentX = 0;
+                if (img) {
+                    img.classList.add('swiping');
+                    img.classList.remove('swipe-left', 'swipe-right', 'swipe-reset');
+                }
+            }, { passive: true });
+
+            this.domElements.lightbox.addEventListener('touchmove', (e) => {
+                if (!img) return;
+                const touchX = e.touches[0].clientX;
+                const touchY = e.touches[0].clientY;
+                const deltaX = touchX - touchStartX;
+                const deltaY = touchY - touchStartY;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                    currentX = deltaX * 0.6;
+                    img.style.transform = `translateX(${currentX}px) rotate(${currentX * 0.02}deg)`;
+                }
             }, { passive: true });
 
             this.domElements.lightbox.addEventListener('touchend', (e) => {
-                const touchEndX = e.changedTouches[0].clientX;
-                const touchEndY = e.changedTouches[0].clientY;
-                const deltaX = touchEndX - touchStartX;
-                const deltaY = touchEndY - touchStartY;
+                if (!img) return;
+                img.classList.remove('swiping');
+
+                const deltaX = e.changedTouches[0].clientX - touchStartX;
+                const deltaY = e.changedTouches[0].clientY - touchStartY;
 
                 if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > SWIPE_THRESHOLD) {
                     e.preventDefault();
-                    if (deltaX > 0) {
-                        this._navigateLightbox(-1);
-                    } else {
-                        this._navigateLightbox(1);
-                    }
+                    const direction = deltaX > 0 ? -1 : 1;
+                    img.classList.add(deltaX > 0 ? 'swipe-right' : 'swipe-left');
+
+                    setTimeout(() => {
+                        this._navigateLightbox(direction);
+                        img.classList.remove('swipe-left', 'swipe-right');
+                        img.style.transform = '';
+                    }, 250);
+                } else {
+                    img.classList.add('swipe-reset');
+                    setTimeout(() => {
+                        img.classList.remove('swipe-reset');
+                        img.style.transform = '';
+                    }, 250);
                 }
             }, { passive: false });
         }
@@ -604,6 +634,8 @@ export class ImageSelectionDialog {
         if (this.domElements.lightbox && this.domElements.lightboxImg) {
             this.domElements.lightbox.dataset.index = index;
             this.domElements.lightboxImg.src = slot.result.result;
+            this.domElements.lightboxImg.style.transform = '';
+            this.domElements.lightboxImg.classList.remove('swipe-left', 'swipe-right', 'swipe-reset', 'swiping');
             this.domElements.lightbox.classList.remove('hidden');
             
             const container = this.domElements.grid?.closest('.manual-overlay') || 
