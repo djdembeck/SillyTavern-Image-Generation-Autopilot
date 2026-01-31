@@ -493,15 +493,13 @@ export class ImageSelectionDialog {
                     const navDirection = swipeLeft ? 1 : -1;
                     const exitX = swipeLeft ? -window.innerWidth : window.innerWidth;
 
-                    img.style.transition = 'transform 0.12s ease-out, opacity 0.12s ease-out';
+                    img.style.transition = 'transform 0.15s ease-out, opacity 0.15s ease-out';
                     img.style.transform = `translate3d(${exitX}px, 0, 0)`;
                     img.style.opacity = '0';
 
                     this.domElements.lightbox.dataset.swipeFrom = swipeLeft ? 'right' : 'left';
 
-                    setTimeout(() => {
-                        this._navigateLightbox(navDirection);
-                    }, 120);
+                    this._navigateLightbox(navDirection);
                 } else {
                     img.classList.add('swipe-reset');
                     img.style.transform = '';
