@@ -132,7 +132,7 @@ export class ImageSelectionDialog {
                 </div>
                 <div class="image-selection-header__text">
                     <h5>Parallel Generation Results</h5>
-                    <p class="caption">Select the images you want to keep and choose their destination.</p>
+                    <p class="caption">Select the images you want to keep.</p>
                 </div>
             </div>
         `;
@@ -179,13 +179,6 @@ export class ImageSelectionDialog {
                     <div class="image-selection-count">
                         <span><i class="fa-solid fa-hashtag"></i> Count:</span>
                         <input type="number" id="img-count-input" min="1" max="12" step="1" value="${count}">
-                    </div>
-                    <div class="image-selection-destination">
-                        <span><i class="fa-solid fa-location-arrow"></i> Destination:</span>
-                        <select id="img-dest-select">
-                            <option value="new">New Message</option>
-                            <option value="current">Current Message</option>
-                        </select>
                     </div>
                 </div>
             </div>
@@ -265,9 +258,6 @@ export class ImageSelectionDialog {
                 this.domElements.deselectAll =
                     container.querySelector('#btn-deselect-all') ||
                     document.querySelector('#btn-deselect-all');
-                this.domElements.destination =
-                    container.querySelector('#img-dest-select') ||
-                    document.querySelector('#img-dest-select');
                 this.domElements.confirm =
                     container.querySelector('#btn-img-confirm') ||
                     document.querySelector('#btn-img-confirm');
@@ -526,12 +516,6 @@ export class ImageSelectionDialog {
             this.domElements.deselectAll.addEventListener('click', () =>
                 this._deselectAll(),
             );
-        }
-
-        if (this.domElements.destination) {
-            this.domElements.destination.addEventListener('change', (e) => {
-                this.destination = e.target.value;
-            });
         }
 
         if (this.domElements.confirm) {
