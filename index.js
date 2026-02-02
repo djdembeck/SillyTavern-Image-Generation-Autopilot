@@ -3866,6 +3866,7 @@ async function createPlaceholderImageMessage(prompt) {
         name,
         is_user: false,
         is_system: false,
+        mes_hide: true,
         send_date: Date.now(),
         mes: prompt || '',
         extra: {
