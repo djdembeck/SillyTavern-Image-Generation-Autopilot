@@ -114,9 +114,10 @@ class ParallelGenerator {
         const modelCycle = buildModelCycle(options.modelQueue)
         const tasks = entries.map((entry, index) => {
             const prompt = typeof entry.prompt === 'string' ? entry.prompt : ''
+            const perPromptModelId = entry.modelId?.trim()
             const modelId =
+                perPromptModelId ||
                 options.modelId ||
-                entry.modelId?.trim() ||
                 (modelCycle.length > 0
                     ? modelCycle[index % modelCycle.length]
                     : undefined)
