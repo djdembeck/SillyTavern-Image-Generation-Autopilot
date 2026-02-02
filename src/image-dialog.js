@@ -624,17 +624,19 @@ export class ImageSelectionDialog {
             delete this.domElements.lightbox.dataset.swipeFrom;
 
             this.domElements.lightbox.dataset.index = index;
-            this.domElements.lightboxImg.classList.remove('swipe-reset', 'swiping', 'slide-in-left', 'slide-in-right');
-            void this.domElements.lightboxImg.offsetWidth;
 
-            this.domElements.lightboxImg.src = slot.result.result;
+            const img = this.domElements.lightboxImg;
+            img.classList.remove('swipe-reset', 'swiping', 'slide-in-left', 'slide-in-right');
+            img.style.transform = '';
+            img.style.opacity = '';
+            img.style.transition = '';
+
+            void img.offsetWidth;
+
+            img.src = slot.result.result;
 
             if (swipeFrom) {
-                this.domElements.lightboxImg.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
-            } else {
-                this.domElements.lightboxImg.style.transform = '';
-                this.domElements.lightboxImg.style.opacity = '';
-                this.domElements.lightboxImg.style.transition = '';
+                img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
             }
 
             this.domElements.lightbox.classList.remove('hidden');
