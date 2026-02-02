@@ -3269,21 +3269,37 @@ async function handleDialogResult(dialogResult, triggerMessage) {
         const chat = context.chat || []
         let targetMessageId = null
         let targetMessage = null
+        const sourceMessageId = dialogResult.sourceMessageId
+        const triggerName = triggerMessage?.name
 
-        // If "new message" is selected, check if the last message is already an image message from the same character
         if (insertType === INSERT_TYPE.NEW_MESSAGE && chat.length > 0) {
-            const lastMessageIndex = chat.length - 1
-            const lastMessage = chat[lastMessageIndex]
-            const triggerName = triggerMessage?.name
-            
-            if (
-                !lastMessage.is_user && 
-                (!triggerName || lastMessage.name === triggerName) && 
-                hasGeneratedMedia(lastMessage)
-            ) {
-                targetMessageId = lastMessageIndex
-                targetMessage = lastMessage
-                log('Attaching to existing image message instead of creating new one', { targetMessageId })
+            const nextMessageId = typeof sourceMessageId === 'number' ? sourceMessageId + 1 : null
+            if (nextMessageId !== null && nextMessageId < chat.length) {
+                const nextMessage = chat[nextMessageId]
+                if (
+                    !nextMessage.is_user &&
+                    (!triggerName || nextMessage.name === triggerName) &&
+                    hasGeneratedMedia(nextMessage)
+                ) {
+                    targetMessageId = nextMessageId
+                    targetMessage = nextMessage
+                    log('Attaching to image message after source', { sourceMessageId, targetMessageId })
+                }
+            }
+
+            if (targetMessage === null) {
+                const lastMessageIndex = chat.length - 1
+                const lastMessage = chat[lastMessageIndex]
+
+                if (
+                    !lastMessage.is_user &&
+                    (!triggerName || lastMessage.name === triggerName) &&
+                    hasGeneratedMedia(lastMessage)
+                ) {
+                    targetMessageId = lastMessageIndex
+                    targetMessage = lastMessage
+                    log('Attaching to existing image message at end', { targetMessageId })
+                }
             }
         }
 
