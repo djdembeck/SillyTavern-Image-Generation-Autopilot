@@ -633,14 +633,25 @@ export class ImageSelectionDialog {
 
             void img.offsetWidth;
 
+            const applyAnimation = () => {
+                if (swipeFrom) {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
+                        });
+                    });
+                }
+            };
+
             img.src = slot.result.result;
 
-            if (swipeFrom) {
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
-                    });
-                });
+            if (img.complete) {
+                applyAnimation();
+            } else {
+                img.onload = () => {
+                    applyAnimation();
+                    img.onload = null;
+                };
             }
 
             this.domElements.lightbox.classList.remove('hidden');
