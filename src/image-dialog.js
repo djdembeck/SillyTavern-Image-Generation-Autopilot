@@ -636,7 +636,11 @@ export class ImageSelectionDialog {
             img.src = slot.result.result;
 
             if (swipeFrom) {
-                img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
+                    });
+                });
             }
 
             this.domElements.lightbox.classList.remove('hidden');
