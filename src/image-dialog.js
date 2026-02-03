@@ -483,9 +483,11 @@ export class ImageSelectionDialog {
                     const navDirection = swipeLeft ? 1 : -1;
                     const exitX = swipeLeft ? -window.innerWidth : window.innerWidth;
 
+                    void img.offsetWidth;
+
                     img.style.transition = 'transform 0.15s ease-out, opacity 0.15s ease-out';
-                    img.style.transform = `translate3d(${exitX}px, 0, 0)`;
                     img.style.opacity = '0';
+                    img.style.transform = `translate3d(${exitX}px, 0, 0)`;
 
                     this.domElements.lightbox.dataset.swipeFrom = swipeLeft ? 'right' : 'left';
 

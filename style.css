@@ -411,12 +411,12 @@
 }
 
 .lightbox-content img {
-    will-change: auto;
+    will-change: transform;
+    transform: translateZ(0);
 }
 
 .lightbox-content img.swiping {
-    will-change: transform;
-    transition: none;
+    transition: none !important;
 }
 
 .lightbox-content img.swipe-reset {
