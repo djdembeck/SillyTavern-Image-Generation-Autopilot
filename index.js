@@ -83,9 +83,27 @@ const state = {
     },
 }
 
+let debugModeCache = null
+let lastDebugCheck = 0
+
 const logger = {
     debug: (...args) => {
-        if (getSettings().debugMode) {
+        // Avoid recursion by using cached debug mode check
+        // Only re-check every 1000ms to prevent infinite loops during settings initialization
+        const now = Date.now()
+        if (now - lastDebugCheck > 1000) {
+            try {
+                const ctx = typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function'
+                    ? SillyTavern.getContext()
+                    : null
+                const settings = ctx?.extensionSettings?.[MODULE_NAME]
+                debugModeCache = settings?.debugMode === true
+            } catch {
+                debugModeCache = false
+            }
+            lastDebugCheck = now
+        }
+        if (debugModeCache) {
             console.log(`[${MODULE_NAME}]`, ...args)
         }
     },
