@@ -637,10 +637,17 @@ export class ImageSelectionDialog {
 
             const applyAnimation = () => {
                 if (swipeFrom) {
+                    img.style.opacity = '0';
+                    img.style.transform = swipeFrom === 'right' 
+                        ? 'translate3d(100%, 0, 0)' 
+                        : 'translate3d(-100%, 0, 0)';
+                    
+                    void img.offsetWidth;
+                    
                     requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                            img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
-                        });
+                        img.style.opacity = '';
+                        img.style.transform = '';
+                        img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
                     });
                 }
             };
