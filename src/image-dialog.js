@@ -479,7 +479,6 @@ export class ImageSelectionDialog {
                 img.classList.remove('swiping');
 
                 const deltaX = e.changedTouches[0].clientX - touchStartX;
-                const deltaY = e.changedTouches[0].clientY - touchStartY;
 
                 if (isSwiping && Math.abs(deltaX) > SWIPE_THRESHOLD) {
                     e.preventDefault();
@@ -647,27 +646,47 @@ export class ImageSelectionDialog {
             this.domElements.lightbox.dataset.index = index;
 
             const img = this.domElements.lightboxImg;
-            
-            // Reset state cleanly without inline styles
+
             img.className = '';
             img.style.cssText = '';
-            this.isLightboxTransitioning = false;
 
-            // Preload image before animation
             const startAnimation = () => {
-                if (!swipeFrom) return;
-                
-                // Set initial hidden position via classes (not inline styles)
-                img.classList.add('slide-initial');
-                img.classList.add(swipeFrom === 'right' ? 'from-right' : 'from-left');
-                
-                // Force reflow once
+                if (!swipeFrom) {
+                    this.isLightboxTransitioning = false;
+                    return;
+                }
+
+                this.isLightboxTransitioning = true;
+
+                const startX = swipeFrom === 'right' ? '100%' : '-100%';
+
+                img.style.transition = 'none';
+                img.style.opacity = '0';
+                img.style.transform = `translate3d(${startX}, 0, 0)`;
+
                 void img.offsetWidth;
-                
-                // Trigger animation in next frame
+
                 requestAnimationFrame(() => {
-                    img.classList.remove('slide-initial', 'from-right', 'from-left');
-                    img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
+                    img.style.transition = 'transform 0.25s ease-out, opacity 0.25s ease-out';
+                    img.style.opacity = '1';
+                    img.style.transform = 'translate3d(0, 0, 0)';
+
+                    let transitionHandled = false;
+                    const finishTransition = () => {
+                        if (transitionHandled) return;
+                        transitionHandled = true;
+                        img.style.transition = '';
+                        this.isLightboxTransitioning = false;
+                    };
+
+                    img.addEventListener('transitionend', (event) => {
+                        if (event.propertyName !== 'transform' && event.propertyName !== 'opacity') {
+                            return;
+                        }
+                        finishTransition();
+                    }, { once: true });
+
+                    setTimeout(finishTransition, 300);
                 });
             };
 
