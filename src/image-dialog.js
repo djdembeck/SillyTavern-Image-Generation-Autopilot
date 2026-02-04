@@ -647,38 +647,37 @@ export class ImageSelectionDialog {
             this.domElements.lightbox.dataset.index = index;
 
             const img = this.domElements.lightboxImg;
-            img.classList.remove('swipe-reset', 'swiping', 'slide-in-left', 'slide-in-right');
-            img.style.transform = '';
-            img.style.opacity = '';
-            img.style.transition = '';
+            
+            // Reset state cleanly without inline styles
+            img.className = '';
+            img.style.cssText = '';
             this.isLightboxTransitioning = false;
 
-            void img.offsetWidth;
-
-            const applyAnimation = () => {
-                if (swipeFrom) {
-                    img.style.opacity = '0';
-                    img.style.transform = swipeFrom === 'right' 
-                        ? 'translate3d(100%, 0, 0)' 
-                        : 'translate3d(-100%, 0, 0)';
-                    
-                    void img.offsetWidth;
-                    
-                    requestAnimationFrame(() => {
-                        img.style.opacity = '';
-                        img.style.transform = '';
-                        img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
-                    });
-                }
+            // Preload image before animation
+            const startAnimation = () => {
+                if (!swipeFrom) return;
+                
+                // Set initial hidden position via classes (not inline styles)
+                img.classList.add('slide-initial');
+                img.classList.add(swipeFrom === 'right' ? 'from-right' : 'from-left');
+                
+                // Force reflow once
+                void img.offsetWidth;
+                
+                // Trigger animation in next frame
+                requestAnimationFrame(() => {
+                    img.classList.remove('slide-initial', 'from-right', 'from-left');
+                    img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
+                });
             };
 
             img.src = slot.result.result;
 
             if (img.complete) {
-                applyAnimation();
+                startAnimation();
             } else {
                 img.onload = () => {
-                    applyAnimation();
+                    startAnimation();
                     img.onload = null;
                 };
             }
