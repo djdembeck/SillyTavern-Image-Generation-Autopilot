@@ -720,36 +720,31 @@ export class ImageSelectionDialog {
         if (isNaN(currentIndex)) return;
 
         let nextIndex = currentIndex + direction;
-        
-        while (nextIndex >= 0 && nextIndex < this.slots.length) {
+        let loopCount = 0;
+
+        while (loopCount < this.slots.length) {
+            if (nextIndex < 0) {
+                nextIndex = this.slots.length - 1;
+            } else if (nextIndex >= this.slots.length) {
+                nextIndex = 0;
+            }
+
             if (this.slots[nextIndex] && this.slots[nextIndex].status === 'success') {
                 this._showLightbox(nextIndex);
                 break;
             }
+
             nextIndex += direction;
+            loopCount += 1;
         }
     }
 
     _updateLightboxNavState(index) {
         if (this.domElements.lightboxPrev && this.domElements.lightboxNext) {
-            let hasPrev = false;
-            for (let i = index - 1; i >= 0; i--) {
-                if (this.slots[i] && this.slots[i].status === 'success') {
-                    hasPrev = true;
-                    break;
-                }
-            }
+            const hasAnySuccess = this.slots.some((s) => s && s.status === 'success');
 
-            let hasNext = false;
-            for (let i = index + 1; i < this.slots.length; i++) {
-                if (this.slots[i] && this.slots[i].status === 'success') {
-                    hasNext = true;
-                    break;
-                }
-            }
-
-            this.domElements.lightboxPrev.classList.toggle('disabled', !hasPrev);
-            this.domElements.lightboxNext.classList.toggle('disabled', !hasNext);
+            this.domElements.lightboxPrev.classList.toggle('disabled', !hasAnySuccess);
+            this.domElements.lightboxNext.classList.toggle('disabled', !hasAnySuccess);
         }
     }
 
