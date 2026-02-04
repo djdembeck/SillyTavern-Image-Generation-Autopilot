@@ -60,6 +60,7 @@ export class ImageSelectionDialog {
         this.currentCount = 0;
         this.onRewrite = dependencies.onRewrite || null;
         this.isRewriting = false;
+        this.isLightboxTransitioning = false;
     }
 
     show(prompts, options = {}) {
@@ -389,6 +390,12 @@ export class ImageSelectionDialog {
         }
 
         logger.error('Failed to find DOM elements after waiting');
+
+        const popups = document.querySelectorAll('.popup-body, .popup-content');
+        logger.debug('Debug - Popups found:', popups.length);
+        logger.debug('Debug - #image-grid found?', !!document.getElementById('image-grid'));
+        logger.debug('Debug - .image-selection-grid found?', !!document.querySelector('.image-selection-grid'));
+        logger.debug('Debug - .image-selection-popup found?', !!document.querySelector('.image-selection-popup'));
     }
 
 
@@ -441,6 +448,7 @@ export class ImageSelectionDialog {
             const img = this.domElements.lightboxImg;
 
             this.domElements.lightbox.addEventListener('touchstart', (e) => {
+                if (this.isLightboxTransitioning) return;
                 touchStartX = e.touches[0].clientX;
                 touchStartY = e.touches[0].clientY;
                 isSwiping = false;
@@ -451,6 +459,7 @@ export class ImageSelectionDialog {
             }, { passive: true });
 
             this.domElements.lightbox.addEventListener('touchmove', (e) => {
+                if (this.isLightboxTransitioning) return;
                 if (!img) return;
                 const touchX = e.touches[0].clientX;
                 const touchY = e.touches[0].clientY;
@@ -465,6 +474,7 @@ export class ImageSelectionDialog {
             }, { passive: true });
 
             this.domElements.lightbox.addEventListener('touchend', (e) => {
+                if (this.isLightboxTransitioning) return;
                 if (!img) return;
                 img.classList.remove('swiping');
 
@@ -476,17 +486,31 @@ export class ImageSelectionDialog {
                     const swipeLeft = deltaX < 0;
                     const navDirection = swipeLeft ? 1 : -1;
                     const exitX = swipeLeft ? -window.innerWidth : window.innerWidth;
-                    const swipeFrom = swipeLeft ? 'right' : 'left';
 
-                    void img.offsetWidth;
+                    this.isLightboxTransitioning = true;
+                    let transitionHandled = false;
+                    const finishTransition = () => {
+                        if (transitionHandled) return;
+                        transitionHandled = true;
+                        this.isLightboxTransitioning = false;
+                        this._navigateLightbox(navDirection);
+                    };
 
-                    img.style.transition = 'transform 0.15s ease-out, opacity 0.15s ease-out';
-                    img.style.opacity = '0';
-                    img.style.transform = `translate3d(${exitX}px, 0, 0)`;
+                    img.addEventListener('transitionend', (event) => {
+                        if (event.propertyName !== 'transform' && event.propertyName !== 'opacity') {
+                            return;
+                        }
+                        finishTransition();
+                    }, { once: true });
 
-                    this.domElements.lightbox.dataset.swipeFrom = swipeFrom;
+                    requestAnimationFrame(() => {
+                        img.style.transition = 'transform 0.15s ease-out, opacity 0.15s ease-out';
+                        img.style.opacity = '0';
+                        img.style.transform = `translate3d(${exitX}px, 0, 0)`;
+                    });
 
-                    this._navigateLightbox(navDirection);
+                    this.domElements.lightbox.dataset.swipeFrom = swipeLeft ? 'right' : 'left';
+                    setTimeout(finishTransition, 220);
                 } else {
                     img.classList.add('swipe-reset');
                     img.style.transform = '';
@@ -614,9 +638,7 @@ export class ImageSelectionDialog {
 
     _showLightbox(index) {
         const slot = this.slots[index];
-        if (!slot || slot.status !== 'success') {
-            return;
-        }
+        if (!slot || slot.status !== 'success') return;
 
         if (this.domElements.lightbox && this.domElements.lightboxImg) {
             const swipeFrom = this.domElements.lightbox.dataset.swipeFrom;
@@ -629,29 +651,20 @@ export class ImageSelectionDialog {
             img.style.transform = '';
             img.style.opacity = '';
             img.style.transition = '';
+            this.isLightboxTransitioning = false;
 
             void img.offsetWidth;
 
-            // If swipe animation is needed, set the image off-screen BEFORE setting src.
-            // This ensures the new image starts off-screen from its first render frame,
-            // preventing any visible "pop" at the final position before the animation starts.
-            if (swipeFrom) {
-                // Explicitly disable transitions to prevent any accidental animation
-                // of the jump to the off-screen position. This ensures the positioning
-                // is instantaneous, even if CSS transitions are still active.
-                img.style.transition = 'none';
-                img.style.opacity = '0';
-                img.style.transform = swipeFrom === 'right'
-                    ? 'translate3d(100%, 0, 0)'
-                    : 'translate3d(-100%, 0, 0)';
-                void img.offsetWidth;
-            }
-
             const applyAnimation = () => {
                 if (swipeFrom) {
+                    img.style.opacity = '0';
+                    img.style.transform = swipeFrom === 'right' 
+                        ? 'translate3d(100%, 0, 0)' 
+                        : 'translate3d(-100%, 0, 0)';
+                    
+                    void img.offsetWidth;
+                    
                     requestAnimationFrame(() => {
-                        // Clear the inline transition override to allow CSS transition to take effect
-                        img.style.transition = '';
                         img.style.opacity = '';
                         img.style.transform = '';
                         img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
@@ -659,27 +672,15 @@ export class ImageSelectionDialog {
                 }
             };
 
-            const applyAnimationWithConsistentTiming = () => {
-                if (swipeFrom) {
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                            applyAnimation();
-                        });
-                    });
-                }
-            };
-
             img.src = slot.result.result;
 
-            const cleanupOnload = () => {
-                applyAnimationWithConsistentTiming();
-                img.onload = null;
-            };
-
-            img.onload = cleanupOnload;
-
             if (img.complete) {
-                applyAnimationWithConsistentTiming();
+                applyAnimation();
+            } else {
+                img.onload = () => {
+                    applyAnimation();
+                    img.onload = null;
+                };
             }
 
             this.domElements.lightbox.classList.remove('hidden');
@@ -698,9 +699,7 @@ export class ImageSelectionDialog {
 
     _navigateLightbox(direction) {
         const currentIndex = parseInt(this.domElements.lightbox.dataset.index, 10);
-        if (isNaN(currentIndex)) {
-            return;
-        }
+        if (isNaN(currentIndex)) return;
 
         let nextIndex = currentIndex + direction;
         
