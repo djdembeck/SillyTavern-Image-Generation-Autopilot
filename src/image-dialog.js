@@ -389,12 +389,6 @@ export class ImageSelectionDialog {
         }
 
         logger.error('Failed to find DOM elements after waiting');
-
-        const popups = document.querySelectorAll('.popup-body, .popup-content');
-        logger.debug('Debug - Popups found:', popups.length);
-        logger.debug('Debug - #image-grid found?', !!document.getElementById('image-grid'));
-        logger.debug('Debug - .image-selection-grid found?', !!document.querySelector('.image-selection-grid'));
-        logger.debug('Debug - .image-selection-popup found?', !!document.querySelector('.image-selection-popup'));
     }
 
 
@@ -482,6 +476,7 @@ export class ImageSelectionDialog {
                     const swipeLeft = deltaX < 0;
                     const navDirection = swipeLeft ? 1 : -1;
                     const exitX = swipeLeft ? -window.innerWidth : window.innerWidth;
+                    const swipeFrom = swipeLeft ? 'right' : 'left';
 
                     void img.offsetWidth;
 
@@ -489,7 +484,7 @@ export class ImageSelectionDialog {
                     img.style.opacity = '0';
                     img.style.transform = `translate3d(${exitX}px, 0, 0)`;
 
-                    this.domElements.lightbox.dataset.swipeFrom = swipeLeft ? 'right' : 'left';
+                    this.domElements.lightbox.dataset.swipeFrom = swipeFrom;
 
                     this._navigateLightbox(navDirection);
                 } else {
@@ -619,7 +614,9 @@ export class ImageSelectionDialog {
 
     _showLightbox(index) {
         const slot = this.slots[index];
-        if (!slot || slot.status !== 'success') return;
+        if (!slot || slot.status !== 'success') {
+            return;
+        }
 
         if (this.domElements.lightbox && this.domElements.lightboxImg) {
             const swipeFrom = this.domElements.lightbox.dataset.swipeFrom;
@@ -635,16 +632,26 @@ export class ImageSelectionDialog {
 
             void img.offsetWidth;
 
+            // If swipe animation is needed, set the image off-screen BEFORE setting src.
+            // This ensures the new image starts off-screen from its first render frame,
+            // preventing any visible "pop" at the final position before the animation starts.
+            if (swipeFrom) {
+                // Explicitly disable transitions to prevent any accidental animation
+                // of the jump to the off-screen position. This ensures the positioning
+                // is instantaneous, even if CSS transitions are still active.
+                img.style.transition = 'none';
+                img.style.opacity = '0';
+                img.style.transform = swipeFrom === 'right'
+                    ? 'translate3d(100%, 0, 0)'
+                    : 'translate3d(-100%, 0, 0)';
+                void img.offsetWidth;
+            }
+
             const applyAnimation = () => {
                 if (swipeFrom) {
-                    img.style.opacity = '0';
-                    img.style.transform = swipeFrom === 'right' 
-                        ? 'translate3d(100%, 0, 0)' 
-                        : 'translate3d(-100%, 0, 0)';
-                    
-                    void img.offsetWidth;
-                    
                     requestAnimationFrame(() => {
+                        // Clear the inline transition override to allow CSS transition to take effect
+                        img.style.transition = '';
                         img.style.opacity = '';
                         img.style.transform = '';
                         img.classList.add(swipeFrom === 'right' ? 'slide-in-right' : 'slide-in-left');
@@ -652,15 +659,27 @@ export class ImageSelectionDialog {
                 }
             };
 
+            const applyAnimationWithConsistentTiming = () => {
+                if (swipeFrom) {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            applyAnimation();
+                        });
+                    });
+                }
+            };
+
             img.src = slot.result.result;
 
+            const cleanupOnload = () => {
+                applyAnimationWithConsistentTiming();
+                img.onload = null;
+            };
+
+            img.onload = cleanupOnload;
+
             if (img.complete) {
-                applyAnimation();
-            } else {
-                img.onload = () => {
-                    applyAnimation();
-                    img.onload = null;
-                };
+                applyAnimationWithConsistentTiming();
             }
 
             this.domElements.lightbox.classList.remove('hidden');
@@ -679,7 +698,9 @@ export class ImageSelectionDialog {
 
     _navigateLightbox(direction) {
         const currentIndex = parseInt(this.domElements.lightbox.dataset.index, 10);
-        if (isNaN(currentIndex)) return;
+        if (isNaN(currentIndex)) {
+            return;
+        }
 
         let nextIndex = currentIndex + direction;
         
