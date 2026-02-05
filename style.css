@@ -422,6 +422,25 @@
     pointer-events: none;
 }
 
+.lightbox-counter {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    z-index: 2100;
+    pointer-events: none;
+    user-select: none;
+}
+
 .lightbox-content img {
     will-change: transform;
     transform: translateZ(0);

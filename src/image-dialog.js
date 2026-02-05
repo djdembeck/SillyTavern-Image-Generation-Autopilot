@@ -227,6 +227,7 @@ export class ImageSelectionDialog {
                 <div class="lightbox-content">
                     <img id="lightbox-img" src="" alt="Enlarged view" />
                     <div id="lightbox-select" class="lightbox-select-btn fa-solid fa-circle-check"></div>
+                    <div id="lightbox-counter" class="lightbox-counter"></div>
                 </div>
             </div>
         `;
@@ -313,6 +314,9 @@ export class ImageSelectionDialog {
                 this.domElements.lightboxNext =
                     container.querySelector('#lightbox-next') ||
                     document.querySelector('#lightbox-next');
+                this.domElements.lightboxCounter =
+                    container.querySelector('#lightbox-counter') ||
+                    document.querySelector('#lightbox-counter');
                 this.domElements.manualClose =
                     container.querySelector('#manual-close-dialog') ||
                     document.querySelector('#manual-close-dialog');
@@ -745,6 +749,12 @@ export class ImageSelectionDialog {
 
             this.domElements.lightboxPrev.classList.toggle('disabled', !hasAnySuccess);
             this.domElements.lightboxNext.classList.toggle('disabled', !hasAnySuccess);
+        }
+
+        if (this.domElements.lightboxCounter) {
+            const totalSuccess = this.slots.filter((s) => s && s.status === 'success').length;
+            const currentPosition = this.slots.slice(0, index + 1).filter((s) => s && s.status === 'success').length;
+            this.domElements.lightboxCounter.textContent = `${currentPosition}/${totalSuccess}`;
         }
     }
 
