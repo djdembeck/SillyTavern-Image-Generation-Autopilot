@@ -2,3 +2,6 @@
 
 # Oh-My-OpenCode config (project-specific)
 oh-my-opencode.json
+
+# Sisyphus/Agent working directories
+.sisyphus/
