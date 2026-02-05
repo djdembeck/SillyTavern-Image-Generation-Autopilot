@@ -224,6 +224,7 @@ export class ImageSelectionDialog {
             <div id="image-selection-lightbox" class="image-selection-lightbox hidden">
                 <div id="lightbox-prev" class="lightbox-nav-btn prev fa-solid fa-chevron-left"></div>
                 <div id="lightbox-next" class="lightbox-nav-btn next fa-solid fa-chevron-right"></div>
+                <div id="lightbox-close" class="lightbox-close-btn fa-solid fa-xmark" title="Close (Esc)"></div>
                 <div class="lightbox-content">
                     <div class="lightbox-image-wrapper">
                         <img id="lightbox-img" src="" alt="Enlarged view" />
@@ -319,6 +320,9 @@ export class ImageSelectionDialog {
                 this.domElements.lightboxCounter =
                     container.querySelector('#lightbox-counter') ||
                     document.querySelector('#lightbox-counter');
+                this.domElements.lightboxClose =
+                    container.querySelector('#lightbox-close') ||
+                    document.querySelector('#lightbox-close');
                 this.domElements.manualClose =
                     container.querySelector('#manual-close-dialog') ||
                     document.querySelector('#manual-close-dialog');
@@ -442,6 +446,11 @@ export class ImageSelectionDialog {
                 if (e.target.id === 'lightbox-next') {
                     e.stopPropagation();
                     this._navigateLightbox(1);
+                    return;
+                }
+                if (e.target.id === 'lightbox-close') {
+                    e.stopPropagation();
+                    this._hideLightbox();
                     return;
                 }
                 this._hideLightbox();
