@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=DM+Sans:wght@400;500&display=swap');
+
 .image-selection-dialog,
 .image-selection-dialog *,
 .image-selection-dialog *::before,
@@ -727,9 +729,6 @@
         right: 10px;
     }
 }
-
-
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=DM+Sans:wght@400;500&display=swap');
 
 .auto-multi-image-settings {
     font-family: 'Space Grotesk', 'DM Sans', 'Segoe UI', sans-serif;
