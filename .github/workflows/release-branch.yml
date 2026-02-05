@@ -36,6 +36,13 @@ jobs:
           cp LICENSE /tmp/release-files/
           find src -type f -name "*.js" ! -path "*/__tests__/*" -exec cp {} /tmp/release-files/src/ \;
           
+          # Ensure git remote is configured
+          git remote add origin "$git_remote" 2>/dev/null || true
+
+          # Delete release branch if it exists (we'll recreate it fresh)
+          git branch -D release 2>/dev/null || true
+          git push origin --delete release 2>/dev/null || true
+          
           # Remove all files except .git directory
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
           
@@ -43,17 +50,14 @@ jobs:
           cp -r /tmp/release-files/* .
           rm -rf /tmp/release-files
 
-          # Ensure git remote is configured
-          git remote add origin "$git_remote" 2>/dev/null || true
-
-          # Create or switch to release branch
-          git checkout release 2>/dev/null || git checkout --orphan release
+          # Create new release branch
+          git checkout --orphan release
 
           # Add all files
           git add -A
 
           # Commit with release tag name
-          git commit -m "Release ${{ github.event.release.tag_name }}" || echo "No changes to commit"
+          git commit -m "Release ${{ github.event.release.tag_name }}"
 
           # Force push to release branch
           git push -f origin release
