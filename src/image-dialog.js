@@ -784,12 +784,15 @@ export class ImageSelectionDialog {
     }
 
     _updateLightboxSelectState(index) {
+        const isSelected = this.selectedIndices.has(index);
+
         if (this.domElements.lightboxSelect) {
-            const isSelected = this.selectedIndices.has(index);
-            this.domElements.lightboxSelect.classList.toggle(
-                'selected',
-                isSelected,
-            );
+            this.domElements.lightboxSelect.classList.toggle('selected', isSelected);
+        }
+
+        const imgWrapper = this.domElements.lightbox?.querySelector('.lightbox-image-wrapper');
+        if (imgWrapper) {
+            imgWrapper.classList.toggle('selected', isSelected);
         }
     }
 
