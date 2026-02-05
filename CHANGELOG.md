@@ -2,38 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
-## [2.0.0] - 2026-01-27
+## [2.0.0] - 2026-02-05
 
 ### BREAKING CHANGES
 
 - **Replaced sequential swipe workflow with parallel Image Selection Dialog**: The old auto-swipes approach that fired swipes one-by-one has been completely replaced with an event-based parallel generation system.
 - **Removed burst mode**: The deprecated burst mode setting and UI have been removed entirely.
-- **Removed DOM polling**: Generation detection now uses SillyTavern's `MESSAGE_RECEIVED` event instead of polling for CSS classes.
+- **Removed DOM polling**: Generation detection now uses SillyTavern's native event system instead of polling for CSS classes.
 
 ### Added
 
-- **Image Selection Dialog**: A new modal dialog that displays a live grid of images as they generate in parallel. Users can select which images to keep and choose the destination (current message or new message).
-- **Parallel generation engine**: Images now generate concurrently up to a configurable concurrency limit (1-8, default 4).
-- **Event-based generation detection**: Uses SillyTavern's event system for reliable completion detection instead of fragile DOM polling.
-- **State management with cleanup**: New state manager prevents memory leaks by properly cleaning up generation states on chat change.
-- **Concurrency slider**: New setting to control how many images generate in parallel.
+- **Image Selection Dialog**: A new modal dialog that displays a live grid of images as they generate in parallel. Users can:
+  - Watch images appear in real-time as they complete
+  - Select one or multiple images to keep
+  - Choose where to insert images (current message or new message)
+  - See which model generated each image
+  - Click on any image to view it in a lightbox
+  - Regenerate individual images if you're not satisfied
+  - Cancel the entire batch at any time
+- **Parallel generation engine**: Images now generate concurrently up to a configurable concurrency limit (1-8, default 4). This dramatically speeds up batch generation by overlapping API calls.
+- **Event-based generation detection**: Uses SillyTavern's native event system (`MESSAGE_RECEIVED` and `SD_GENERATION_COMPLETE`) for reliable completion detection instead of fragile DOM polling. This means:
+  - More reliable detection of when images finish generating
+  - No more missed completions due to timing issues
+  - Better integration with SillyTavern's core systems
+- **State management with automatic cleanup**: New state manager prevents memory leaks by properly cleaning up generation states on chat change. Switching between chats or characters automatically cancels and cleans up any running generations.
+- **Concurrency slider**: New setting to control how many images generate in parallel (1-8). Tune this based on your provider's rate limits and your patience.
 
-### Removed
+### Migration Guide
 
-- `runSequentialSwipePlan()` - replaced by parallel generation
-- `runBurstSwipePlan()` - replaced by parallel generation
-- `monitorBurstCompletion()` - replaced by event-based detection
-- `isGenerationInProgress()` - replaced by event-based detection
-- `dispatchSwipe()` - no longer needed
-- Burst mode checkbox and throttle settings from UI
+If you were using the auto-swipes feature in 1.x, here's how the new 2.0 workflow works:
 
-### Migration
+1. **Trigger**: `<pic>` tags in the AI's response or clicking the paintbrush button now open the **Image Selection Dialog** instead of auto-generating images
+2. **Parallel Generation**: The extension generates multiple images simultaneously (respecting your concurrency limit)
+3. **Selection**: Watch the live grid fill with images as they complete, select the ones you like
+4. **Insert**: Click **"Keep Selected"** to insert chosen images into your chosen destination (current message or new message)
+5. **Progress**: The global progress HUD shows status and lets you stop everything instantly
 
-If you were using the auto-swipes feature, the new workflow is:
-1. `<pic>` tags or paintbrush clicks now open an **Image Selection Dialog**
-2. Images generate in parallel (configure concurrency in settings)
-3. Select desired images and click **"Keep Selected"**
-4. Images are inserted to your chosen destination
+The new workflow gives you more control—you see all generated images and pick your favorites instead of accepting whatever comes first.
 
 ## [1.3.0] - 2026-01-21
 
