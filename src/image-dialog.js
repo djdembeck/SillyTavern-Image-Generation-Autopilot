@@ -225,8 +225,10 @@ export class ImageSelectionDialog {
                 <div id="lightbox-prev" class="lightbox-nav-btn prev fa-solid fa-chevron-left"></div>
                 <div id="lightbox-next" class="lightbox-nav-btn next fa-solid fa-chevron-right"></div>
                 <div class="lightbox-content">
-                    <img id="lightbox-img" src="" alt="Enlarged view" />
-                    <div id="lightbox-select" class="lightbox-select-btn fa-solid fa-circle-check"></div>
+                    <div class="lightbox-image-wrapper">
+                        <img id="lightbox-img" src="" alt="Enlarged view" />
+                        <div id="lightbox-select" class="lightbox-select-btn fa-solid fa-circle-check"></div>
+                    </div>
                     <div id="lightbox-counter" class="lightbox-counter"></div>
                 </div>
             </div>

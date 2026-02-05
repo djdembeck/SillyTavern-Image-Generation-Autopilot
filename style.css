@@ -343,6 +343,15 @@
     padding: 20px;
 }
 
+.lightbox-image-wrapper {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .lightbox-content img {
     max-width: 100%;
     max-height: 100%;
@@ -364,23 +373,42 @@
 
 .lightbox-select-btn {
     position: absolute;
-    top: 20px;
-    right: 20px;
-    width: 48px;
-    height: 48px;
-    background: rgba(0, 0, 0, 0.5);
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    top: 12px;
+    right: 12px;
+    width: 28px;
+    height: 28px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 14px;
     color: white;
+    opacity: 0.7;
+    transform: scale(0.9);
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 10;
+    pointer-events: auto;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+
+.lightbox-select-btn:hover {
+    transform: scale(1.2);
+    background: rgba(123, 125, 255, 0.6);
+    border-color: rgba(255, 255, 255, 0.8);
+}
+
+.lightbox-select-btn:active {
+    transform: scale(0.95);
+    background: rgba(123, 125, 255, 0.8);
 }
 
 .lightbox-select-btn.selected {
     background: #7b7dff;
     border-color: #7b7dff;
+    opacity: 1;
+    transform: scale(1.1);
 }
 
 .lightbox-nav-btn {
