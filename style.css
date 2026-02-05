@@ -392,8 +392,8 @@
     pointer-events: auto;
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     cursor: pointer;
-    margin: -8px;
-    padding: 8px;
+    margin: -12px;
+    padding: 12px;
 }
 
 .lightbox-select-btn:hover {
