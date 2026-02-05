@@ -16,23 +16,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare release files
-        run: |
-          # Create a clean directory for release files
-          mkdir -p release-files
-
-          # Copy extension files
-          cp index.js release-files/
-          cp style.css release-files/
-          cp settings.html release-files/
-          cp manifest.json release-files/
-          cp README.md release-files/
-          cp LICENSE release-files/
-
-          # Copy src files except tests
-          mkdir -p release-files/src
-          find src -type f -name "*.js" ! -path "*/__tests__/*" -exec cp {} release-files/src/ \;
-
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
@@ -43,12 +26,22 @@ jobs:
           # Save git remote info before cleanup
           git_remote=$(git remote get-url origin)
           
+          # Create release files in a temp location
+          mkdir -p /tmp/release-files/src
+          cp index.js /tmp/release-files/
+          cp style.css /tmp/release-files/
+          cp settings.html /tmp/release-files/
+          cp manifest.json /tmp/release-files/
+          cp README.md /tmp/release-files/
+          cp LICENSE /tmp/release-files/
+          find src -type f -name "*.js" ! -path "*/__tests__/*" -exec cp {} /tmp/release-files/src/ \;
+          
           # Remove all files except .git directory
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
           
           # Copy release files to root
-          cp -r release-files/* .
-          rm -rf release-files
+          cp -r /tmp/release-files/* .
+          rm -rf /tmp/release-files
 
           # Ensure git remote is configured
           git remote add origin "$git_remote" 2>/dev/null || true
