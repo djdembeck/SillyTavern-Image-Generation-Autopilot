@@ -1,0 +1,11 @@
+{
+    "display_name": "Image Generation Autopilot",
+    "author": "djdembeck",
+    "version": "2.0.0",
+    "js": "index.js",
+    "css": ["style.css"],
+    "dependencies": ["stable-diffusion"],
+    "auto_update": false,
+    "minimum_client_version": "1.12.0",
+    "homePage": "https://github.com/djdembeck/SillyTavern-Image-Generation-Autopilot"
+}
