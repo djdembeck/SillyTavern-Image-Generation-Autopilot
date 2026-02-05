@@ -36,6 +36,18 @@ This extension guides the AI assistant to emit `<pic prompt="...">` tags, automa
 
 ## 📦 Install (GitHub)
 
+### Recommended: Install from release branch (production)
+
+The `release` branch contains only the files needed to run the extension, without tests or CI configuration. This results in a smaller download and faster installation.
+
+1. In SillyTavern, open **Settings → Extensions** and click **Install extension**.
+2. Choose the **GitHub** tab and paste: `https://github.com/djdembeck/SillyTavern-Image-Generation-Autopilot/tree/release`
+3. Click **Install**, allow reloads, then enable **Image Generation Autopilot**.
+
+### Alternative: Install from main branch (development)
+
+The `main` branch includes all source files, tests, and CI configuration. Use this if you're contributing to development or need to debug test-related issues.
+
 1. In SillyTavern, open **Settings → Extensions** and click **Install extension**.
 2. Choose the **GitHub** tab and paste: `https://github.com/djdembeck/SillyTavern-Image-Generation-Autopilot`
 3. Click **Install**, allow reloads, then enable **Image Generation Autopilot**.
