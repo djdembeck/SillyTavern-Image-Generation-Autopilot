@@ -136,6 +136,13 @@
     display: none !important;
 }
 
+/* Reserve space for regenerate selected button to prevent layout shift */
+.image-selection-btn.regenerate.hidden {
+    display: inline-flex !important;
+    visibility: hidden;
+    pointer-events: none;
+}
+
 .image-selection-toolbar-group {
     display: flex;
     align-items: center;
