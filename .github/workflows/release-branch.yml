@@ -40,24 +40,18 @@ jobs:
 
       - name: Create/update release branch
         run: |
-          # Move release files to root
-          rm -rf * .* 2>/dev/null || true
+          # Save git remote info before cleanup
+          git_remote=$(git remote get-url origin)
+          
+          # Remove all files except .git directory
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          
+          # Copy release files to root
           cp -r release-files/* .
           rm -rf release-files
 
-          # Remove excluded files/directories
-          rm -rf .github
-          rm -rf src/__tests__
-          rm -f package.json
-          rm -f bunfig.toml
-          rm -f .gitignore
-
-          # Initialize git if needed (for orphan branch case)
-          if [ ! -d .git ]; then
-            git init
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-          fi
+          # Ensure git remote is configured
+          git remote add origin "$git_remote" 2>/dev/null || true
 
           # Create or switch to release branch
           git checkout release 2>/dev/null || git checkout --orphan release
