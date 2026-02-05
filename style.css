@@ -362,8 +362,7 @@
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.lightbox-image-wrapper.selected .lightbox-content img,
-.lightbox-content img.selected {
+.lightbox-image-wrapper.selected img {
     border-color: #7b7dff;
     box-shadow: 0 0 30px rgba(123, 125, 255, 0.4), 0 30px 90px rgba(0, 0, 0, 0.9);
 }
