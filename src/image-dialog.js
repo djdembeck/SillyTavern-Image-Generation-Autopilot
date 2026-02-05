@@ -165,14 +165,14 @@ export class ImageSelectionDialog {
                     <button class="image-selection-btn regenerate" id="btn-img-regenerate" title="Discard current results and generate again">
                         <i class="fa-solid fa-rotate"></i> Regenerate All
                     </button>
+                    <button class="image-selection-btn" id="btn-edit-prompt" title="Edit the working prompt">
+                        <i class="fa-solid fa-pen-to-square"></i> Edit Prompt
+                    </button>
                     <button class="image-selection-btn regenerate hidden" id="btn-img-regenerate-selected" title="Regenerate only the selected images">
                         <i class="fa-solid fa-rotate-right"></i> Regenerate Selected
                     </button>
                     <button class="image-selection-btn warning hidden" id="btn-img-retry" title="Retry only failed generations">
                         <i class="fa-solid fa-arrows-rotate"></i> Retry Failed
-                    </button>
-                    <button class="image-selection-btn" id="btn-edit-prompt" title="Edit the working prompt">
-                        <i class="fa-solid fa-pen-to-square"></i> Edit Prompt
                     </button>
                 </div>
                 <div class="image-selection-toolbar-group">
