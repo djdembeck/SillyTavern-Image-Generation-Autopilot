@@ -4,8 +4,10 @@ import { ImageSelectionDialog } from "../image-dialog.js";
 // Mock DOM setup
 const createMockElement = (id = '') => {
     const listeners = {};
-    return {
+    const children = [];
+    const el = {
         id,
+        tagName: '',
         querySelector: mock((selector) => createMockElement(selector)),
         addEventListener: mock((event, handler) => {
             listeners[event] = handler;
@@ -23,16 +25,46 @@ const createMockElement = (id = '') => {
         scrollTo: mock(),
         dataset: {},
         closest: mock(() => ({ dataset: { index: "0" } })),
-        innerHTML: "",
+        _innerHTML: "",
+        get innerHTML() {
+            // Build innerHTML from children when accessed
+            if (children.length > 0) {
+                return children.map(c => c.src || c.textContent || '').join('');
+            }
+            return el._innerHTML || "";
+        },
+        set innerHTML(value) {
+            el._innerHTML = value;
+            children.length = 0;
+        },
         value: "",
+        textContent: "",
+        src: "",
+        alt: "",
+        style: {},
+        className: "",
+        appendChild: mock((child) => {
+            children.push(child);
+            return child;
+        }),
+        children,
         listeners // expose for testing
     };
+    return el;
 };
 
 global.document = {
     querySelector: mock(() => createMockElement('container')),
     getElementById: mock(() => createMockElement('container')),
     body: createMockElement('body'),
+    createElement: mock((tag) => {
+        const el = createMockElement(tag);
+        el.tagName = tag.toUpperCase();
+        el.src = '';
+        el.alt = '';
+        el.textContent = '';
+        return el;
+    }),
 };
 
 const windowListeners = {};
