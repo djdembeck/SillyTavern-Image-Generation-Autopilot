@@ -14,7 +14,7 @@ function createEventSource() {
             listeners.get(eventType)?.delete(handler)
         },
         emit(eventType, payload) {
-            listeners.get(eventType)?.forEach((handler) => handler(payload))
+            listeners.get(eventType)?.forEach((handler) => { handler(payload) })
         },
         listenerCount(eventType) {
             return listeners.get(eventType)?.size || 0
