@@ -373,20 +373,20 @@
 
 .lightbox-select-btn {
     position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 40px;
-    height: 40px;
+    top: 12px;
+    right: 12px;
+    width: 44px;
+    height: 44px;
     background: rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 20px;
     color: white;
     opacity: 0.7;
-    transform: scale(0.9);
+    transform: scale(0.95);
     transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
     z-index: 10;
     pointer-events: auto;
@@ -397,7 +397,7 @@
 }
 
 .lightbox-select-btn:hover {
-    transform: scale(1.2);
+    transform: scale(1.05);
     background: rgba(123, 125, 255, 0.6);
     border-color: rgba(255, 255, 255, 0.8);
 }
@@ -411,7 +411,7 @@
     background: #7b7dff;
     border-color: #7b7dff;
     opacity: 1;
-    transform: scale(1.1);
+    transform: scale(1);
 }
 
 .lightbox-nav-btn {
