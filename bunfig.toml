@@ -1,0 +1,9 @@
+[run]
+# Bun configuration for running tests
+
+[test]
+# Test configuration for Bun's built-in test runner
+timeout = 30000  # 30 second timeout for tests
+
+[snapshot]
+# Snapshot testing configuration (optional)

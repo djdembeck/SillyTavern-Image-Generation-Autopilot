@@ -59,16 +59,16 @@
                         <h5>Toggle the autopilot</h5>
                     </div>
                     <p class="caption">
-                        Enable swipe automation and automatic image creation.
+                        Enable image generation automation and dialog-based selection.
                     </p>
                 </header>
                 <label class="checkbox_label auto-multi-toggle" title="Toggle automatic image generation from assistant replies.">
                     <input type="checkbox" id="auto_multi_auto_gen_enabled" />
                     <span>Enable auto image generation</span>
                 </label>
-                <label class="checkbox_label auto-multi-toggle" title="Toggle automatic swipe requests for each new SD image message.">
+                <label class="checkbox_label auto-multi-toggle" title="Toggle automatic image generation for each new SD image message.">
                     <input type="checkbox" id="auto_multi_image_enabled" />
-                    <span>Enable auto-swipes</span>
+                    <span>Enable auto-generations</span>
                 </label>
             </section>
 
@@ -264,17 +264,19 @@
                             placeholder="/<pic[^>]*\\sprompt=\"([^\"]*)\"[^>]*?>/g"
                         ></textarea>
                     </label>
-                    <label
-                        class="checkbox_label auto-multi-inline"
-                        title="Rewrite failed <pic> prompts with the active chat model and retry image generation."
-                    >
-                        <input
-                            type="checkbox"
-                            id="auto_multi_prompt_rewrite_enabled"
-                        />
-                        <span>Rewrite failed prompts with chat model</span>
-                    </label>
+                    <div class="auto-multi-grid">
+                        <label title="Select a text model connection profile to rewrite image prompts.">
+                            <span>Rewrite connection profile</span>
+                            <select
+                                id="auto_multi_prompt_rewrite_model"
+                                class="text_pole"
+                            >
+                                <option value="">Default (Active chat model)</option>
+                            </select>
+                        </label>
+                    </div>
                 </div>
+
             </section>
 
             <section
@@ -306,7 +308,7 @@
                     </div>
                 </header>
                 <p class="caption">
-                    Each row pins a model + swipe count. Leave the list empty to
+                    Each row pins a model + image count. Leave the list empty to
                     mirror the SD panel selection.
                 </p>
                 <label
@@ -332,15 +334,15 @@
                             <i class="fa-solid fa-wave-square"></i> Timing &
                             strategy
                         </p>
-                        <h5>Dial in swipe cadence</h5>
+                        <h5>Generation pacing</h5>
                     </div>
                     <p class="caption">
-                        Tune swipe pacing for slow or fast backends.
+                        Control concurrency and pacing for slow or fast backends.
                     </p>
                 </header>
                 <div class="auto-multi-grid">
-                    <label title="Default number of swipes per model when added to the queue.">
-                        <span>Default swipes per model</span>
+                    <label title="Default number of images per model when added to the queue.">
+                        <span>Default images per model</span>
                         <input
                             type="number"
                             min="1"
@@ -350,8 +352,8 @@
                             class="text_pole"
                         />
                     </label>
-                    <label title="Delay between swipe requests to avoid provider rate limits.">
-                        <span>Delay between swipes (ms)</span>
+                    <label title="Delay between generation requests to avoid provider rate limits.">
+                        <span>Delay between requests (ms)</span>
                         <input
                             type="number"
                             min="0"
@@ -361,29 +363,19 @@
                             class="text_pole"
                         />
                     </label>
-                    <label title="Throttle used when burst mode is enabled (currently deprecated).">
-                        <span>Burst throttle (ms)</span>
+                    <label title="Number of images to generate in parallel (0 = Unlimited, 1-8).">
+                        <span>Concurrency</span>
                         <input
                             type="number"
                             min="0"
-                            max="5000"
-                            step="25"
-                            id="auto_multi_burst_throttle"
+                            max="8"
+                            step="1"
+                            id="auto_swipe_concurrency"
                             class="text_pole"
                         />
                     </label>
                 </div>
-                <label
-                    class="checkbox_label auto-multi-inline"
-                    title="Burst mode is deprecated and disabled."
-                >
-                    <input type="checkbox" id="auto_multi_burst_mode" disabled />
-                    <span>Fire all swipes at once (burst mode)</span>
-                </label>
-                <p class="note auto-multi-burst-note margin0">
-                    Burst mode is deprecated and currently disabled to prevent
-                    SD requests from aborting each other.
-                </p>
+                <small>Number of images to generate in parallel (0 = Unlimited, 1-8)</small>
             </section>
 
             <section class="auto-multi-panel auto-multi-panel--presets" id="auto_multi_presets_panel">

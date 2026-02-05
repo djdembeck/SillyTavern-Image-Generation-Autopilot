@@ -1,0 +1,72 @@
+name: Publish to Release Branch
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release files
+        run: |
+          # Create a clean directory for release files
+          mkdir -p release-files
+
+          # Copy extension files
+          cp index.js release-files/
+          cp style.css release-files/
+          cp settings.html release-files/
+          cp manifest.json release-files/
+          cp README.md release-files/
+          cp LICENSE release-files/
+
+          # Copy src files except tests
+          mkdir -p release-files/src
+          find src -type f -name "*.js" ! -path "*/__tests__/*" -exec cp {} release-files/src/ \;
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create/update release branch
+        run: |
+          # Move release files to root
+          rm -rf * .* 2>/dev/null || true
+          cp -r release-files/* .
+          rm -rf release-files
+
+          # Remove excluded files/directories
+          rm -rf .github
+          rm -rf src/__tests__
+          rm -f package.json
+          rm -f bunfig.toml
+          rm -f .gitignore
+
+          # Initialize git if needed (for orphan branch case)
+          if [ ! -d .git ]; then
+            git init
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+          fi
+
+          # Create or switch to release branch
+          git checkout release 2>/dev/null || git checkout --orphan release
+
+          # Add all files
+          git add -A
+
+          # Commit with release tag name
+          git commit -m "Release ${{ github.event.release.tag_name }}" || echo "No changes to commit"
+
+          # Force push to release branch
+          git push -f origin release
