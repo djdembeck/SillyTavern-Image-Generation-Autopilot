@@ -821,25 +821,52 @@ export class ImageSelectionDialog {
         if (slotData.status === 'success') {
             slotEl.classList.add('success');
             const imageUrl = slotData.result.result;
-            slotEl.innerHTML = `
-                <img src="${imageUrl}" alt="${slotData.result.prompt}" />
-                <div class="image-slot-overlay"></div>
-                <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
-            `;
+
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            img.alt = slotData.result.prompt;
+
+            const overlay = document.createElement('div');
+            overlay.className = 'image-slot-overlay';
+
+            const indicator = document.createElement('div');
+            indicator.className = 'image-slot-selection-indicator fa-solid fa-circle-check';
+
+            slotEl.innerHTML = '';
+            slotEl.appendChild(img);
+            slotEl.appendChild(overlay);
+            slotEl.appendChild(indicator);
+
             const isSelected = this.selectedIndices.has(index);
             slotEl.classList.toggle('selected', isSelected);
         } else if (slotData.status === 'error') {
             logger.error('Slot error:', slotData.result.error);
             const errorMsg = slotData.result.error?.message || 'Unknown error';
             slotEl.classList.add('error');
-            slotEl.innerHTML = `
-                <div class="image-slot-status">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                    <span>Failed</span>
-                    <span style="font-size: 0.7em; margin-top: 4px; opacity: 0.8;">${errorMsg}</span>
-                </div>
-                <div class="image-slot-selection-indicator fa-solid fa-circle-check"></div>
-            `;
+
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'image-slot-status';
+
+            const icon = document.createElement('i');
+            icon.className = 'fa-solid fa-triangle-exclamation';
+
+            const failedSpan = document.createElement('span');
+            failedSpan.textContent = 'Failed';
+
+            const errorSpan = document.createElement('span');
+            errorSpan.style.cssText = 'font-size: 0.7em; margin-top: 4px; opacity: 0.8;';
+            errorSpan.textContent = errorMsg;
+
+            statusDiv.appendChild(icon);
+            statusDiv.appendChild(failedSpan);
+            statusDiv.appendChild(errorSpan);
+
+            const indicator = document.createElement('div');
+            indicator.className = 'image-slot-selection-indicator fa-solid fa-circle-check';
+
+            slotEl.innerHTML = '';
+            slotEl.appendChild(statusDiv);
+            slotEl.appendChild(indicator);
         }
     }
 
