@@ -11,8 +11,7 @@ const defaultSettings = Object.freeze({
     targetCount: 4,
     delayMs: 800,
     swipeTimeoutMs: 120000,
-    burstMode: false,
-    burstThrottleMs: 250,
+    concurrency: 0,
     modelQueue: [],
     modelQueueEnabled: true,
     swipeModel: '',
@@ -25,6 +24,7 @@ const defaultSettings = Object.freeze({
         insertType: INSERT_TYPE.NEW_MESSAGE,
         promptRewrite: {
             enabled: false,
+            modelId: '',
         },
         promptInjection: {
             enabled: true,
@@ -39,7 +39,7 @@ const defaultSettings = Object.freeze({
             picCountExact: 1,
             picCountMin: 1,
             picCountMax: 3,
-            regex: '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g',
+            regex: '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
             position: 'deep_system',
             depth: 0,
         },
@@ -54,6 +54,7 @@ const state = {
     chatToken: 0,
     toastPatched: false,
     ui: null,
+    isRewriting: false,
     progress: {
         messageId: null,
         container: null,
@@ -74,6 +75,41 @@ const state = {
         swipesPerImage: 0,
         insertType: INSERT_TYPE.DISABLED,
     },
+    components: {
+        StateManager: null,
+        GenerationDetector: null,
+        ParallelGenerator: null,
+        ImageSelectionDialog: null,
+    },
+}
+
+let debugModeCache = null
+let lastDebugCheck = 0
+
+const logger = {
+    debug: (...args) => {
+        // Avoid recursion by using cached debug mode check
+        // Only re-check every 1000ms to prevent infinite loops during settings initialization
+        const now = Date.now()
+        if (now - lastDebugCheck > 1000) {
+            try {
+                const ctx = typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function'
+                    ? SillyTavern.getContext()
+                    : null
+                const settings = ctx?.extensionSettings?.[MODULE_NAME]
+                debugModeCache = settings?.debugMode === true
+            } catch {
+                debugModeCache = false
+            }
+            lastDebugCheck = now
+        }
+        if (debugModeCache) {
+            console.log(`[${MODULE_NAME}]`, ...args)
+        }
+    },
+    info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
+    warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
+    error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
 }
 
 function resolveTemplateRoot() {
@@ -114,20 +150,54 @@ function resolveTemplateRoot() {
 }
 
 const TEMPLATE_ROOT = resolveTemplateRoot()
-const BURST_MODEL_SETTLE_MS = 120
+
+/**
+ * Dynamically import and cache component modules.
+ * @returns {Promise<{StateManager: Function, GenerationDetector: Function, ParallelGenerator: Function, ImageSelectionDialog: Function}>}
+ */
+async function initComponents() {
+    if (
+        state.components.StateManager &&
+        state.components.GenerationDetector &&
+        state.components.ParallelGenerator &&
+        state.components.ImageSelectionDialog
+    ) {
+        return state.components
+    }
+
+    const extensionPath = `scripts/extensions/${TEMPLATE_ROOT}`
+
+    try {
+        const [stateModule, eventsModule, generatorModule, dialogModule] =
+            await Promise.all([
+                import(`/${extensionPath}/src/state-manager.js`),
+                import(`/${extensionPath}/src/generation-events.js`),
+                import(`/${extensionPath}/src/parallel-generator.js`),
+                import(`/${extensionPath}/src/image-dialog.js`),
+            ])
+
+        state.components.StateManager = stateModule.StateManager
+        state.components.GenerationDetector = eventsModule.GenerationDetector
+        state.components.ParallelGenerator = generatorModule.ParallelGenerator
+        state.components.ImageSelectionDialog = dialogModule.ImageSelectionDialog
+
+        logger.debug('Components initialized:', Object.keys(state.components))
+        return state.components
+    } catch (error) {
+        logger.error('Failed to load components', error)
+        throw error
+    }
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-const log = (...args) => {
-    if (!getSettings().debugMode) return
-    console.log('[Image-Generation-Autopilot]', ...args)
-}
+const log = (...args) => logger.debug(...args)
 
 function logPerCharacter(action, payload) {
     const settings = getSettings()
     if (!settings?.debugMode && !settings?.perCharacter?.enabled) {
         return
     }
-    console.log('[Image-Generation-Autopilot][PerCharacter]', action, payload)
+    logger.debug('[PerCharacter]', action, payload)
 }
 
 function patchToastrForDebug() {
@@ -150,18 +220,15 @@ function patchToastrForDebug() {
                     message.includes('Invalid swipe ID')
                 ) {
                     console.groupCollapsed(
-                        '[Image-Generation-Autopilot] Invalid swipe ID toast',
+                        `[${MODULE_NAME}] Invalid swipe ID toast`,
                     )
-                    console.log('message:', message)
-                    console.log('title:', title)
+                    logger.debug('message:', message)
+                    logger.debug('title:', title)
                     console.trace('toast stack')
                     console.groupEnd()
                 }
             } catch (error) {
-                console.warn(
-                    '[Image-Generation-Autopilot] Toast debug failed',
-                    error,
-                )
+                logger.warn('Toast debug failed', error)
             }
 
             return fn?.call?.(window.toastr, message, title, options)
@@ -193,9 +260,7 @@ function ensureSettings() {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available, using defaults',
-            )
+            logger.warn('Extension settings not available, using defaults')
             return { ...defaultSettings }
         }
         const { extensionSettings } = ctx
@@ -219,18 +284,12 @@ function ensureSettings() {
                     // Check if this is a circular reference (the presets property contains the preset itself)
                     if (preset.settings.presets[presetId] === preset) {
                         presetsWithCircularRefs.push(presetId)
-                        console.log(
-                            '[Image-Generation-Autopilot] Found preset with circular reference:',
-                            { presetId, presetName: preset.name },
-                        )
+                        logger.debug('Found preset with circular reference:', { presetId, presetName: preset.name })
                     }
                 }
             }
             if (presetsWithCircularRefs.length > 0) {
-                console.log(
-                    '[Image-Generation-Autopilot] Clearing presets with circular references:',
-                    presetsWithCircularRefs,
-                )
+                logger.debug('Clearing presets with circular references:', presetsWithCircularRefs)
                 for (const presetId of presetsWithCircularRefs) {
                     delete settings.presets[presetId]
                 }
@@ -248,9 +307,7 @@ function ensureSettings() {
                 Object.keys(extensionSettings[PRESET_STORAGE_KEY]).length <
                 Object.keys(settings.presets).length
             ) {
-                console.log(
-                    '[Image-Generation-Autopilot] Migrating presets from old location to separate storage key',
-                )
+                logger.debug('Migrating presets from old location to separate storage key')
                 extensionSettings[PRESET_STORAGE_KEY] = JSON.parse(
                     JSON.stringify(settings.presets),
                 )
@@ -288,6 +345,10 @@ function ensureSettings() {
         ) {
             settings.autoGeneration.promptRewrite.enabled =
                 defaultSettings.autoGeneration.promptRewrite.enabled
+        }
+
+        if (typeof settings.autoGeneration.promptRewrite.modelId !== 'string') {
+            settings.autoGeneration.promptRewrite.modelId = ''
         }
 
         if (!settings.autoGeneration.promptInjection) {
@@ -329,10 +390,6 @@ function ensureSettings() {
             settings.perCharacter.globalDefaults = {}
         }
 
-        if (settings.burstMode) {
-            settings.burstMode = false
-        }
-
         if (settings.swipeModel?.trim() && settings.modelQueue.length === 0) {
             settings.modelQueue = [
                 {
@@ -340,19 +397,18 @@ function ensureSettings() {
                     count: clampCount(settings.targetCount),
                 },
             ]
-            settings.swipeModel = ''
         }
 
-        settings.modelQueue = sanitizeModelQueue(
-            settings.modelQueue,
-            clampCount(settings.targetCount),
-        )
+        const oldRegex = '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g'
+        const newRegex = '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g'
+        if (settings.autoGeneration?.promptInjection?.regex === oldRegex) {
+            logger.debug('Migrating regex to robust version')
+            settings.autoGeneration.promptInjection.regex = newRegex
+        }
+
         return settings
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to ensure settings:',
-            error,
-        )
+        logger.error('Failed to ensure settings:', error)
         return { ...defaultSettings }
     }
 }
@@ -370,10 +426,7 @@ function saveSettings() {
         syncUiFromSettings()
         syncPerCharacterStorage()
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to save settings:',
-            error,
-        )
+        logger.error('Failed to save settings:', error)
     }
 }
 
@@ -716,16 +769,11 @@ function ensurePerCharacterDefaults(settings, forceSnapshot = false) {
 }
 
 function applyPerCharacterOverrides() {
-    console.info('[Image-Generation-Autopilot][PerCharacter] apply invoked')
+    logger.debug('[PerCharacter] apply invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] apply skipped',
-            {
-                reason: 'disabled',
-            },
-        )
+        logger.debug('[PerCharacter] apply skipped', { reason: 'disabled' })
         return
     }
     const ctx = getCtx()
@@ -737,17 +785,7 @@ function applyPerCharacterOverrides() {
         if (Object.keys(defaults).length) {
             applySettingsSnapshot(settings, defaults)
         }
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] apply skipped',
-            {
-                reason: 'no-character',
-                characterId: record.characterId,
-                source: record.source,
-                name2: getCtx()?.name2,
-                groupId: getCtx()?.groupId,
-                chatCharacterId: getCtx()?.chat_metadata?.character_id,
-            },
-        )
+        logger.debug('[PerCharacter] apply skipped', { reason: 'no-character', characterId: record.characterId, source: record.source, name2: getCtx()?.name2, groupId: getCtx()?.groupId, chatCharacterId: getCtx()?.chat_metadata?.character_id })
         syncUiFromSettings()
         return
     }
@@ -799,16 +837,11 @@ function applyPerCharacterOverrides() {
 }
 
 function syncPerCharacterStorage() {
-    console.info('[Image-Generation-Autopilot][PerCharacter] save invoked')
+    logger.debug('[PerCharacter] save invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] save skipped',
-            {
-                reason: 'disabled',
-            },
-        )
+        logger.debug('[PerCharacter] save skipped', { reason: 'disabled' })
         return
     }
     const ctx = getCtx()
@@ -816,17 +849,7 @@ function syncPerCharacterStorage() {
     const character = record.character
     const canonical = resolveCharacterById(ctx, record.characterId)
     if (!character && !canonical) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] save skipped',
-            {
-                reason: 'no-character',
-                characterId: record.characterId,
-                source: record.source,
-                name2: getCtx()?.name2,
-                groupId: getCtx()?.groupId,
-                chatCharacterId: getCtx()?.chat_metadata?.character_id,
-            },
-        )
+        logger.debug('[PerCharacter] save skipped', { reason: 'no-character', characterId: record.characterId, source: record.source, name2: getCtx()?.name2, groupId: getCtx()?.groupId, chatCharacterId: getCtx()?.chat_metadata?.character_id })
         return
     }
     const store = getCharacterExtensionStore(canonical || character)
@@ -874,26 +897,15 @@ function syncPerCharacterStorage() {
                     })
                 })
                 .catch((error) => {
-                    console.warn(
-                        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField failed',
-                        error,
-                    )
+                    logger.warn('[PerCharacter] writeExtensionField failed', error)
                 })
             return
         }
 
-        console.warn(
-            '[Image-Generation-Autopilot][PerCharacter] writeExtensionField skipped (no characterId)',
-            {
-                characterId: record.characterId,
-                source: record.source,
-            },
-        )
+        logger.warn('[PerCharacter] writeExtensionField skipped (no characterId)', { characterId: record.characterId, source: record.source })
     }
 
-    console.warn(
-        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField unavailable',
-    )
+    logger.warn('[PerCharacter] writeExtensionField unavailable')
 }
 
 // ==================== PRESET CHARACTER INTEGRATION ====================
@@ -901,7 +913,7 @@ function syncPerCharacterStorage() {
 function applyPresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
-        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        logger.warn('Preset not found:', presetId)
         return false
     }
 
@@ -934,7 +946,7 @@ function applyPresetToCharacter(presetId) {
 function savePresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
-        console.warn('[Image-Generation-Autopilot] Preset not found:', presetId)
+        logger.warn('Preset not found:', presetId)
         return false
     }
 
@@ -972,10 +984,7 @@ function loadPresetToCharacter(presetId) {
         if (settings.perCharacter?.enabled) {
             syncPerCharacterStorage()
         }
-        console.info(
-            '[Image-Generation-Autopilot] Preset loaded to character',
-            { presetId },
-        )
+        logger.info('Preset loaded to character', { presetId })
     }
     return success
 }
@@ -1020,13 +1029,7 @@ function normalizeModelQueueEnabled(
     return fallback
 }
 
-function clampBurstThrottle(value) {
-    const numeric = Number(value)
-    if (Number.isNaN(numeric)) {
-        return defaultSettings.burstThrottleMs
-    }
-    return Math.max(0, Math.min(5000, Math.round(numeric)))
-}
+
 
 function clampDepth(value) {
     const numeric = Number(value)
@@ -1059,10 +1062,7 @@ function parseRegexFromString(raw) {
                 flags.includes('g') ? flags : `${flags}g`,
             )
         } catch (error) {
-            console.warn(
-                '[Image-Generation-Autopilot] Invalid regex string',
-                error,
-            )
+            logger.warn('Invalid regex string', error)
             return null
         }
     }
@@ -1070,7 +1070,7 @@ function parseRegexFromString(raw) {
     try {
         return new RegExp(source, 'g')
     } catch (error) {
-        console.warn('[Image-Generation-Autopilot] Invalid regex string', error)
+        logger.warn('Invalid regex string', error)
         return null
     }
 }
@@ -1087,15 +1087,63 @@ function getPicPromptMatches(messageText, regex) {
           : []
 }
 
+function getSdModelOptions() {
+    const select = document.getElementById('sd_model')
+    if (!(select instanceof HTMLSelectElement)) {
+        return []
+    }
+
+    return Array.from(select.options)
+        .map((option) => {
+            const text =
+                option.textContent?.trim() || option.value || 'Unnamed model'
+            return {
+                value: option.value,
+                text: text,
+                label: text,
+            }
+        })
+        .filter((option) => option.value)
+}
+
+const FILLER_PATTERNS = [
+    /^(?:here(?:'s| is| are)?|sure[,!]?|of course[,!]?|certainly[,!]?|absolutely[,!]?)\s*[:!]?\s*/i,
+    /^(?:i(?:'ve| have)?|let me)\s+(?:created?|generated?|crafted|written?|prepared?|expanded?|rewritten?|transformed?)\s*(?:the\s+)?(?:prompt|image|description)\s*[:.]?\s*/i,
+    /^(?:the|your|an?)\s+(?:enhanced|expanded|detailed|rewritten|improved|transformed)\s+prompt\s*(?:is|:)?\s*/i,
+    /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?|variations?))\s*(?:for\s+[^:]+)?[:.]?\s*/i,
+    /^(?:prompt|output|result|here you go|expanded prompt)\s*[:]\s*/i,
+    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题|你的消息是空的|不知道你想了解什么|我会尽力帮助你|欢迎和我聊聊)\s*[:!。,，？！]?\s*/i,
+    /^["'"`]+\s*/,
+    /\s*["'"`]+$/,
+]
+
+function stripConversationalFiller(text) {
+    let result = text.trim()
+    let changed = true
+    while (changed) {
+        changed = false
+        for (const pattern of FILLER_PATTERNS) {
+            const stripped = result.replace(pattern, '')
+            if (stripped !== result) {
+                result = stripped.trim()
+                changed = true
+                break
+            }
+        }
+    }
+    return result
+}
+
 function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
-    const fallback = typeof originalPrompt === 'string' ? originalPrompt : ''
-    if (typeof rewrittenText !== 'string') {
-        return fallback
+    if (typeof rewrittenText !== 'string' || !rewrittenText.trim()) {
+        return null
     }
 
     let cleaned = rewrittenText.trim()
-    if (!cleaned) {
-        return fallback
+
+    const sdPromptMatch = cleaned.match(/<sd_prompt>([\s\S]*?)<\/sd_prompt>/i)
+    if (sdPromptMatch?.[1]?.trim()) {
+        return stripConversationalFiller(sdPromptMatch[1].trim())
     }
 
     cleaned = cleaned.replace(/^['"`]+|['"`]+$/g, '').trim()
@@ -1103,21 +1151,28 @@ function normalizeRewrittenPrompt(originalPrompt, rewrittenText, regex) {
     if (regex) {
         const matches = getPicPromptMatches(cleaned, regex)
         if (matches.length && typeof matches[0]?.[1] === 'string') {
-            return matches[0][1].trim()
+            return stripConversationalFiller(matches[0][1].trim())
         }
     }
 
     const promptAttr = cleaned.match(/prompt\s*=\s*"([^"]+)"/i)
     if (promptAttr?.[1]) {
-        return promptAttr[1].trim()
+        return stripConversationalFiller(promptAttr[1].trim())
     }
 
     cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '')
     cleaned = cleaned.replace(/<[^>]+>/g, '')
     cleaned = cleaned.trim()
+    cleaned = stripConversationalFiller(cleaned)
+
+    const hasChinese = /[\u4e00-\u9fa5]/.test(cleaned)
+    if (hasChinese && !sdPromptMatch) {
+        log('Rejected rewrite result due to Chinese characters without tags', { cleaned })
+        return originalPrompt
+    }
 
     const firstLine = cleaned.split(/\r?\n/).find((line) => line.trim())
-    return firstLine?.trim() || cleaned || fallback
+    return firstLine?.trim() || cleaned || originalPrompt
 }
 
 async function cleanupRewriteMessages(startLength) {
@@ -1433,493 +1488,150 @@ function getSwipePlan(settings) {
     return [{ id: fallbackModel, count: fallbackCount }]
 }
 
-async function buildSettingsPanel() {
-    const root =
-        document.getElementById('extensions_settings2') ||
-        document.getElementById('extensions_settings')
-    if (!root) {
-        console.warn(
-            '[Image-Generation-Autopilot] Could not find extension settings container.',
-        )
-        return
-    }
 
-    const existing = document.getElementById('auto_multi_image_container')
-    if (existing) {
-        existing.remove()
-    }
-
-    let html = ''
+function getPresetStorage() {
     try {
-        html = await getCtx().renderExtensionTemplateAsync(
-            TEMPLATE_ROOT,
-            'settings',
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            logger.warn('Extension settings not available')
+            return {}
+        }
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
+        }
+        // Return a deep copy to avoid reference issues
+        const presets = JSON.parse(
+            JSON.stringify(ctx.extensionSettings[PRESET_STORAGE_KEY]),
         )
+        logger.debug('Retrieved presets from extension settings:', presets)
+        return presets
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to load settings template',
-            error,
-        )
-        return
+        logger.error('Failed to get preset storage:', error)
+        return {}
     }
-
-    const template = document.createElement('template')
-    template.innerHTML = html.trim()
-    const container = template.content.firstElementChild
-    if (!container) {
-        console.warn('[Image-Generation-Autopilot] Settings template empty')
-        return
-    }
-
-    root.appendChild(container)
-
-    const enabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_image_enabled')
-    )
-    const modelQueueEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_model_queue_enabled')
-    )
-    const countInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_image_target')
-    )
-    const delayInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_image_delay')
-    )
-    const burstThrottleInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_burst_throttle')
-    )
-    const summary = /** @type {HTMLParagraphElement | null} */ (
-        container.querySelector('#auto_multi_image_summary')
-    )
-    const modelRowsContainer = /** @type {HTMLDivElement | null} */ (
-        container.querySelector('#auto_multi_model_rows')
-    )
-    const addModelButton = /** @type {HTMLButtonElement | null} */ (
-        container.querySelector('#auto_multi_add_model')
-    )
-    const refreshModelsButton = /** @type {HTMLButtonElement | null} */ (
-        container.querySelector('#auto_multi_refresh_models')
-    )
-    const burstModeInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_burst_mode')
-    )
-    const summaryPanel = /** @type {HTMLElement | null} */ (
-        container.querySelector('#auto_multi_summary_panel')
-    )
-    const autoGenPanel = /** @type {HTMLElement | null} */ (
-        container.querySelector('#auto_multi_autogen_panel')
-    )
-    const queuePanel = /** @type {HTMLElement | null} */ (
-        container.querySelector('#auto_multi_queue_panel')
-    )
-    const characterPanel = /** @type {HTMLElement | null} */ (
-        container.querySelector('#auto_multi_character_panel')
-    )
-    const characterEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_character_enabled')
-    )
-    const characterResetButton = /** @type {HTMLButtonElement | null} */ (
-        container.querySelector('#auto_multi_character_reset')
-    )
-    const cadencePanel = /** @type {HTMLElement | null} */ (
-        container.querySelector('#auto_multi_cadence_panel')
-    )
-    const autoGenEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_auto_gen_enabled')
-    )
-    const autoGenInsertSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_auto_gen_insert_type')
-    )
-    const promptInjectionEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_injection_enabled')
-    )
-    const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_main')
-    )
-    const promptPositiveInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_positive')
-    )
-    const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_negative')
-    )
-    const promptExampleInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_example')
-    )
-    const promptLimitInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_limit')
-    )
-    const promptLimitTypeSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_prompt_limit_type')
-    )
-    const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_regex')
-    )
-    const promptRewriteEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_rewrite_enabled')
-    )
-    const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_prompt_position')
-    )
-    const promptDepthInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_depth')
-    )
-    const debugModeInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_debug_mode')
-    )
-    const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_mode')
-    )
-    const picCountExactInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_exact')
-    )
-    const picCountMinInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_min')
-    )
-    const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_max')
-    )
-
-    if (
-        !(
-            enabledInput &&
-            countInput &&
-            delayInput &&
-            burstThrottleInput &&
-            summary &&
-            modelRowsContainer &&
-            burstModeInput
-        )
-    ) {
-        console.warn(
-            '[Image-Generation-Autopilot] Settings template missing inputs',
-        )
-        return
-    }
-
-    if (
-        !(
-            autoGenEnabledInput &&
-            autoGenInsertSelect &&
-            promptInjectionEnabledInput &&
-            promptMainInput &&
-            promptPositiveInput &&
-            promptNegativeInput &&
-            promptExampleInput &&
-            promptLimitInput &&
-            promptLimitTypeSelect &&
-            promptRegexInput &&
-            promptRewriteEnabledInput &&
-            promptPositionSelect &&
-            promptDepthInput &&
-            debugModeInput &&
-            picCountModeSelect &&
-            picCountExactInput &&
-            picCountMinInput &&
-            picCountMaxInput
-        )
-    ) {
-        console.warn(
-            '[Image-Generation-Autopilot] Auto-generation inputs missing',
-        )
-    }
-
-    // Initialize state.ui object early to avoid null reference errors
-    state.ui = {
-        container,
-        enabledInput,
-        modelQueueEnabledInput,
-        countInput,
-        delayInput,
-        burstThrottleInput,
-        summary,
-        modelRowsContainer,
-        burstModeInput,
-        addModelButton,
-        refreshModelsButton,
-        autoGenEnabledInput,
-        autoGenInsertSelect,
-        promptInjectionEnabledInput,
-        promptMainInput,
-        promptPositiveInput,
-        promptNegativeInput,
-        promptExampleInput,
-        promptLimitInput,
-        promptLimitTypeSelect,
-        promptRegexInput,
-        promptRewriteEnabledInput,
-        promptPositionSelect,
-        promptDepthInput,
-        debugModeInput,
-        picCountModeSelect,
-        picCountExactInput,
-        picCountMinInput,
-        picCountMaxInput,
-        summaryPanel,
-        autoGenPanel,
-        queuePanel,
-        cadencePanel,
-        characterPanel,
-        characterEnabledInput,
-        characterResetButton,
-        presetSaveButton: null,
-        presetNameInput: null,
-        presetListContainer: null,
-    }
-
-    enabledInput.addEventListener('change', () => {
-        const current = getSettings()
-        current.enabled = enabledInput.checked
-        saveSettings()
-    })
-
-    modelQueueEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.modelQueueEnabled = modelQueueEnabledInput.checked
-        saveSettings()
-        applyQueueEnabledState(modelQueueEnabledInput.checked)
-    })
-
-    characterEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.perCharacter.enabled = characterEnabledInput.checked
-        if (characterEnabledInput.checked) {
-            ensurePerCharacterDefaults(current, true)
-        }
-        console.info('[Image-Generation-Autopilot][PerCharacter] toggle', {
-            enabled: characterEnabledInput.checked,
-        })
-        saveSettings()
-        applyPerCharacterOverrides()
-    })
-
-    characterResetButton?.addEventListener('click', (event) => {
-        event.preventDefault()
-        resetPerCharacterSettingsToDefaults()
-    })
-
-    countInput.addEventListener('change', () => {
-        const current = getSettings()
-        current.targetCount = clampCount(countInput.value)
-        countInput.value = String(current.targetCount)
-        saveSettings()
-    })
-
-    delayInput.addEventListener('change', () => {
-        const current = getSettings()
-        current.delayMs = clampDelay(delayInput.value)
-        delayInput.value = String(current.delayMs)
-        saveSettings()
-    })
-
-    burstThrottleInput.addEventListener('change', () => {
-        const current = getSettings()
-        current.burstThrottleMs = clampBurstThrottle(burstThrottleInput.value)
-        burstThrottleInput.value = String(current.burstThrottleMs)
-        saveSettings()
-    })
-
-    burstModeInput.addEventListener('change', () => {
-        const current = getSettings()
-        current.burstMode = burstModeInput.checked
-        saveSettings()
-    })
-
-    autoGenEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.enabled = autoGenEnabledInput.checked
-        saveSettings()
-    })
-
-    autoGenInsertSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.insertType = autoGenInsertSelect.value
-        saveSettings()
-    })
-
-    promptInjectionEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.enabled =
-            promptInjectionEnabledInput.checked
-        saveSettings()
-    })
-
-    promptMainInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.mainPrompt =
-            promptMainInput.value
-        saveSettings()
-    })
-
-    promptPositiveInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsPositive =
-            promptPositiveInput.value
-        saveSettings()
-    })
-
-    promptNegativeInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsNegative =
-            promptNegativeInput.value
-        saveSettings()
-    })
-
-    promptExampleInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.examplePrompt =
-            promptExampleInput.value
-        saveSettings()
-    })
-
-    promptLimitInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.lengthLimit = clampPromptLimit(
-            promptLimitInput.value,
-        )
-        promptLimitInput.value = String(
-            current.autoGeneration.promptInjection.lengthLimit,
-        )
-        saveSettings()
-    })
-
-    promptLimitTypeSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.lengthLimitType =
-            promptLimitTypeSelect.value
-        saveSettings()
-    })
-
-    promptRegexInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.regex = promptRegexInput.value
-        saveSettings()
-    })
-
-    promptRewriteEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptRewrite.enabled =
-            promptRewriteEnabledInput.checked
-        saveSettings()
-    })
-
-    promptPositionSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.position =
-            promptPositionSelect.value
-        saveSettings()
-    })
-
-    promptDepthInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.depth = clampDepth(
-            promptDepthInput.value,
-        )
-        promptDepthInput.value = String(
-            current.autoGeneration.promptInjection.depth,
-        )
-        saveSettings()
-    })
-
-    debugModeInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.debugMode = debugModeInput.checked
-        saveSettings()
-    })
-
-    picCountModeSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMode =
-            picCountModeSelect.value
-        updatePicCountFieldVisibility(
-            container,
-            current.autoGeneration.promptInjection.picCountMode,
-        )
-        saveSettings()
-    })
-
-    picCountExactInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountExact = clampPicCount(
-            picCountExactInput.value,
-            1,
-        )
-        picCountExactInput.value = String(
-            current.autoGeneration.promptInjection.picCountExact,
-        )
-        saveSettings()
-    })
-
-    picCountMinInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMin = clampPicCount(
-            picCountMinInput.value,
-            1,
-        )
-        picCountMinInput.value = String(
-            current.autoGeneration.promptInjection.picCountMin,
-        )
-        saveSettings()
-    })
-
-    picCountMaxInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMax = clampPicCount(
-            picCountMaxInput.value,
-            3,
-        )
-        picCountMaxInput.value = String(
-            current.autoGeneration.promptInjection.picCountMax,
-        )
-        saveSettings()
-    })
-
-    addModelButton?.addEventListener('click', (event) => {
-        event.preventDefault()
-        handleAddModelRow()
-    })
-
-    refreshModelsButton?.addEventListener('click', (event) => {
-        event.preventDefault()
-        syncModelSelectOptions(true)
-    })
-
-    // Get preset UI elements
-    const presetSaveButton = /** @type {HTMLButtonElement | null} */ (
-        container.querySelector('#auto_multi_save_preset_button')
-    )
-    const presetNameInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_new_preset_name')
-    )
-    const presetListContainer = /** @type {HTMLDivElement | null} */ (
-        container.querySelector('#auto_multi_preset_list')
-    )
-
-    // Store references
-    state.ui.presetSaveButton = presetSaveButton
-    state.ui.presetNameInput = presetNameInput
-    state.ui.presetListContainer = presetListContainer
-
-    // Add preset management event listeners
-    presetSaveButton?.addEventListener('click', handleSavePreset)
-    presetNameInput?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            handleSavePreset()
-        }
-    })
-
-    // Initial render of presets
-    renderPresets()
-
-    syncModelSelectOptions()
-    syncUiFromSettings()
 }
+
+function savePresetToStorage(presets) {
+    try {
+        const ctx = getCtx()
+        if (!ctx || !ctx.extensionSettings) {
+            logger.warn('Extension settings not available')
+            return
+        }
+        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
+            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
+        }
+        logger.debug('Saving presets to extension settings:', presets)
+        // Create a deep copy to avoid reference issues
+        const presetsCopy = JSON.parse(JSON.stringify(presets))
+        ctx.extensionSettings[PRESET_STORAGE_KEY] = presetsCopy
+        ctx.saveSettingsDebounced()
+        logger.info('Presets saved successfully')
+    } catch (error) {
+        logger.error('Failed to save preset storage:', error)
+    }
+}
+
+function getAllPresets() {
+    return getPresetStorage()
+}
+
+function getPreset(id) {
+    const presets = getAllPresets()
+    return presets[id] || null
+}
+
+function savePreset(id, name, settings) {
+    const presets = getAllPresets()
+    // Exclude 'presets' property from saved preset settings to avoid circular reference
+    const { presets: _, ...settingsWithoutPresets } = settings
+    presets[id] = {
+        id,
+        name,
+        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
+        createdAt: new Date().toISOString(),
+    }
+    savePresetToStorage(presets)
+    return presets[id]
+}
+
+function deletePreset(id) {
+    const presets = getAllPresets()
+    delete presets[id]
+    savePresetToStorage(presets)
+}
+
+function handleRenamePreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        logger.warn('Preset not found for rename:', id)
+        return
+    }
+
+    const newName = prompt('Enter new name for preset:', preset.name)
+    if (!newName || newName.trim() === '') {
+        logger.info('Rename cancelled')
+        return
+    }
+
+    const trimmedName = newName.trim()
+    if (trimmedName === preset.name) {
+        logger.info('Name unchanged')
+        return
+    }
+
+    const presets = getAllPresets()
+    presets[id].name = trimmedName
+    savePresetToStorage(presets)
+    renderPresets()
+    logger.info('Preset renamed:', { id, oldName: preset.name, newName: trimmedName })
+}
+
+function loadPreset(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        logger.warn('Preset not found:', id)
+        return false
+    }
+
+    const currentSettings = getSettings()
+    const newSettings = JSON.parse(JSON.stringify(preset.settings))
+
+    // Exclude 'presets' property from loaded preset settings
+    const { presets: _, ...newSettingsWithoutPresets } = newSettings
+
+    // Update settings - merge but exclude 'presets' property
+    const ctx = getCtx()
+    if (ctx?.extensionSettings?.[MODULE_NAME]) {
+        const { presets, ...settingsWithoutPresets } = currentSettings
+        ctx.extensionSettings[MODULE_NAME] = {
+            ...settingsWithoutPresets,
+            ...newSettingsWithoutPresets,
+        }
+    }
+
+    // Save and sync UI
+    saveSettings()
+    return true
+}
+
+function listPresets() {
+    const presets = getAllPresets()
+    return Object.values(presets).sort((a, b) => {
+        // Sort by name, then by creation date
+        if (a.name < b.name) return -1
+        if (a.name > b.name) return 1
+        return new Date(b.createdAt) - new Date(a.createdAt)
+    })
+}
+
 
 // ==================== PRESET UI HANDLERS ====================
 
 function handleSavePreset() {
     const name = state.ui.presetNameInput?.value?.trim()
     if (!name) {
-        console.warn('[Image-Generation-Autopilot] Preset name is required')
+        logger.warn('Preset name is required')
         return
     }
 
@@ -1932,14 +1644,14 @@ function handleSavePreset() {
     state.ui.presetNameInput.value = ''
     renderPresets()
 
-    console.info('[Image-Generation-Autopilot] Preset saved', { id, name })
+    logger.info('Preset saved', { id, name })
 }
 
 function handleLoadPreset(id) {
     const success = loadPreset(id)
     if (success) {
         renderPresets()
-        console.info('[Image-Generation-Autopilot] Preset loaded', { id })
+        logger.info('Preset loaded', { id })
     }
 }
 
@@ -1950,7 +1662,7 @@ function handleDeletePreset(id) {
 
     deletePreset(id)
     renderPresets()
-    console.info('[Image-Generation-Autopilot] Preset deleted', { id })
+    logger.info('Preset deleted', { id })
 }
 
 function renderPresets() {
@@ -2054,25 +1766,479 @@ function renderPresets() {
             e.preventDefault()
             e.stopPropagation()
             const presetItem = btn.closest('.auto-multi-preset-item')
-            console.log(
-                '[Image-Generation-Autopilot] Rename button clicked, presetItem:',
-                presetItem,
-            )
+            logger.debug('Rename button clicked, presetItem:', presetItem)
             const presetId = presetItem?.dataset.presetId
-            console.log(
-                '[Image-Generation-Autopilot] Rename button clicked, presetId:',
-                presetId,
-            )
+            logger.debug('Rename button clicked, presetId:', presetId)
             if (presetId) {
                 handleRenamePreset(presetId)
             } else {
-                console.error(
-                    '[Image-Generation-Autopilot] Could not get presetId from rename button',
-                )
+                logger.error('Could not get presetId from rename button')
             }
         })
     })
 }
+
+async function buildSettingsPanel() {
+    const root =
+        document.getElementById('extensions_settings2') ||
+        document.getElementById('extensions_settings')
+    if (!root) {
+        logger.warn('Could not find extension settings container.')
+        return
+    }
+
+    const existing = document.getElementById('auto_multi_image_container')
+    if (existing) {
+        existing.remove()
+    }
+
+    let html = ''
+    try {
+        html = await getCtx().renderExtensionTemplateAsync(
+            TEMPLATE_ROOT,
+            'settings',
+        )
+    } catch (error) {
+        logger.error('Failed to load settings template', error)
+        return
+    }
+
+    const template = document.createElement('template')
+    template.innerHTML = html.trim()
+    const container = template.content.firstElementChild
+    if (!container) {
+        logger.warn('Settings template empty')
+        return
+    }
+
+    root.appendChild(container)
+
+    const enabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_image_enabled')
+    )
+    const modelQueueEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_model_queue_enabled')
+    )
+    const countInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_image_target')
+    )
+    const delayInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_image_delay')
+    )
+    const summary = /** @type {HTMLParagraphElement | null} */ (
+        container.querySelector('#auto_multi_image_summary')
+    )
+    const modelRowsContainer = /** @type {HTMLDivElement | null} */ (
+        container.querySelector('#auto_multi_model_rows')
+    )
+    const addModelButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_add_model')
+    )
+    const refreshModelsButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_refresh_models')
+    )
+    const summaryPanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_summary_panel')
+    )
+    const autoGenPanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_autogen_panel')
+    )
+    const queuePanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_queue_panel')
+    )
+    const characterPanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_character_panel')
+    )
+    const characterEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_character_enabled')
+    )
+    const characterResetButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_character_reset')
+    )
+    const cadencePanel = /** @type {HTMLElement | null} */ (
+        container.querySelector('#auto_multi_cadence_panel')
+    )
+    const autoGenEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_auto_gen_enabled')
+    )
+    const autoGenInsertSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_auto_gen_insert_type')
+    )
+    const promptInjectionEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_injection_enabled')
+    )
+    const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_main')
+    )
+    const promptPositiveInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_positive')
+    )
+    const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_negative')
+    )
+    const promptExampleInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_example')
+    )
+    const promptLimitInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_limit')
+    )
+    const promptLimitTypeSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_limit_type')
+    )
+    const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_regex')
+    )
+    const promptRewriteModelSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_rewrite_model')
+    )
+    const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_position')
+    )
+    const promptDepthInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_depth')
+    )
+    const debugModeInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_debug_mode')
+    )
+    const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_mode')
+    )
+    const picCountExactInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_exact')
+    )
+    const picCountMinInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_min')
+    )
+    const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_max')
+    )
+    const concurrencyInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_swipe_concurrency')
+    )
+    if (
+        !(
+            enabledInput &&
+            modelQueueEnabledInput &&
+            countInput &&
+            delayInput &&
+            summary &&
+            modelRowsContainer &&
+            concurrencyInput
+        )
+    ) {
+        logger.warn('Settings template missing inputs')
+        return
+    }
+
+    if (
+        !(
+            autoGenEnabledInput &&
+            autoGenInsertSelect &&
+            promptInjectionEnabledInput &&
+            promptMainInput &&
+            promptPositiveInput &&
+            promptNegativeInput &&
+            promptExampleInput &&
+            promptLimitInput &&
+            promptLimitTypeSelect &&
+            promptRegexInput &&
+            promptPositionSelect &&
+            promptDepthInput &&
+            debugModeInput &&
+            picCountModeSelect &&
+            picCountExactInput &&
+            picCountMinInput &&
+            picCountMaxInput
+        )
+    ) {
+        logger.warn('Auto-generation inputs missing')
+    }
+
+    // Initialize state.ui object early to avoid null reference errors
+    state.ui = {
+        container,
+        enabledInput,
+        modelQueueEnabledInput,
+        countInput,
+        delayInput,
+        summary,
+        modelRowsContainer,
+        addModelButton,
+        refreshModelsButton,
+        autoGenEnabledInput,
+        autoGenInsertSelect,
+        promptInjectionEnabledInput,
+        promptMainInput,
+        promptPositiveInput,
+        promptNegativeInput,
+        promptExampleInput,
+        promptLimitInput,
+        promptLimitTypeSelect,
+        promptRegexInput,
+        promptRewriteModelSelect,
+        promptPositionSelect,
+        promptDepthInput,
+        debugModeInput,
+        picCountModeSelect,
+        picCountExactInput,
+        picCountMinInput,
+        picCountMaxInput,
+        summaryPanel,
+        autoGenPanel,
+        queuePanel,
+        cadencePanel,
+        characterPanel,
+        characterEnabledInput,
+        characterResetButton,
+        concurrencyInput,
+        presetSaveButton: null,
+        presetNameInput: null,
+        presetListContainer: null,
+    }
+
+    enabledInput.addEventListener('change', () => {
+        const current = getSettings()
+        current.enabled = enabledInput.checked
+        saveSettings()
+    })
+
+    concurrencyInput.addEventListener('change', () => {
+        const value = parseInt(concurrencyInput.value, 10)
+        logger.debug('Concurrency input changed:', value)
+        const current = getSettings()
+        current.concurrency = Number.isFinite(value) ? value : 0
+        saveSettings()
+    })
+
+    modelQueueEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.modelQueueEnabled = modelQueueEnabledInput.checked
+        saveSettings()
+        applyQueueEnabledState(modelQueueEnabledInput.checked)
+    })
+
+    characterEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.perCharacter.enabled = characterEnabledInput.checked
+        if (characterEnabledInput.checked) {
+            ensurePerCharacterDefaults(current, true)
+        }
+        logger.debug('[PerCharacter] toggle', {
+            enabled: characterEnabledInput.checked,
+        })
+        saveSettings()
+        applyPerCharacterOverrides()
+    })
+
+    characterResetButton?.addEventListener('click', (event) => {
+        event.preventDefault()
+        resetPerCharacterSettingsToDefaults()
+    })
+
+    countInput.addEventListener('change', () => {
+        const current = getSettings()
+        current.targetCount = clampCount(countInput.value)
+        countInput.value = String(current.targetCount)
+        saveSettings()
+    })
+
+    delayInput.addEventListener('change', () => {
+        const current = getSettings()
+        current.delayMs = clampDelay(delayInput.value)
+        delayInput.value = String(current.delayMs)
+        saveSettings()
+    })
+
+    autoGenEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.enabled = autoGenEnabledInput.checked
+        saveSettings()
+    })
+
+    autoGenInsertSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.insertType = autoGenInsertSelect.value
+        saveSettings()
+    })
+
+    promptInjectionEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.enabled =
+            promptInjectionEnabledInput.checked
+        saveSettings()
+    })
+
+    promptMainInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.mainPrompt =
+            promptMainInput.value
+        saveSettings()
+    })
+
+    promptPositiveInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsPositive =
+            promptPositiveInput.value
+        saveSettings()
+    })
+
+    promptNegativeInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsNegative =
+            promptNegativeInput.value
+        saveSettings()
+    })
+
+    promptExampleInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.examplePrompt =
+            promptExampleInput.value
+        saveSettings()
+    })
+
+    promptLimitInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.lengthLimit = clampPromptLimit(
+            promptLimitInput.value,
+        )
+        promptLimitInput.value = String(
+            current.autoGeneration.promptInjection.lengthLimit,
+        )
+        saveSettings()
+    })
+
+    promptLimitTypeSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.lengthLimitType =
+            promptLimitTypeSelect.value
+        saveSettings()
+    })
+
+    promptRegexInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.regex = promptRegexInput.value
+        saveSettings()
+    })
+
+    promptRewriteModelSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptRewrite.modelId = promptRewriteModelSelect.value
+        saveSettings()
+    })
+
+    promptPositionSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.position =
+            promptPositionSelect.value
+        saveSettings()
+    })
+
+    promptDepthInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.depth = clampDepth(
+            promptDepthInput.value,
+        )
+        promptDepthInput.value = String(
+            current.autoGeneration.promptInjection.depth,
+        )
+        saveSettings()
+    })
+
+    debugModeInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.debugMode = debugModeInput.checked
+        saveSettings()
+    })
+
+    picCountModeSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountMode =
+            picCountModeSelect.value
+        updatePicCountFieldVisibility(
+            container,
+            current.autoGeneration.promptInjection.picCountMode,
+        )
+        saveSettings()
+    })
+
+    picCountExactInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountExact = clampPicCount(
+            picCountExactInput.value,
+            1,
+        )
+        picCountExactInput.value = String(
+            current.autoGeneration.promptInjection.picCountExact,
+        )
+        saveSettings()
+    })
+
+    picCountMinInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountMin = clampPicCount(
+            picCountMinInput.value,
+            1,
+        )
+        picCountMinInput.value = String(
+            current.autoGeneration.promptInjection.picCountMin,
+        )
+        saveSettings()
+    })
+
+    picCountMaxInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountMax = clampPicCount(
+            picCountMaxInput.value,
+            3,
+        )
+        picCountMaxInput.value = String(
+            current.autoGeneration.promptInjection.picCountMax,
+        )
+        saveSettings()
+    })
+
+    addModelButton?.addEventListener('click', (event) => {
+        event.preventDefault()
+        handleAddModelRow()
+    })
+
+    refreshModelsButton?.addEventListener('click', (event) => {
+        event.preventDefault()
+        syncModelSelectOptions(true)
+    })
+
+    // Get preset UI elements
+    const presetSaveButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_save_preset_button')
+    )
+    const presetNameInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_new_preset_name')
+    )
+    const presetListContainer = /** @type {HTMLDivElement | null} */ (
+        container.querySelector('#auto_multi_preset_list')
+    )
+
+    // Store references
+    state.ui.presetSaveButton = presetSaveButton
+    state.ui.presetNameInput = presetNameInput
+    state.ui.presetListContainer = presetListContainer
+
+    // Add preset management event listeners
+    presetSaveButton?.addEventListener('click', () => handleSavePreset())
+    presetNameInput?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            handleSavePreset()
+        }
+    })
+
+    // Initial render of presets
+    renderPresets()
+
+    syncModelSelectOptions()
+    syncProfileSelectOptions()
+    syncUiFromSettings()
+}
+
 
 function escapeHtml(text) {
     const div = document.createElement('div')
@@ -2081,16 +2247,11 @@ function escapeHtml(text) {
 }
 
 function resetPerCharacterSettingsToDefaults() {
-    console.info('[Image-Generation-Autopilot][PerCharacter] reset invoked')
+    logger.debug('[PerCharacter] reset invoked')
     const settings = getSettings()
     const perCharacter = settings.perCharacter
     if (!perCharacter?.enabled) {
-        console.info(
-            '[Image-Generation-Autopilot][PerCharacter] reset skipped',
-            {
-                reason: 'disabled',
-            },
-        )
+        logger.debug('[PerCharacter] reset skipped', { reason: 'disabled' })
         return
     }
     const ctx = getCtx()
@@ -2098,13 +2259,7 @@ function resetPerCharacterSettingsToDefaults() {
     const character = record.character
     const canonical = resolveCharacterById(ctx, record.characterId)
     if (!character && !canonical) {
-        console.warn(
-            '[Image-Generation-Autopilot][PerCharacter] reset skipped (no character)',
-            {
-                characterId: record.characterId,
-                source: record.source,
-            },
-        )
+        logger.warn('[PerCharacter] reset skipped (no character)', { characterId: record.characterId, source: record.source })
         return
     }
 
@@ -2156,28 +2311,17 @@ function resetPerCharacterSettingsToDefaults() {
                     })
                 })
                 .catch((error) => {
-                    console.warn(
-                        '[Image-Generation-Autopilot][PerCharacter] writeExtensionField reset failed',
-                        error,
-                    )
+                    logger.warn('[PerCharacter] writeExtensionField reset failed', error)
                 })
         } else {
-            console.warn(
-                '[Image-Generation-Autopilot][PerCharacter] writeExtensionField reset skipped (no characterId)',
-                {
-                    characterId: record.characterId,
-                    source: record.source,
-                },
-            )
+            logger.warn('[PerCharacter] writeExtensionField reset skipped (no characterId)', { characterId: record.characterId, source: record.source })
         }
     }
 
     applyPerCharacterOverrides()
 
     const characterName = getCharacterIdentity(canonical || character)
-    console.info(
-        `[Image-Generation-Autopilot][PerCharacter] Reset complete for ${characterName}`,
-    )
+    logger.debug(`[PerCharacter] Reset complete for ${characterName}`)
     if (
         typeof window.toastr === 'object' &&
         typeof window.toastr.success === 'function'
@@ -2315,21 +2459,6 @@ function renderModelQueueRows(queue) {
     })
 }
 
-function getSdModelOptions() {
-    const select = document.getElementById('sd_model')
-    if (!(select instanceof HTMLSelectElement)) {
-        return []
-    }
-
-    return Array.from(select.options)
-        .map((option) => ({
-            value: option.value,
-            label:
-                option.textContent?.trim() || option.value || 'Unnamed model',
-        }))
-        .filter((option) => option.value)
-}
-
 function getActiveSdModelLabel() {
     const select = document.getElementById('sd_model')
     if (!(select instanceof HTMLSelectElement)) {
@@ -2404,6 +2533,69 @@ function syncModelSelectOptions(showFeedback = false) {
     }
 }
 
+async function syncProfileSelectOptions(showFeedback = false) {
+    const ctx = getCtx()
+    let connectionProfiles = []
+    
+    try {
+        const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
+        const raw = result?.pipe || (typeof result === 'string' ? result : '')
+        if (raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw)
+                if (Array.isArray(parsed)) {
+                    connectionProfiles = parsed
+                }
+            } catch {
+                connectionProfiles = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+            }
+        }
+    } catch (error) {
+        logger.warn('Failed to list profiles via slash command:', error)
+    }
+
+    if (connectionProfiles.length === 0) {
+        const connectionProfilesSelect = document.getElementById('connection_profiles')
+        if (connectionProfilesSelect instanceof HTMLSelectElement) {
+            connectionProfiles = Array.from(connectionProfilesSelect.options)
+                .map(o => o.textContent?.trim() || o.value)
+                .filter(p => p && p !== '<None>')
+        }
+    }
+
+    const select = state.ui?.promptRewriteModelSelect
+    if (!select) return
+
+    const currentValue = select.value || ''
+    select.innerHTML = '<option value="">Default (Active chat model)</option>'
+
+    connectionProfiles.sort().forEach((name) => {
+        const option = document.createElement('option')
+        option.value = 'profile:' + name
+        option.textContent = name
+        select.appendChild(option)
+    })
+
+    if (currentValue) {
+        const exists = Array.from(select.options).some(o => o.value === currentValue)
+        if (exists) {
+            select.value = currentValue
+        } else {
+            const baseName = currentValue.replace(/^(profile|preset):/, '')
+            const matchingOption = Array.from(select.options).find(o => o.textContent === baseName)
+            if (matchingOption) {
+                select.value = matchingOption.value
+            }
+        }
+    }
+
+    if (showFeedback) {
+        log('Profile list refreshed.', { 
+            profiles: connectionProfiles.length
+        })
+    }
+}
+
 function handleDocumentChange(event) {
     const target = event?.target
     if (target instanceof HTMLInputElement) {
@@ -2422,12 +2614,7 @@ function handleDocumentChange(event) {
             if (target.checked) {
                 ensurePerCharacterDefaults(current, true)
             }
-            console.info(
-                '[Image-Generation-Autopilot][PerCharacter] toggle (doc)',
-                {
-                    enabled: target.checked,
-                },
-            )
+            logger.debug('[PerCharacter] toggle (doc)', { enabled: target.checked })
             saveSettings()
             applyPerCharacterOverrides()
         }
@@ -2440,6 +2627,7 @@ function handleDocumentChange(event) {
 
     if (target.id === 'sd_model') {
         syncModelSelectOptions()
+        syncProfileSelectOptions()
     }
 }
 
@@ -2454,13 +2642,7 @@ function shouldShowPromptRewriteButton(message) {
         return false
     }
 
-    const text = message?.mes || ''
-    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
-    const hasPicPrompts =
-        !!regex && !!text ? getPicPromptMatches(text, regex).length > 0 : false
-    const hasImages = hasGeneratedMedia(message)
-
-    return hasPicPrompts || hasImages
+    return hasGeneratedMedia(message)
 }
 
 function syncUiFromSettings() {
@@ -2470,16 +2652,6 @@ function syncUiFromSettings() {
     state.ui.enabledInput.checked = settings.enabled
     state.ui.countInput.value = String(settings.targetCount)
     state.ui.delayInput.value = String(settings.delayMs)
-    if (state.ui.burstThrottleInput) {
-        state.ui.burstThrottleInput.value = String(
-            clampBurstThrottle(settings.burstThrottleMs),
-        )
-    }
-    if (settings.burstMode) {
-        settings.burstMode = false
-        saveSettings()
-    }
-    state.ui.burstModeInput.checked = false
 
     if (state.ui.autoGenEnabledInput) {
         state.ui.autoGenEnabledInput.checked = settings.autoGeneration.enabled
@@ -2523,9 +2695,9 @@ function syncUiFromSettings() {
         state.ui.promptRegexInput.value =
             settings.autoGeneration.promptInjection.regex
     }
-    if (state.ui.promptRewriteEnabledInput) {
-        state.ui.promptRewriteEnabledInput.checked =
-            settings.autoGeneration.promptRewrite.enabled
+    if (state.ui.promptRewriteModelSelect) {
+        state.ui.promptRewriteModelSelect.value =
+            settings.autoGeneration.promptRewrite.modelId || ''
     }
     if (state.ui.promptPositionSelect) {
         state.ui.promptPositionSelect.value =
@@ -2576,6 +2748,11 @@ function syncUiFromSettings() {
         )
     }
 
+    const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
+    if (state.ui.concurrencyInput) {
+        state.ui.concurrencyInput.value = String(concurrencyValue)
+    }
+
     updatePicCountFieldVisibility(
         state.ui.container,
         settings.autoGeneration.promptInjection.picCountMode,
@@ -2620,6 +2797,7 @@ function syncUiFromSettings() {
     settings.modelQueue = configuredQueue
     renderModelQueueRows(configuredQueue)
     syncModelSelectOptions()
+    syncProfileSelectOptions()
     if (settings.enabled) {
         applyQueueEnabledState(queueEnabled)
     }
@@ -2631,14 +2809,14 @@ function syncUiFromSettings() {
 
     const plan = getSwipePlan(settings)
     if (!plan.length) {
-        state.ui.summary.textContent = 'No swipe queue configured.'
+        state.ui.summary.textContent = 'No generation queue configured.'
         return
     }
 
     const segments = plan.map((entry) => {
         const label = getModelLabel(entry.id)
         const suffix = entry.count === 1 ? '' : 's'
-        return `${entry.count} swipe${suffix} on ${label}`
+        return `${entry.count} image${suffix} on ${label}`
     })
 
     if (settings.autoGeneration.enabled) {
@@ -2649,21 +2827,19 @@ function syncUiFromSettings() {
         segments.push(`auto image gen (${insertLabel}, ${injectionLabel})`)
     }
 
-    const baseStrategyBlurb = settings.burstMode
-        ? 'Burst mode is deprecated and has been disabled.'
-        : settings.delayMs <= 0
-          ? 'Swipes run sequentially without pacing between requests.'
-          : 'Swipes run sequentially with pacing between requests.'
+    const baseStrategyBlurb = settings.delayMs <= 0
+          ? 'Images generate sequentially without pacing between requests.'
+          : 'Images generate sequentially with pacing between requests.'
     const queueBlurb = !queueEnabled
-        ? 'Model queue disabled; using default swipes per model.'
+        ? 'Model queue disabled; using default images per model.'
         : ''
     const strategyBlurb = [baseStrategyBlurb, queueBlurb]
         .filter(Boolean)
         .join(' ')
     const delayBlurb =
         settings.delayMs <= 0
-            ? 'with no delay between swipes.'
-            : `with ${settings.delayMs} ms between swipes.`
+            ? 'with no delay between requests.'
+            : `with ${settings.delayMs} ms between requests.`
     state.ui.summary.textContent = `Will queue ${segments.join(', ')} ${delayBlurb} ${strategyBlurb}`
 }
 
@@ -2686,11 +2862,11 @@ function ensureGlobalProgressElement(messageId) {
         container.className = 'auto-multi-global-progress'
         container.innerHTML = `
             <div class="auto-multi-global-progress__meta">
-                <span class="auto-multi-global-progress__status">Preparing swipe queue…</span>
+                <span class="auto-multi-global-progress__status">Preparing generation queue…</span>
                 <span class="auto-multi-global-progress__ratio">0 / 0</span>
             </div>
             <progress value="0" max="1"></progress>
-            <button type="button" class="menu_button fa-solid fa-stop auto-multi-global-progress__stop" title="Abort the current auto swipe queue"></button>
+            <button type="button" class="menu_button fa-solid fa-stop auto-multi-global-progress__stop" title="Abort the current auto generation queue"></button>
         `
         if (lastMessage?.parentElement) {
             lastMessage.after(container)
@@ -2706,7 +2882,7 @@ function ensureGlobalProgressElement(messageId) {
         stopButton?.addEventListener('click', () => {
             state.chatToken += 1
             state.abortInProgress = true
-            log('Auto swipe queue aborted manually.')
+            log('Auto generation queue aborted manually.')
             clearProgress()
         })
     }
@@ -2770,7 +2946,7 @@ function updateProgressUi(messageId, current, target, waiting, labelText = '') {
     const displayCurrent = Math.min(clampedCurrent + 1, safeTarget)
     const descriptor =
         labelText ||
-        (waiting ? 'Preparing swipe queue…' : 'Image Generation Autopilot')
+        (waiting ? 'Preparing generation queue…' : 'Image Generation Autopilot')
 
     entry.container.classList.toggle('waiting', !!waiting)
     entry.statusLabel.textContent = descriptor
@@ -2853,6 +3029,9 @@ function insertPromptAtDepth(chat, prompt, role, depth) {
 }
 
 async function handlePromptInjection(eventData) {
+    if (state.isRewriting) {
+        return
+    }
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     if (!autoSettings?.enabled) {
@@ -2891,10 +3070,7 @@ async function resolveSlashCommandParser() {
             return module.SlashCommandParser
         }
     } catch (error) {
-        console.warn(
-            '[Image-Generation-Autopilot] Failed to import SlashCommandParser',
-            error,
-        )
+        logger.warn('Failed to import SlashCommandParser', error)
     }
 
     return null
@@ -2904,9 +3080,7 @@ async function callSdSlash(prompt, quiet) {
     const parser = await resolveSlashCommandParser()
     const command = parser?.commands?.sd
     if (!command?.callback) {
-        console.warn(
-            '[Image-Generation-Autopilot] SlashCommandParser sd not available',
-        )
+        logger.warn('SlashCommandParser sd not available')
         return null
     }
 
@@ -2916,11 +3090,284 @@ async function callSdSlash(prompt, quiet) {
             prompt,
         )
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Slash command sd failed',
-            error,
-        )
+        logger.error('Slash command sd failed', error)
         return null
+    }
+}
+
+async function applyModelOverride(modelId) {
+    const overrideModel = modelId?.trim()
+    if (!overrideModel) {
+        return null
+    }
+
+    const context = getCtx()
+    const sdSettings = context?.extensionSettings?.sd
+    const modelSelect = document.getElementById('sd_model')
+    const previousSettingsModel = sdSettings?.model
+    const previousSelectValue =
+        modelSelect instanceof HTMLSelectElement ? modelSelect.value : null
+    const selectOptions =
+        modelSelect instanceof HTMLSelectElement
+            ? Array.from(modelSelect.options)
+            : []
+    const selectHasOption = selectOptions.some(
+        (option) => option.value === overrideModel,
+    )
+    const needsSettingsChange =
+        !!sdSettings && previousSettingsModel !== overrideModel
+    const needsSelectChange =
+        selectHasOption && previousSelectValue !== overrideModel
+
+    if (!needsSettingsChange && !needsSelectChange) {
+        log('Model override skipped (already active)', {
+            overrideModel,
+            previousSettingsModel,
+            previousSelectValue,
+        })
+        return null
+    }
+
+    if (needsSettingsChange) {
+        sdSettings.model = overrideModel
+        log('Model override applied to settings', {
+            overrideModel,
+            previousSettingsModel,
+        })
+    }
+
+    if (needsSelectChange && modelSelect instanceof HTMLSelectElement) {
+        modelSelect.value = overrideModel
+        modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
+        log('Model override applied to select', {
+            overrideModel,
+            previousSelectValue,
+        })
+    }
+
+    if (needsSelectChange) {
+        await sleep(80)
+    }
+
+    return () => {
+        if (
+            needsSettingsChange &&
+            typeof previousSettingsModel !== 'undefined'
+        ) {
+            sdSettings.model = previousSettingsModel
+            log('Model override restored settings', {
+                previousSettingsModel,
+                overrideModel,
+            })
+        }
+
+        if (
+            needsSelectChange &&
+            modelSelect instanceof HTMLSelectElement &&
+            previousSelectValue !== null
+        ) {
+            modelSelect.value = previousSelectValue
+            modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
+            log('Model override restored select', {
+                previousSelectValue,
+                overrideModel,
+            })
+        }
+    }
+}
+
+async function callSdSlashWithModel(prompt, modelId, quiet = true) {
+    const restoreModel = await applyModelOverride(modelId)
+    try {
+        return await callSdSlash(prompt, quiet)
+    } finally {
+        if (typeof restoreModel === 'function') {
+            restoreModel()
+        }
+    }
+}
+
+async function openImageSelectionDialog(prompts, sourceMessageId) {
+    const components = await initComponents()
+    const settings = getSettings()
+    const modelQueue = getSwipePlan(settings)
+    const modelOptions = getSdModelOptions()
+
+    const generatorFactory = (options) => {
+        const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
+        const generator = new components.ParallelGenerator({
+            concurrencyLimit: concurrencyValue,
+            callSdSlash: async (prompt, quiet, modelId) => {
+                return callSdSlashWithModel(prompt, modelId, quiet)
+            },
+        })
+        return generator
+    }
+
+    const dialog = new components.ImageSelectionDialog({
+        generatorFactory,
+        PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
+        modelOptions,
+        onRewrite: async (prompt) => {
+            log('Dialog requested rewrite', { prompt, sourceMessageId })
+            return await callChatRewrite(
+                prompt,
+                settings.autoGeneration.promptInjection,
+                settings.autoGeneration.promptRewrite.modelId,
+                sourceMessageId,
+            )
+        },
+    })
+    
+    const generatorOptions = {
+        modelQueue: modelQueue,
+        quiet: true,
+    }
+
+    try {
+        const result = await dialog.show(prompts, generatorOptions)
+        return {
+            selected: result.selected || [],
+            destination: result.destination || 'new',
+            sourceMessageId,
+        }
+    } catch (error) {
+        if (error?.message === 'Cancelled' || error?.message === 'Closed') {
+            log('Image selection dialog cancelled')
+            return null
+        }
+        throw error
+    }
+}
+
+async function handleDialogResult(dialogResult, triggerMessage) {
+    if (!dialogResult || !dialogResult.selected?.length) {
+        log('No images selected, skipping insertion')
+        return
+    }
+
+    const context = getCtx()
+    const settings = getSettings()
+    const insertType = settings.autoGeneration?.insertType || INSERT_TYPE.NEW_MESSAGE
+
+    if (dialogResult.destination === 'current' && triggerMessage) {
+        for (const imageUrl of dialogResult.selected) {
+            appendGeneratedMedia(triggerMessage, imageUrl, '', true)
+        }
+        
+        const messageId = dialogResult.sourceMessageId
+        let messageElement = document.querySelector(`.mes[mesid="${messageId}"]`)
+        if (!messageElement) {
+            messageElement = await waitForMessageElement(messageId, 2000)
+        }
+        
+        if (messageElement && typeof window.appendMediaToMessage === 'function') {
+            sanitizeMessageMediaState(triggerMessage)
+            window.appendMediaToMessage(triggerMessage, messageElement)
+        } else if (typeof window.updateMessageBlock === 'function') {
+            sanitizeMessageMediaState(triggerMessage)
+            window.updateMessageBlock(messageId, triggerMessage)
+        }
+        
+        if (typeof context.saveChat === 'function') {
+            await context.saveChat()
+        }
+
+        if (typeof context.reloadCurrentChat === 'function') {
+            await context.reloadCurrentChat()
+        } else if (typeof window.reloadCurrentChat === 'function') {
+            await window.reloadCurrentChat()
+        }
+
+        log('Images inserted to current message', {
+            messageId,
+            imageCount: dialogResult.selected.length,
+        })
+    } else {
+        const chat = context.chat || []
+        let targetMessageId = null
+        let targetMessage = null
+        const sourceMessageId = dialogResult.sourceMessageId
+        const triggerName = triggerMessage?.name
+
+        if (insertType === INSERT_TYPE.NEW_MESSAGE && chat.length > 0) {
+            const nextMessageId = typeof sourceMessageId === 'number' ? sourceMessageId + 1 : null
+            if (nextMessageId !== null && nextMessageId < chat.length) {
+                const nextMessage = chat[nextMessageId]
+                if (
+                    !nextMessage.is_user &&
+                    (!triggerName || nextMessage.name === triggerName) &&
+                    hasGeneratedMedia(nextMessage)
+                ) {
+                    targetMessageId = nextMessageId
+                    targetMessage = nextMessage
+                    log('Attaching to image message after source', { sourceMessageId, targetMessageId })
+                }
+            }
+
+            if (targetMessage === null) {
+                const lastMessageIndex = chat.length - 1
+                const lastMessage = chat[lastMessageIndex]
+
+                if (
+                    !lastMessage.is_user &&
+                    (!triggerName || lastMessage.name === triggerName) &&
+                    hasGeneratedMedia(lastMessage)
+                ) {
+                    targetMessageId = lastMessageIndex
+                    targetMessage = lastMessage
+                    log('Attaching to existing image message at end', { targetMessageId })
+                }
+            }
+        }
+
+        if (targetMessage === null) {
+            targetMessageId = await createPlaceholderImageMessage('')
+            if (Number.isFinite(targetMessageId)) {
+                targetMessage = chat[targetMessageId]
+            }
+        }
+
+        if (targetMessage) {
+            for (const imageUrl of dialogResult.selected) {
+                appendGeneratedMedia(targetMessage, imageUrl, '', true)
+            }
+
+            let messageElement = document.querySelector(
+                `.mes[mesid="${targetMessageId}"]`,
+            )
+            if (!messageElement) {
+                messageElement = await waitForMessageElement(
+                    targetMessageId,
+                    2000,
+                )
+            }
+
+            if (
+                messageElement &&
+                typeof window.appendMediaToMessage === 'function'
+            ) {
+                sanitizeMessageMediaState(targetMessage)
+                window.appendMediaToMessage(targetMessage, messageElement)
+            } else if (typeof window.updateMessageBlock === 'function') {
+                sanitizeMessageMediaState(targetMessage)
+                window.updateMessageBlock(targetMessageId, targetMessage)
+            }
+        }
+
+        if (typeof context.saveChat === 'function') {
+            await context.saveChat()
+        }
+
+        if (typeof context.reloadCurrentChat === 'function') {
+            await context.reloadCurrentChat()
+        } else if (typeof window.reloadCurrentChat === 'function') {
+            await window.reloadCurrentChat()
+        }
+
+        log('Images inserted as new message', {
+            imageCount: dialogResult.selected.length,
+        })
     }
 }
 
@@ -2956,14 +3403,26 @@ function normalizeRewriteResponse(result) {
 
 function buildPromptRewriteSystem(injection) {
     const chunks = [
-        'You are a prompt rewriter for Stable Diffusion prompts.',
-        'Rewrite the prompt to be concise, focused, and high quality.',
-        'Preserve the subject and key details from the original prompt.',
-        'Return only the rewritten prompt with no extra text or quotes.',
+        '# STABLE DIFFUSION PROMPT GENERATOR',
+        'Your role: Expert technical prompt engineer for Stable Diffusion.',
+        'MANDATORY: ALL OUTPUT MUST BE IN ENGLISH.',
+        'MANDATORY: NO CONVERSATION. NO GREETINGS. NO PREAMBLE. NO CHINESE.',
+        '',
+        '## OUTPUT FORMAT',
+        'Wrap the technical prompt in tags: <sd_prompt>technical_prompt_here</sd_prompt>',
+        '',
+        '## QUALITY RULES',
+        '- Focus on lighting, textures, camera angle, and artistic style.',
+        '- Use comma-separated descriptive phrases.',
+        '- Expand the input context into a vivid cinematic scene description.',
+        '',
+        '## EXAMPLES',
+        'Input Description: "A red car in the rain"',
+        'Output: <sd_prompt>sleek red sports car parked on a rainy city street at night, puddles reflecting neon lights, cinematic lighting, hyper-realistic, 8k, detailed water drops on polished metal</sd_prompt>',
     ]
 
     if (injection?.mainPrompt?.trim()) {
-        chunks.push(`Global guidance: ${injection.mainPrompt.trim()}`)
+        chunks.push(`\nGlobal guidance: ${injection.mainPrompt.trim()}`)
     }
 
     if (injection?.instructionsPositive?.trim()) {
@@ -2992,68 +3451,167 @@ function buildPromptRewriteSystem(injection) {
     return chunks.join('\n')
 }
 
-function buildPromptRewriteUser(originalPrompt) {
-    return `Rewrite this prompt:\n${originalPrompt}`
+function buildPromptRewriteUser(originalPrompt, contextText = '') {
+    const contextPart = contextText ? `STORY CONTEXT:\n${contextText}\n\n` : ''
+    const promptPart = originalPrompt ? `EXISTING PROMPT:\n${originalPrompt}\n\n` : ''
+    
+    return `${contextPart}${promptPart}INSTRUCTION: Generate an expanded technical Stable Diffusion prompt based on the story context above. Wrap the result in <sd_prompt>...</sd_prompt> tags. Output ONLY English.`
 }
 
-async function callChatRewrite(originalPrompt, injection) {
-    const systemPrompt = buildPromptRewriteSystem(injection)
-    const userPrompt = buildPromptRewriteUser(originalPrompt)
+async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
+    log('callChatRewrite start', { originalPrompt, profileName, messageId })
     const ctx = getCtx()
-    const startLength = ctx.chat?.length || 0
+    let originalProfile = null
+    let originalPreset = null
 
-    const attempts = [
-        async () => {
-            if (typeof ctx.generateText === 'function') {
-                return ctx.generateText(`${systemPrompt}\n\n${userPrompt}`)
-            }
-            return null
-        },
-        async () => {
-            if (typeof ctx.generateRaw === 'function') {
-                return ctx.generateRaw([
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                ])
-            }
-            return null
-        },
-        async () => {
-            if (typeof ctx.generate === 'function') {
-                return ctx.generate({
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt },
-                    ],
-                    quiet: true,
-                })
-            }
-            return null
-        },
-    ]
-
-    for (const attempt of attempts) {
+    if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
         try {
-            const result = await attempt()
-            const rewritten = normalizeRewriteResponse(result)
-            if (rewritten) {
-                await cleanupRewriteMessages(startLength)
-                return rewritten
-            }
+            const realName = profileName.replace(/^(profile|preset):/, '')
+
+            const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
+            originalProfile = profileResult?.pipe
+            
+            const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
+            originalPreset = presetResult?.pipe
+
+            log('Switching connection profile for rewrite', { 
+                target: realName,
+                previousProfile: originalProfile, 
+                previousPreset: originalPreset 
+            })
+
+            await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+            
+            await sleep(100)
         } catch (error) {
-            console.warn(
-                '[Image-Generation-Autopilot] Prompt rewrite attempt failed',
-                error,
-            )
-        } finally {
-            await cleanupRewriteMessages(startLength)
+            logger.warn('Failed to switch profile:', error)
         }
     }
 
-    return ''
+    let contextText = ''
+    const chat = ctx.chat || []
+    const settings = getSettings()
+    const regex = parseRegexFromString(settings.autoGeneration.promptInjection.regex)
+
+    const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
+    
+    if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
+        const cleanMes = chat[messageId].mes.replace(regex, '').trim()
+        if (cleanMes) {
+            contextText = cleanMes
+        }
+    }
+
+    if (!contextText) {
+        for (let i = searchStart - 1; i >= 0; i--) {
+            if (!chat[i].is_user && chat[i].mes) {
+                const cleanMes = chat[i].mes.replace(regex, '').trim()
+                if (cleanMes) {
+                    contextText = cleanMes
+                    break
+                }
+            }
+        }
+    }
+
+    if (!contextText && typeof messageId === 'number' && messageId > 0) {
+        const prevMsg = chat[messageId - 1]
+        if (prevMsg?.is_user && prevMsg.mes) {
+            contextText = prevMsg.mes.trim()
+        }
+    }
+
+    log('callChatRewrite context found', { contextText: contextText.substring(0, 100) + '...' })
+
+    const systemPrompt = buildPromptRewriteSystem(injection)
+    const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
+    const startLength = chat.length || 0
+
+    log('callChatRewrite prompts', {
+        systemPrompt: systemPrompt.substring(0, 100) + '...',
+        userPrompt: userPrompt.substring(0, 200) + '...',
+    })
+
+    const attempts = []
+
+    if (typeof ctx.generateRaw === 'function') {
+        attempts.push({
+            name: 'generateRaw',
+            fn: async () => ctx.generateRaw({
+                prompt: userPrompt,
+                systemPrompt: systemPrompt,
+            })
+        })
+    }
+
+    if (typeof ctx.generateText === 'function') {
+        attempts.push({
+            name: 'generateText',
+            fn: async () => ctx.generateText({
+                prompt: userPrompt,
+                systemPrompt: systemPrompt,
+            })
+        })
+    }
+
+    if (typeof ctx.generate === 'function') {
+        attempts.push({
+            name: 'generate',
+            fn: async () => ctx.generate({
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                ],
+                quiet: true,
+                stream: false,
+            })
+        })
+    }
+
+    state.isRewriting = true
+    let rewritten = null
+    try {
+        for (const attempt of attempts) {
+            try {
+                log(`Rewrite attempt starting (${attempt.name})...`)
+                const result = await attempt.fn()
+                log(`Rewrite attempt (${attempt.name}) raw result:`, result)
+                const rewrittenRaw = normalizeRewriteResponse(result)
+                const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
+                if (candidate) {
+                    log(`Rewrite attempt (${attempt.name}) success:`, candidate)
+                    rewritten = candidate
+                    break
+                }
+            } catch (error) {
+                logger.warn(`Prompt rewrite attempt (${attempt.name}) failed`, error)
+            }
+        }
+    } finally {
+        state.isRewriting = false
+        await cleanupRewriteMessages(startLength)
+        
+        if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
+            if (originalProfile) {
+                log('Restoring connection profile', { originalProfile })
+                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+            }
+            if (originalPreset) {
+                log('Restoring completion preset', { originalPreset })
+                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+            }
+        }
+    }
+
+    return rewritten || ''
 }
 
 async function handleIncomingMessage(messageId) {
+    if (state.isRewriting) {
+        log('Ignoring incoming message (currently rewriting)')
+        return
+    }
+
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     if (!autoSettings?.enabled) {
@@ -3061,6 +3619,8 @@ async function handleIncomingMessage(messageId) {
     }
 
     const token = state.chatToken
+    await sleep(500)
+    if (token !== state.chatToken) return
 
     if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
         return
@@ -3074,382 +3634,52 @@ async function handleIncomingMessage(messageId) {
         return
     }
 
-    if (state.autoGenMessages.has(resolvedId)) {
-        return
-    }
+    log('Processing incoming message for prompts', {
+        messageId: resolvedId,
+        text:
+            message.mes.length > 100
+                ? message.mes.substring(0, 100) + '...'
+                : message.mes,
+    })
 
     const regex = parseRegexFromString(autoSettings.promptInjection.regex)
     if (!regex) {
         return
     }
 
-    const matches = getPicPromptMatches(message.mes, regex)
-
+    const matches = getPicPromptMatches(message?.mes, regex)
     if (!matches.length) {
         return
     }
 
-    const totalImages = matches.length
-    let completedImages = 0
-    let failedImages = 0
-    const swipesPerImage = getSwipeTotal(settings)
-    const modelLabel = getActiveSdModelLabel()
-    const modelSuffix = modelLabel ? ` • ${modelLabel}` : ''
-    const unified = startUnifiedProgress({
-        messageId: resolvedId,
-        totalImages,
-        swipesPerImage,
-        insertType: autoSettings.insertType,
-    })
+    const prompts = matches
+        .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
+        .filter((p) => p.trim())
 
-    if (unified.active) {
-        updateUnifiedProgress(
-            resolvedId,
-            true,
-            `${formatUnifiedImageLabel(1)}${modelSuffix}`,
-        )
-    } else {
-        updateProgressUi(
-            resolvedId,
-            0,
-            totalImages,
-            true,
-            `Starting SD image generation (1/${totalImages})${modelSuffix}`,
-        )
+    if (!prompts.length) {
+        return
+    }
+
+    const swipesPerImage = getSwipeTotal(settings)
+    const expandedPrompts = []
+    for (let prompt of prompts) {
+        for (let i = 0; i < swipesPerImage; i += 1) {
+            expandedPrompts.push(prompt)
+        }
     }
 
     state.autoGenMessages.add(resolvedId)
-    setTimeout(async () => {
-        for (let index = 0; index < matches.length; index += 1) {
-            if (token !== state.chatToken) {
-                break
-            }
-            const match = matches[index]
-            const prompt = typeof match?.[1] === 'string' ? match[1] : ''
-            if (!prompt.trim()) {
-                continue
-            }
 
-            const rewriteEnabled =
-                !!autoSettings?.promptRewrite?.enabled &&
-                !!autoSettings?.promptInjection
-
-            if (
-                !updateUnifiedProgress(
-                    resolvedId,
-                    true,
-                    `${formatUnifiedImageLabel(index + 1)}${modelSuffix}`,
-                )
-            ) {
-                updateProgressUi(
-                    resolvedId,
-                    completedImages,
-                    Math.max(1, totalImages - failedImages),
-                    true,
-                    `Generating image ${index + 1}/${totalImages}${modelSuffix}`,
-                )
-            }
-
-            if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
-                if (token !== state.chatToken) {
-                    break
-                }
-                let result = await callSdSlash(prompt, false)
-                let finalPrompt = prompt
-
-                if (!result && rewriteEnabled) {
-                    const rewriteLabel = `Rewriting prompt ${index + 1}/${totalImages}`
-                    if (
-                        !updateUnifiedProgress(
-                            resolvedId,
-                            true,
-                            `${rewriteLabel}${modelSuffix}`,
-                        )
-                    ) {
-                        updateProgressUi(
-                            resolvedId,
-                            completedImages,
-                            Math.max(1, totalImages - failedImages),
-                            true,
-                            `${rewriteLabel}${modelSuffix}`,
-                        )
-                    }
-
-                    const rewritten = await callChatRewrite(
-                        prompt,
-                        autoSettings.promptInjection,
-                    )
-                    if (rewritten) {
-                        finalPrompt = normalizeRewrittenPrompt(
-                            prompt,
-                            rewritten,
-                            regex,
-                        )
-                        if (token !== state.chatToken) {
-                            break
-                        }
-                        result = await callSdSlash(finalPrompt, false)
-                    }
-                }
-
-                if (!result) {
-                    let placeholderMessageId = null
-                    if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
-                        placeholderMessageId =
-                            await createPlaceholderImageMessage(finalPrompt)
-                        if (Number.isFinite(placeholderMessageId)) {
-                            const button = await waitForPaintbrush(
-                                placeholderMessageId,
-                                3000,
-                            )
-                            if (button) {
-                                queueAutoFill(placeholderMessageId, button)
-                            } else {
-                                log('Placeholder created without paintbrush', {
-                                    placeholderMessageId,
-                                })
-                            }
-
-                            completedImages += 1
-                            state.unifiedProgress.completedImages =
-                                completedImages
-                            if (
-                                !updateUnifiedProgress(
-                                    resolvedId,
-                                    false,
-                                    `${formatUnifiedSwipeLabel(index + 1, 'Queued swipes')}${modelSuffix}`,
-                                )
-                            ) {
-                                updateProgressUi(
-                                    resolvedId,
-                                    completedImages,
-                                    Math.max(1, totalImages - failedImages),
-                                    false,
-                                    `Queued swipes for failed image ${index + 1}/${totalImages}${modelSuffix}`,
-                                )
-                            }
-
-                            continue
-                        }
-                    }
-
-                    failedImages += 1
-                    state.unifiedProgress.failedImages = failedImages
-                    if (
-                        state.unifiedProgress.active &&
-                        state.unifiedProgress.insertType ===
-                            INSERT_TYPE.NEW_MESSAGE
-                    ) {
-                        state.unifiedProgress.expectedSwipes = Math.max(
-                            0,
-                            state.unifiedProgress.expectedSwipes -
-                                state.unifiedProgress.swipesPerImage,
-                        )
-                    }
-                    if (
-                        !updateUnifiedProgress(
-                            resolvedId,
-                            false,
-                            `${formatUnifiedSwipeLabel(index + 1, 'Failed image')}${modelSuffix}`,
-                        )
-                    ) {
-                        updateProgressUi(
-                            resolvedId,
-                            completedImages,
-                            Math.max(1, totalImages - failedImages),
-                            false,
-                            `Failed image ${index + 1}/${totalImages}${modelSuffix}`,
-                        )
-                    }
-                } else {
-                    completedImages += 1
-                    state.unifiedProgress.completedImages = completedImages
-                    log('Image generation completed', {
-                        messageId: resolvedId,
-                        imageIndex: index + 1,
-                        totalImages,
-                        completedImages,
-                        failedImages,
-                        prompt: finalPrompt,
-                        insertType: autoSettings.insertType,
-                    })
-                    if (
-                        !updateUnifiedProgress(
-                            resolvedId,
-                            false,
-                            `${formatUnifiedSwipeLabel(index + 1, 'Completed image')}${modelSuffix}`,
-                        )
-                    ) {
-                        updateProgressUi(
-                            resolvedId,
-                            completedImages,
-                            Math.max(1, totalImages - failedImages),
-                            false,
-                            `Completed image ${index + 1}/${totalImages}${modelSuffix}`,
-                        )
-                    }
-                }
-                continue
-            }
-
-            let imageUrl = await callSdSlash(prompt, true)
-            let finalPrompt = prompt
-            if ((!imageUrl || typeof imageUrl !== 'string') && rewriteEnabled) {
-                const rewriteLabel = `Rewriting prompt ${index + 1}/${totalImages}`
-                if (
-                    !updateUnifiedProgress(
-                        promptMessageId,
-                        true,
-                        `${rewriteLabel}${modelSuffix}`,
-                    )
-                ) {
-                    updateProgressUi(
-                        promptMessageId,
-                        completedImages,
-                        Math.max(1, totalImages - failedImages),
-                        true,
-                        `${rewriteLabel}${modelSuffix}`,
-                    )
-                }
-
-                const rewritten = await callChatRewrite(
-                    prompt,
-                    autoSettings.promptInjection,
-                )
-                if (rewritten) {
-                    finalPrompt = normalizeRewrittenPrompt(
-                        prompt,
-                        rewritten,
-                        regex,
-                    )
-                    if (token !== state.chatToken) {
-                        break
-                    }
-                    imageUrl = await callSdSlash(finalPrompt, true)
-                }
-            }
-            if (!imageUrl || typeof imageUrl !== 'string') {
-                failedImages += 1
-                state.unifiedProgress.failedImages = failedImages
-                if (
-                    state.unifiedProgress.active &&
-                    state.unifiedProgress.insertType === INSERT_TYPE.NEW_MESSAGE
-                ) {
-                    state.unifiedProgress.expectedSwipes = Math.max(
-                        0,
-                        state.unifiedProgress.expectedSwipes -
-                            state.unifiedProgress.swipesPerImage,
-                    )
-                }
-                if (
-                    !updateUnifiedProgress(
-                        resolvedId,
-                        false,
-                        `${formatUnifiedSwipeLabel(index + 1, 'Failed image')}${modelSuffix}`,
-                    )
-                ) {
-                    updateProgressUi(
-                        resolvedId,
-                        completedImages,
-                        Math.max(1, totalImages - failedImages),
-                        false,
-                        `Failed image ${index + 1}/${totalImages}${modelSuffix}`,
-                    )
-                }
-                continue
-            }
-
-            if (!message.extra) {
-                message.extra = {}
-            }
-
-            if (autoSettings.insertType === INSERT_TYPE.INLINE) {
-                appendGeneratedMedia(message, imageUrl, finalPrompt, true)
-            }
-
-            if (autoSettings.insertType === INSERT_TYPE.REPLACE) {
-                const originalTag =
-                    typeof match?.[0] === 'string' ? match[0] : ''
-                if (originalTag) {
-                    const escapedUrl = escapeHtmlAttribute(imageUrl)
-                    const escapedPrompt = escapeHtmlAttribute(finalPrompt)
-                    const newTag = `<img src="${escapedUrl}" title="${escapedPrompt}" alt="${escapedPrompt}">`
-                    message.mes = message.mes.replace(originalTag, newTag)
-                }
-                appendGeneratedMedia(message, imageUrl, finalPrompt, true)
-            }
-
-            if (typeof window.appendMediaToMessage === 'function') {
-                let messageElement = document.querySelector(
-                    `.mes[mesid="${resolvedId}"]`,
-                )
-                if (!messageElement) {
-                    messageElement = await waitForMessageElement(
-                        resolvedId,
-                        2000,
-                    )
-                }
-                sanitizeMessageMediaState(message)
-                log('Append media to message', {
-                    messageId: resolvedId,
-                    state: getMessageSwipeState(resolvedId),
-                })
-                window.appendMediaToMessage(message, messageElement)
-            } else if (typeof window.updateMessageBlock === 'function') {
-                sanitizeMessageMediaState(message)
-                log('Update message block', {
-                    messageId: resolvedId,
-                    state: getMessageSwipeState(resolvedId),
-                })
-                window.updateMessageBlock(resolvedId, message)
-            }
-
-            context.eventSource?.emit(
-                context.eventTypes.MESSAGE_UPDATED,
-                resolvedId,
-            )
-            await context.saveChat?.()
-            completedImages += 1
-            state.unifiedProgress.completedImages = completedImages
-            log('Image generation completed', {
-                messageId: resolvedId,
-                imageIndex: index + 1,
-                totalImages,
-                completedImages,
-                failedImages,
-                prompt: finalPrompt,
-                imageUrl,
-                insertType: autoSettings.insertType,
-            })
-            if (
-                !updateUnifiedProgress(
-                    resolvedId,
-                    false,
-                    `${formatUnifiedSwipeLabel(index + 1, 'Completed image')}${modelSuffix}`,
-                )
-            ) {
-                updateProgressUi(
-                    resolvedId,
-                    completedImages,
-                    Math.max(1, totalImages - failedImages),
-                    false,
-                    `Completed image ${index + 1}/${totalImages}${modelSuffix}`,
-                )
-            }
-        }
-
-        setTimeout(() => {
-            if (
-                !state.unifiedProgress.active ||
-                state.unifiedProgress.expectedSwipes === 0
-            ) {
-                clearProgress(resolvedId)
-            }
-            finalizeUnifiedProgress()
-        }, 1200)
-    }, 0)
+    try {
+        const result = await openImageSelectionDialog(
+            expandedPrompts,
+            resolvedId,
+        )
+        await handleDialogResult(result, message)
+    } catch (error) {
+        logger.warn('Auto-generation failed', error)
+    }
 }
-
 async function handleManualPromptRewrite(messageId) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
@@ -3459,24 +3689,62 @@ async function handleManualPromptRewrite(messageId) {
         return
     }
 
-    const token = state.chatToken
-
     if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
         log('Rewrite ignored (insert mode disabled)')
         return
     }
 
     const context = getCtx()
-    let chat = context.chat || []
+    const chat = context.chat || []
     let resolvedId = typeof messageId === 'number' ? messageId : chat.length - 1
-    const message = chat?.[resolvedId]
-    if (!message || message.is_user || !message.mes) {
+    let message = chat?.[resolvedId]
+
+    if (!message || message.is_user) {
         log('Rewrite ignored (invalid message)', { resolvedId })
+        return
+    }
+
+    const regex = parseRegexFromString(autoSettings.promptInjection?.regex)
+    const hasPrompts = (msg) =>
+        msg?.mes && getPicPromptMatches(msg.mes, regex).length > 0
+
+    // If this message doesn't have prompts but has images, it might be a separate image message (New message mode).
+    // Try to find the source message with prompts (usually the one before).
+    if (!hasPrompts(message) && hasGeneratedMedia(message) && resolvedId > 0) {
+        const prevId = resolvedId - 1
+        const prevMsg = chat[prevId]
+        if (prevMsg && !prevMsg.is_user && hasPrompts(prevMsg)) {
+            log('Targeting previous message for prompts', { prevId })
+            resolvedId = prevId
+            message = prevMsg
+        }
+    }
+
+    if (!hasPrompts(message)) {
+        log('Rewrite ignored (no prompts found)', {
+            resolvedId,
+        })
         return
     }
 
     const lastImageMessageId = findLastGeneratedImageMessageId()
     if (Number.isFinite(lastImageMessageId)) {
+        // In Inline mode, we clear media instead of deleting the text message.
+        if (
+            lastImageMessageId === resolvedId &&
+            autoSettings.insertType === INSERT_TYPE.INLINE
+        ) {
+            log('Clearing media from inline message instead of deleting', {
+                resolvedId,
+            })
+            if (message.extra) {
+                message.extra.media = []
+                message.extra.media_index = 0
+            }
+            await handleIncomingMessage(resolvedId)
+            return
+        }
+
         log('Deleting last generated image message', { lastImageMessageId })
         const deleted = await deleteMessageById(lastImageMessageId)
         log('Delete result', { lastImageMessageId, deleted })
@@ -3502,6 +3770,8 @@ async function handleManualPromptRewrite(messageId) {
         log('Hammer action complete (images message deleted)', {
             lastImageMessageId,
         })
+        
+        await handleIncomingMessage(resolvedId)
         return
     }
 
@@ -3629,7 +3899,7 @@ async function createPlaceholderImageMessage(prompt) {
     const message = {
         name,
         is_user: false,
-        is_system: false,
+        is_system: true,
         send_date: Date.now(),
         mes: prompt || '',
         extra: {
@@ -3913,10 +4183,7 @@ async function deleteMessageById(messageId, options = {}) {
             }
         }
     } catch (error) {
-        console.warn(
-            '[Image-Generation-Autopilot] Failed to delete message',
-            error,
-        )
+        logger.warn('Failed to delete message', error)
     }
 
     return handled
@@ -3981,26 +4248,152 @@ function findMessageExtraButtonsBar(messageId) {
         return null
     }
 
-    const bar = root.querySelector('.mes_buttons .extraMesButtons')
+    let bar = root.querySelector('.mes_buttons .extraMesButtons')
+    if (!bar) {
+        bar = root.querySelector('.extraMesButtons')
+    }
     return bar
 }
 
-function injectReswipeButtonTemplate() {
-    const target = document.querySelector(
-        '#message_template .mes_buttons .extraMesButtons',
-    )
-    if (!target) {
-        console.warn(
-            '[Image-Generation-Autopilot] Message toolbar template not found',
-        )
+function getMediaCount(message) {
+    const mediaList = message?.extra?.media
+    return Array.isArray(mediaList) ? mediaList.length : 0
+}
+
+async function queueAutoFill(messageId, button) {
+    if (state.runningMessages.has(messageId)) {
         return
     }
+
+    const context = getCtx()
+    const message = context.chat?.[messageId]
+    if (!message) {
+        return
+    }
+
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+
+    let prompts = []
+
+    if (autoSettings?.promptInjection?.regex) {
+        const regex = parseRegexFromString(autoSettings.promptInjection.regex)
+        if (regex) {
+            const matches = getPicPromptMatches(message?.mes, regex)
+            prompts = matches
+                .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
+                .filter((p) => p.trim())
+        }
+    }
+
+    if (!prompts.length) {
+        logger.warn('No prompts found in message for auto-fill')
+        return
+    }
+
+    const swipesPerImage = getSwipeTotal(settings)
+    const expandedPrompts = []
+    for (let prompt of prompts) {
+        for (let i = 0; i < swipesPerImage; i += 1) {
+            expandedPrompts.push(prompt)
+        }
+    }
+
+    state.runningMessages.set(messageId, true)
+
+    try {
+        const result = await openImageSelectionDialog(
+            expandedPrompts,
+            messageId,
+        )
+        await handleDialogResult(result, message)
+    } catch (error) {
+        logger.warn('Auto-fill failed', error)
+    } finally {
+        state.runningMessages.delete(messageId)
+    }
+}
+
+async function handleMessageRendered(messageId, origin) {
+    const settings = getSettings()
+    if (!settings.enabled) {
+        return
+    }
+
+    const message = getCtx().chat?.[messageId]
+    const hasMedia = getMediaCount(message) > 0
+
+    const regex = parseRegexFromString(
+        settings.autoGeneration?.promptInjection?.regex,
+    )
+    const hasPicTags =
+        regex && getPicPromptMatches(message?.mes, regex).length > 0
+
+    ensureReswipeButton(messageId, settings.enabled && (hasPicTags || !hasMedia))
+    ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
+
+    if (!shouldAutoFill(message)) {
+        return
+    }
+
+    if (origin !== 'extension') {
+        return
+    }
+
+    if (state.seenMessages.has(messageId)) {
+        return
+    }
+
+    state.seenMessages.add(messageId)
+    const button = await waitForPaintbrush(messageId)
+    if (!button) {
+        logger.warn('No SD control found for message', messageId)
+        return
+    }
+
+    queueAutoFill(messageId, button)
+}
+
+// ==================== PRESET MANAGEMENT ====================
+
+const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
+
+function getCurrentSettingsSnapshot() {
+    return JSON.parse(JSON.stringify(getSettings()))
+}
+
+// ==================== END PRESET MANAGEMENT ====================
+
+function injectReswipeButtonTemplate() {
+    // Try a set of fallback selectors to support different SillyTavern themes/versions
+    const selectors = [
+        '#message_template .mes_buttons .extraMesButtons',
+        '#message_template .mes__buttons .extraMesButtons',
+        '#message_template .extraMesButtons',
+        '.message_template .mes_buttons .extraMesButtons',
+        '.message_template .extraMesButtons',
+        '#message_template',
+    ]
+
+    let target = null
+    for (const s of selectors) {
+        target = document.querySelector(s)
+        if (target) break
+    }
+
+    if (!target) {
+        logger.warn('Message toolbar template not found, installing observer to wait for it')
+        observeForMessageTemplate()
+        return
+    }
+
+    logger.debug('injectReswipeButtonTemplate target found', { selector: target && target.tagName })
 
     if (!target.querySelector('.auto-multi-reswipe')) {
         const button = document.createElement('div')
         button.className =
-            'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-        button.title = 'run image auto-swipe'
+            'mes_button auto-multi-reswipe fa-solid fa-wand-magic-sparkles interactable'
+        button.title = 'Generate more images for this message'
         button.setAttribute('tabindex', '0')
         button.style.display = 'none'
         target.prepend(button)
@@ -4010,10 +4403,68 @@ function injectReswipeButtonTemplate() {
         const button = document.createElement('div')
         button.className =
             'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
-        button.title = 'rewrite <pic> prompts and regenerate images'
+        button.title = 'Rewrite prompt and regenerate images'
         button.setAttribute('tabindex', '0')
         button.style.display = 'none'
         target.prepend(button)
+    }
+}
+
+// Lightweight MutationObserver fallback: watches for the message template / toolbar to appear
+let _reswipeTemplateObserver = null
+function observeForMessageTemplate(timeoutMs = 30000) {
+    if (typeof document === 'undefined' || _reswipeTemplateObserver) return
+
+    try {
+        _reswipeTemplateObserver = new MutationObserver((mutations, observer) => {
+            try {
+                const candidates = [
+                    '#message_template .mes_buttons .extraMesButtons',
+                    '#message_template .mes__buttons .extraMesButtons',
+                    '#message_template .extraMesButtons',
+                    '.message_template .mes_buttons .extraMesButtons',
+                    '.message_template .extraMesButtons',
+                    '#message_template',
+                ]
+                for (const sel of candidates) {
+                    const node = document.querySelector(sel)
+    if (node) {
+      logger.debug('Message toolbar template appeared via observer', { sel })
+                        try {
+                            injectReswipeButtonTemplate()
+                        } catch (e) {
+                            logger.warn('inject via observer failed', e)
+                        }
+                        observer.disconnect()
+                        _reswipeTemplateObserver = null
+                        return
+                    }
+                }
+            } catch (error) {
+                logger.warn('Observer callback error', error)
+            }
+        })
+
+        _reswipeTemplateObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+        })
+
+        // Safety timeout: stop observing after a while to avoid leaks
+        setTimeout(() => {
+            if (_reswipeTemplateObserver) {
+                try {
+                    _reswipeTemplateObserver.disconnect()
+                } catch (e) {
+                    /* ignore */
+                }
+      _reswipeTemplateObserver = null
+      logger.debug('Message template observer timed out')
+            }
+        }, timeoutMs)
+    } catch (error) {
+        logger.warn('Failed to install message template observer', error)
+        _reswipeTemplateObserver = null
     }
 }
 
@@ -4040,8 +4491,8 @@ function ensureReswipeButton(messageId, shouldShow = true) {
 
     const button = document.createElement('div')
     button.className =
-        'mes_button auto-multi-reswipe fa-solid fa-angles-right interactable'
-    button.title = 'run image auto-swipe'
+        'mes_button auto-multi-reswipe fa-solid fa-wand-magic-sparkles interactable'
+    button.title = 'Generate more images for this message'
     button.setAttribute('tabindex', '0')
     bar.prepend(button)
 }
@@ -4070,1011 +4521,50 @@ function ensureRewriteButton(messageId, shouldShow = true) {
     const button = document.createElement('div')
     button.className =
         'mes_button auto-multi-rewrite fa-solid fa-hammer interactable'
-    button.title = 'rewrite <pic> prompts and regenerate images'
+    button.title = 'Rewrite prompt and regenerate images'
     button.setAttribute('tabindex', '0')
     bar.prepend(button)
 }
 
 function refreshReswipeButtons() {
     const settings = getSettings()
+    logger.debug('refreshReswipeButtons invoked', { enabled: settings.enabled })
     const chat = getCtx().chat || []
     const messageElements = document.querySelectorAll('.mes[mesid]')
 
+    const regex = parseRegexFromString(
+        settings.autoGeneration?.promptInjection?.regex,
+    )
+
     messageElements.forEach((element) => {
-        const messageId = Number(element.getAttribute('mesid'))
-        if (!Number.isFinite(messageId)) {
-            return
-        }
-
-        const message = chat[messageId]
-        const hasMedia = getMediaCount(message) > 0
-        const shouldShow = settings.enabled && hasMedia
-        ensureReswipeButton(messageId, shouldShow)
-
-        const shouldShowRewrite = shouldShowPromptRewriteButton(message)
-        ensureRewriteButton(messageId, shouldShowRewrite)
-    })
-}
-
-function dispatchSwipe(button) {
-    if (!button || typeof button.dispatchEvent !== 'function') {
-        return false
-    }
-
-    const event = new MouseEvent('click', {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-    })
-    button.dispatchEvent(event)
-    return true
-}
-
-function getMediaCount(message) {
-    const mediaList = message?.extra?.media
-    return Array.isArray(mediaList) ? mediaList.length : 0
-}
-
-async function applyModelOverride(modelId) {
-    const overrideModel = modelId?.trim()
-    if (!overrideModel) {
-        return null
-    }
-
-    const context = getCtx()
-    const sdSettings = context?.extensionSettings?.sd
-    const modelSelect = document.getElementById('sd_model')
-    const previousSettingsModel = sdSettings?.model
-    const previousSelectValue =
-        modelSelect instanceof HTMLSelectElement ? modelSelect.value : null
-    const selectOptions =
-        modelSelect instanceof HTMLSelectElement
-            ? Array.from(modelSelect.options)
-            : []
-    const selectHasOption = selectOptions.some(
-        (option) => option.value === overrideModel,
-    )
-    const needsSettingsChange =
-        !!sdSettings && previousSettingsModel !== overrideModel
-    const needsSelectChange =
-        selectHasOption && previousSelectValue !== overrideModel
-
-    if (!needsSettingsChange && !needsSelectChange) {
-        log('Model override skipped (already active)', {
-            overrideModel,
-            previousSettingsModel,
-            previousSelectValue,
-        })
-        return null
-    }
-
-    if (needsSettingsChange) {
-        sdSettings.model = overrideModel
-        log('Model override applied to settings', {
-            overrideModel,
-            previousSettingsModel,
-        })
-    }
-
-    if (needsSelectChange && modelSelect instanceof HTMLSelectElement) {
-        modelSelect.value = overrideModel
-        modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
-        log('Model override applied to select', {
-            overrideModel,
-            previousSelectValue,
-        })
-    }
-
-    if (needsSelectChange) {
-        await sleep(80)
-    }
-
-    return () => {
-        if (
-            needsSettingsChange &&
-            typeof previousSettingsModel !== 'undefined'
-        ) {
-            sdSettings.model = previousSettingsModel
-            log('Model override restored settings', {
-                previousSettingsModel,
-                overrideModel,
-            })
-        }
-
-        if (
-            needsSelectChange &&
-            modelSelect instanceof HTMLSelectElement &&
-            previousSelectValue !== null
-        ) {
-            modelSelect.value = previousSelectValue
-            modelSelect.dispatchEvent(new Event('change', { bubbles: true }))
-            log('Model override restored select', {
-                previousSelectValue,
-                overrideModel,
-            })
-        }
-    }
-}
-
-async function waitForMediaIncrement(messageId, previousCount) {
-    const timeout = getSettings().swipeTimeoutMs
-    const deadline = performance.now() + timeout
-
-    while (performance.now() < deadline) {
-        await sleep(250)
-        const message = getCtx().chat?.[messageId]
-        if (!message) {
-            return false
-        }
-
-        const count = getMediaCount(message)
-        if (count > previousCount) {
-            clearGenerationState(messageId)
-            return true
-        }
-
-        checkForImageDeletion(messageId, previousCount)
-
-        if (isGenerationInProgress(messageId)) {
-            continue
-        }
-
-        clearGenerationState(messageId)
-        return true
-    }
-
-    clearGenerationState(messageId)
-    return false
-}
-
-function isGenerationInProgress(messageId) {
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (!button) {
-        return false
-    }
-
-    const hasHourglassClass = button.classList.contains('fa-hourglass') ||
-                               button.classList.contains('fa-hourglass-half')
-    
-    if (!hasHourglassClass) {
-        return false
-    }
-
-    const message = getCtx().chat?.[messageId]
-    if (!message) {
-        return false
-    }
-
-    const swipeId = message.swipe_id
-    const mediaCount = getMediaCount(message)
-    
-    const stateKey = `${messageId}_${swipeId}`
-    let stateEntry = state.generationStates?.[stateKey]
-    
-    if (!stateEntry) {
-        stateEntry = {
-            lastMediaCount: mediaCount,
-            lastCheckTime: Date.now(),
-            stuckCheckCount: 0
-        }
-        if (!state.generationStates) {
-            state.generationStates = {}
-        }
-        state.generationStates[stateKey] = stateEntry
-        return true
-    }
-
-    const now = Date.now()
-    const timeSinceLastCheck = now - stateEntry.lastCheckTime
-    
-    if (timeSinceLastCheck >= 2000) {
-        if (mediaCount === stateEntry.lastMediaCount) {
-            stateEntry.stuckCheckCount++
-            if (stateEntry.stuckCheckCount >= 2) {
-                delete state.generationStates[stateKey]
-                return false
-            }
-        } else {
-            stateEntry.stuckCheckCount = 0
-        }
-        stateEntry.lastMediaCount = mediaCount
-        stateEntry.lastCheckTime = now
-    }
-
-    return true
-}
-
-function detectGenerationCancellation(messageId) {
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (!button) {
-        return true
-    }
-
-    return !button.classList.contains('fa-hourglass') &&
-           !button.classList.contains('fa-hourglass-half')
-}
-
-function checkForImageDeletion(messageId, previousCount) {
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (!button) {
-        return false
-    }
-
-    const message = getCtx().chat?.[messageId]
-    if (!message) {
-        return false
-    }
-
-    const currentCount = getMediaCount(message)
-    if (currentCount < previousCount) {
-        console.warn(
-            '[Image-Generation-Autopilot] Detected image deletion during generation',
-            messageId,
-            { previousCount, currentCount },
-        )
-        return true
-    }
-
-    return false
-}
-
-function clearGenerationState(messageId) {
-    const message = getCtx().chat?.[messageId]
-    if (!message) {
-        return
-    }
-
-    const swipeId = message.swipe_id
-    const stateKey = `${messageId}_${swipeId}`
-    
-    if (state.generationStates?.[stateKey]) {
-        delete state.generationStates[stateKey]
-    }
-
-    const selector = `.mes[mesid="${messageId}"] .sd_message_gen`
-    const button = document.querySelector(selector)
-    if (button) {
-        button.classList.remove('fa-hourglass', 'fa-hourglass-half')
-    }
-}
-
-async function requestSwipe(button, messageId) {
-    const baselineMessage = getCtx().chat?.[messageId]
-    const baselineCount = getMediaCount(baselineMessage)
-    if (!dispatchSwipe(button)) {
-        return false
-    }
-
-    return await waitForMediaIncrement(messageId, baselineCount)
-}
-
-async function autoFillMessage(messageId, button, token) {
-    state.abortInProgress = false
-    log('Auto-fill start', { state: getMessageSwipeState(messageId) })
-    const initialSettings = getSettings()
-    const plan = getSwipePlan(initialSettings)
-    const totalSwipes = plan.reduce((sum, entry) => sum + entry.count, 0)
-
-    if (!totalSwipes) {
-        return
-    }
-
-    const swipeLabels = buildSwipeLabels(plan, totalSwipes)
-    const initialLabel = swipeLabels[0]
-        ? `Generating ${swipeLabels[0]}`
-        : 'Preparing swipe queue…'
-
-    if (!updateUnifiedProgress(messageId, true, initialLabel)) {
-        updateProgressUi(messageId, 0, totalSwipes, true, initialLabel)
-    }
-
-    if (initialSettings.burstMode) {
-        await runBurstSwipePlan(
-            plan,
-            messageId,
-            button,
-            token,
-            totalSwipes,
-            swipeLabels,
-        )
-    } else {
-        await runSequentialSwipePlan(
-            plan,
-            messageId,
-            button,
-            token,
-            totalSwipes,
-            swipeLabels,
-        )
-    }
-}
-
-async function runSequentialSwipePlan(
-    plan,
-    messageId,
-    button,
-    token,
-    totalSwipes,
-    swipeLabels,
-) {
-    let completed = 0
-    let failed = 0
-    let effectiveTarget = totalSwipes
-
-    log('Sequential plan start', {
-        messageId,
-        totalSwipes,
-        models: plan.map((entry) => ({ id: entry.id, count: entry.count })),
-    })
-
-        outer: for (const entry of plan) {
-            const modelLabel = getModelLabel(entry.id)
-            const restoreModel = await applyModelOverride(entry.id)
-
-            try {
-                for (
-                    let swipeIndex = 0;
-                    swipeIndex < entry.count;
-                    swipeIndex += 1
-                ) {
-                    const settings = getSettings()
-                    if (!settings.enabled || token !== state.chatToken) {
-                        break outer
-                    }
-
-                    const message = getCtx().chat?.[messageId]
-                    if (!message) {
-                        break outer
-                    }
-
-                    if (isGenerationInProgress(messageId)) {
-                        console.warn(
-                            '[Image-Generation-Autopilot] Generation still in progress when trying to start new swipe for message',
-                            messageId,
-                        )
-                        const remainingModels = plan.slice(
-                            plan.indexOf(entry) + 1,
-                        )
-                        if (remainingModels.length > 0) {
-                            log('Skipping remaining models, waiting for current generation to complete', {
-                                remainingModels: remainingModels.map((m) => ({ id: m.id })),
-                            })
-                            await sleep(1000)
-                            continue
-                        }
-                        break outer
-                    }
-
-                    if (!button?.isConnected) {
-                        button = await waitForPaintbrush(messageId)
-                        if (!button) {
-                            console.warn(
-                                '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
-                                messageId,
-                            )
-                            break outer
-                        }
-                    }
-
-                    const pendingLabel = swipeLabels?.[completed]
-                    if (
-                        !updateUnifiedProgress(
-                            messageId,
-                            true,
-                            pendingLabel
-                                ? `Generating ${pendingLabel}`
-                                : modelLabel,
-                        )
-                    ) {
-                        updateProgressUi(
-                            messageId,
-                            completed,
-                            effectiveTarget,
-                            true,
-                            pendingLabel
-                                ? `Waiting on ${pendingLabel}`
-                                : modelLabel,
-                        )
-                    }
-                    log('Dispatching sequential swipe', {
-                        messageId,
-                        modelId: entry.id,
-                        swipeIndex: swipeIndex + 1,
-                        totalForModel: entry.count,
-                        completedSoFar: completed,
-                        state: getMessageSwipeState(messageId),
-                    })
-
-                    const success = await requestSwipe(button, messageId)
-                    if (!success) {
-                        clearGenerationState(messageId)
-                        console.warn(
-                            '[Image-Generation-Autopilot] Swipe request timed out or failed for message',
-                            messageId,
-                        )
-                        failed += 1
-                        effectiveTarget = Math.max(1, totalSwipes - failed)
-                        const failedLabel = swipeLabels?.[completed]
-                        if (state.unifiedProgress.active) {
-                            state.unifiedProgress.expectedSwipes = Math.max(
-                                0,
-                                state.unifiedProgress.expectedSwipes - 1,
-                            )
-                        }
-                        if (
-                            !updateUnifiedProgress(
-                                messageId,
-                                false,
-                                failedLabel
-                                    ? `Failed ${failedLabel}`
-                                    : `${modelLabel} swipe failed`,
-                            )
-                        ) {
-                            updateProgressUi(
-                                messageId,
-                                completed,
-                                effectiveTarget,
-                                false,
-                                failedLabel
-                                    ? `Failed ${failedLabel}`
-                                    : `${modelLabel} swipe failed`,
-                            )
-                        }
-                        continue
-                    }
-
-
-                const completedLabel = swipeLabels?.[completed]
-                completed += 1
-                if (state.unifiedProgress.active) {
-                    state.unifiedProgress.completedSwipes += 1
-                }
-                if (
-                    !updateUnifiedProgress(
-                        messageId,
-                        false,
-                        completedLabel
-                            ? `Completed ${completedLabel}`
-                            : modelLabel,
-                    )
-                ) {
-                    updateProgressUi(
-                        messageId,
-                        completed,
-                        effectiveTarget,
-                        false,
-                        completedLabel
-                            ? `Completed ${completedLabel}`
-                            : modelLabel,
-                    )
-                }
-
-                if (settings.delayMs > 0 && completed < effectiveTarget) {
-                    await sleep(settings.delayMs)
-                }
-            }
-        } finally {
-            if (typeof restoreModel === 'function') {
-                restoreModel()
-            }
-        }
-    }
-}
-
-async function runBurstSwipePlan(
-    plan,
-    messageId,
-    button,
-    token,
-    totalSwipes,
-    swipeLabels,
-) {
-    const ctx = getCtx()
-    const baselineCount = getMediaCount(ctx.chat?.[messageId])
-    let issued = 0
-    let failedDispatches = 0
-    let effectiveTarget = totalSwipes
-
-    log('Burst plan start', {
-        messageId,
-        totalSwipes,
-        models: plan.map((entry) => ({ id: entry.id, count: entry.count })),
-    })
-
-    for (const entry of plan) {
-        const settings = getSettings()
-        if (!settings.enabled || token !== state.chatToken) {
-            return
-        }
-
-        const label = getModelLabel(entry.id)
-        const restoreModel = await applyModelOverride(entry.id)
-
         try {
-            for (
-                let swipeIndex = 0;
-                swipeIndex < entry.count;
-                swipeIndex += 1
-            ) {
-                const throttleMs = clampBurstThrottle(
-                    getSettings().burstThrottleMs,
-                )
-                if (!settings.enabled || token !== state.chatToken) {
-                    return
-                }
-
-                const message = ctx.chat?.[messageId]
-                if (!message) {
-                    return
-                }
-
-                if (!button?.isConnected) {
-                    button = await waitForPaintbrush(messageId)
-                    if (!button) {
-                        console.warn(
-                            '[Image-Generation-Autopilot] Unable to locate paintbrush button for message',
-                            messageId,
-                        )
-                        return
-                    }
-                }
-
-                log('Dispatching burst swipe', {
-                    messageId,
-                    modelId: entry.id,
-                    swipeIndex: swipeIndex + 1,
-                    totalForModel: entry.count,
-                    issuedSoFar: issued,
-                    state: getMessageSwipeState(messageId),
-                })
-
-                if (!dispatchSwipe(button)) {
-                    console.warn(
-                        '[Image-Generation-Autopilot] Failed to dispatch swipe click for message',
-                        messageId,
-                    )
-                    failedDispatches += 1
-                    effectiveTarget = Math.max(
-                        1,
-                        totalSwipes - failedDispatches,
-                    )
-                    const failedLabel = swipeLabels?.[issued]
-                    issued += 1
-                    if (state.unifiedProgress.active) {
-                        state.unifiedProgress.expectedSwipes = Math.max(
-                            0,
-                            state.unifiedProgress.expectedSwipes - 1,
-                        )
-                    }
-                    if (
-                        !updateUnifiedProgress(
-                            messageId,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${label} swipe failed`,
-                        )
-                    ) {
-                        updateProgressUi(
-                            messageId,
-                            issued,
-                            effectiveTarget,
-                            false,
-                            failedLabel
-                                ? `Failed ${failedLabel}`
-                                : `${label} swipe failed`,
-                        )
-                    }
-                    continue
-                }
-
-                const issuedLabel = swipeLabels?.[issued]
-                issued += 1
-                if (state.unifiedProgress.active) {
-                    state.unifiedProgress.completedSwipes += 1
-                }
-                if (
-                    !updateUnifiedProgress(
-                        messageId,
-                        true,
-                        issuedLabel
-                            ? `Generating ${issuedLabel}`
-                            : 'Generating swipe',
-                    )
-                ) {
-                    updateProgressUi(
-                        messageId,
-                        issued,
-                        effectiveTarget,
-                        true,
-                        issuedLabel ? `Queued ${issuedLabel}` : label,
-                    )
-                }
-
-                if (issued < effectiveTarget) {
-                    if (throttleMs > 0) {
-                        await sleep(throttleMs)
-                    } else {
-                        await sleep(BURST_MODEL_SETTLE_MS)
-                    }
-                }
-            }
-        } finally {
-            if (typeof restoreModel === 'function') {
-                restoreModel()
-            }
-        }
-    }
-
-    await monitorBurstCompletion(
-        messageId,
-        baselineCount,
-        totalSwipes,
-        token,
-        swipeLabels,
-        failedDispatches,
-    )
-}
-
-async function monitorBurstCompletion(
-    messageId,
-    baselineCount,
-    totalSwipes,
-    token,
-    swipeLabels,
-    failedDispatches = 0,
-) {
-    const timeout = getSettings().swipeTimeoutMs
-    const deadline = performance.now() + timeout
-    const effectiveTarget = Math.max(1, totalSwipes - failedDispatches)
-    const targetCount = baselineCount + effectiveTarget
-    let lastDelivered = 0
-    let lastWasInProgress = false
-
-    while (performance.now() < deadline) {
-        if (token !== state.chatToken) {
-            return
-        }
-
-        const message = getCtx().chat?.[messageId]
-        if (!message) {
-            break
-        }
-
-        const attachments = getMediaCount(message)
-        const delivered = Math.max(0, attachments - baselineCount)
-        if (delivered > lastDelivered) {
-            log('Swipe generation completed', {
-                messageId,
-                delivered,
-                lastDelivered,
-                baselineCount,
-                targetCount,
-                swipeLabel: swipeLabels?.[delivered - 1],
-            })
-        }
-        lastDelivered = delivered
-        const isCurrentlyInProgress = isGenerationInProgress(messageId)
-
-        if (lastWasInProgress && !isCurrentlyInProgress) {
-            console.warn(
-                '[Image-Generation-Autopilot] Generation detected as stopped unexpectedly',
-                messageId,
-            )
-            break
-        }
-        lastWasInProgress = isCurrentlyInProgress
-
-        const pendingLabel = swipeLabels?.[delivered]
-        if (state.unifiedProgress.active) {
-            const baseCompleted =
-                state.unifiedProgress.completedSwipes - lastDelivered
-            state.unifiedProgress.completedSwipes = Math.max(
-                0,
-                baseCompleted + delivered,
-            )
-            updateUnifiedProgress(
-                messageId,
-                delivered < effectiveTarget,
-                pendingLabel
-                    ? `Waiting on ${pendingLabel}`
-                    : 'Waiting for swipes',
-            )
-        } else {
-            updateProgressUi(
-                messageId,
-                Math.min(delivered, effectiveTarget),
-                effectiveTarget,
-                delivered < effectiveTarget,
-                pendingLabel
-                    ? `Queued ${pendingLabel}`
-                    : label,
-            )
-        }
-
-        if (attachments >= targetCount) {
-            return
-        }
-
-        if (isCurrentlyInProgress) {
-            await sleep(350)
-            continue
-        }
-
-        await sleep(350)
-    }
-
-    const timeoutDelivered = Math.min(lastDelivered, effectiveTarget)
-    if (lastWasInProgress) {
-        console.warn(
-            '[Image-Generation-Autopilot] Generation stopped unexpectedly for message',
-            messageId,
-            { timeoutDelivered, effectiveTarget },
-        )
-    }
-
-    if (state.unifiedProgress.active) {
-        state.unifiedProgress.completedSwipes = Math.max(
-            0,
-            state.unifiedProgress.completedSwipes -
-                lastDelivered +
-                timeoutDelivered,
-        )
-        updateUnifiedProgress(
-            messageId,
-            false,
-            timeoutDelivered > 0
-                ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
-                : 'Timed out waiting for swipes',
-        )
-    } else {
-        updateProgressUi(
-            messageId,
-            timeoutDelivered,
-            Math.max(1, timeoutDelivered),
-            false,
-            timeoutDelivered > 0
-                ? `Timed out after ${timeoutDelivered}/${effectiveTarget} swipes`
-                : 'Timed out waiting for swipes',
-        )
-    }
-}
-
-function queueAutoFill(messageId, button) {
-    if (state.runningMessages.has(messageId)) {
-        return
-    }
-
-    const token = state.chatToken
-    const job = autoFillMessage(messageId, button, token)
-        .catch((error) =>
-            console.error(
-                '[Image-Generation-Autopilot] Failed to auto-fill images',
-                error,
-            ),
-        )
-        .finally(() => {
-            state.runningMessages.delete(messageId)
-            if (finalizeUnifiedProgress()) {
-                clearProgress(messageId)
+            const messageId = Number(element.getAttribute('mesid'))
+            if (!Number.isFinite(messageId)) {
                 return
             }
 
-            if (!state.unifiedProgress.active) {
-                clearProgress(messageId)
+            const message = chat[messageId]
+            if (!message) {
+                return
             }
-        })
 
-    state.runningMessages.set(messageId, job)
-}
+            const hasMedia = getMediaCount(message) > 0
 
-async function handleMessageRendered(messageId, origin) {
-    const settings = getSettings()
-    if (!settings.enabled) {
-        return
-    }
+            // Also check if message contains pic tags for reswipe trigger
+            const hasPicTags =
+                regex && getPicPromptMatches(message?.mes, regex).length > 0
 
-    const message = getCtx().chat?.[messageId]
-    const hasMedia = getMediaCount(message) > 0
-    ensureReswipeButton(messageId, hasMedia)
-    ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
+            // Show if it has tags OR if it has no images at all
+            const shouldShow = settings.enabled && (hasPicTags || !hasMedia)
+            ensureReswipeButton(messageId, shouldShow)
 
-    if (!shouldAutoFill(message)) {
-        return
-    }
-
-    if (origin !== 'extension') {
-        return
-    }
-
-    if (state.seenMessages.has(messageId)) {
-        return
-    }
-
-    state.seenMessages.add(messageId)
-    const button = await waitForPaintbrush(messageId)
-    if (!button) {
-        console.warn(
-            '[Image-Generation-Autopilot] No SD control found for message',
-            messageId,
-        )
-        return
-    }
-
-    queueAutoFill(messageId, button)
-}
-
-// ==================== PRESET MANAGEMENT ====================
-
-const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
-
-function getPresetStorage() {
-    try {
-        const ctx = getCtx()
-        if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available',
-            )
-            return {}
+            const shouldShowRewrite = shouldShowPromptRewriteButton(message)
+            ensureRewriteButton(messageId, shouldShowRewrite)
+        } catch (error) {
+            logger.warn('Error refreshing buttons for message', element, error)
         }
-        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
-            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
-        }
-        // Return a deep copy to avoid reference issues
-        const presets = JSON.parse(
-            JSON.stringify(ctx.extensionSettings[PRESET_STORAGE_KEY]),
-        )
-        console.log(
-            '[Image-Generation-Autopilot] Retrieved presets from extension settings:',
-            presets,
-        )
-        return presets
-    } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to get preset storage:',
-            error,
-        )
-        return {}
-    }
-}
-
-function savePresetToStorage(presets) {
-    try {
-        const ctx = getCtx()
-        if (!ctx || !ctx.extensionSettings) {
-            console.warn(
-                '[Image-Generation-Autopilot] Extension settings not available',
-            )
-            return
-        }
-        if (!ctx.extensionSettings[PRESET_STORAGE_KEY]) {
-            ctx.extensionSettings[PRESET_STORAGE_KEY] = {}
-        }
-        console.log(
-            '[Image-Generation-Autopilot] Saving presets to extension settings:',
-            presets,
-        )
-        // Create a deep copy to avoid reference issues
-        const presetsCopy = JSON.parse(JSON.stringify(presets))
-        ctx.extensionSettings[PRESET_STORAGE_KEY] = presetsCopy
-        ctx.saveSettingsDebounced()
-        console.log('[Image-Generation-Autopilot] Presets saved successfully')
-    } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Failed to save preset storage:',
-            error,
-        )
-    }
-}
-
-function getAllPresets() {
-    return getPresetStorage()
-}
-
-function getPreset(id) {
-    const presets = getAllPresets()
-    return presets[id] || null
-}
-
-function savePreset(id, name, settings) {
-    const presets = getAllPresets()
-    // Exclude 'presets' property from saved preset settings to avoid circular reference
-    const { presets: _, ...settingsWithoutPresets } = settings
-    presets[id] = {
-        id,
-        name,
-        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
-        createdAt: new Date().toISOString(),
-    }
-    savePresetToStorage(presets)
-    return presets[id]
-}
-
-function deletePreset(id) {
-    const presets = getAllPresets()
-    delete presets[id]
-    savePresetToStorage(presets)
-}
-
-function handleRenamePreset(id) {
-    const preset = getPreset(id)
-    if (!preset) {
-        console.warn(
-            '[Image-Generation-Autopilot] Preset not found for rename:',
-            id,
-        )
-        return
-    }
-
-    const newName = prompt('Enter new name for preset:', preset.name)
-    if (!newName || newName.trim() === '') {
-        console.info('[Image-Generation-Autopilot] Rename cancelled')
-        return
-    }
-
-    const trimmedName = newName.trim()
-    if (trimmedName === preset.name) {
-        console.info('[Image-Generation-Autopilot] Name unchanged')
-        return
-    }
-
-    const presets = getAllPresets()
-    presets[id].name = trimmedName
-    savePresetToStorage(presets)
-    renderPresets()
-    console.info('[Image-Generation-Autopilot] Preset renamed:', {
-        id,
-        oldName: preset.name,
-        newName: trimmedName,
     })
 }
-
-function loadPreset(id) {
-    const preset = getPreset(id)
-    if (!preset) {
-        console.warn('[Image-Generation-Autopilot] Preset not found:', id)
-        return false
-    }
-
-    const currentSettings = getSettings()
-    const newSettings = JSON.parse(JSON.stringify(preset.settings))
-
-    // Exclude 'presets' property from loaded preset settings
-    const { presets: _, ...newSettingsWithoutPresets } = newSettings
-
-    // Update settings - merge but exclude 'presets' property
-    const ctx = getCtx()
-    if (ctx?.extensionSettings?.[MODULE_NAME]) {
-        const { presets, ...settingsWithoutPresets } = currentSettings
-        ctx.extensionSettings[MODULE_NAME] = {
-            ...settingsWithoutPresets,
-            ...newSettingsWithoutPresets,
-        }
-    }
-
-    // Save and sync UI
-    saveSettings()
-    return true
-}
-
-function listPresets() {
-    const presets = getAllPresets()
-    return Object.values(presets).sort((a, b) => {
-        // Sort by name, then by creation date
-        if (a.name < b.name) return -1
-        if (a.name > b.name) return 1
-        return new Date(b.createdAt) - new Date(a.createdAt)
-    })
-}
-
-function getCurrentSettingsSnapshot() {
-    return JSON.parse(JSON.stringify(getSettings()))
-}
-
-// ==================== END PRESET MANAGEMENT ====================
 
 async function init() {
     if (state.initialized) {
@@ -5082,63 +4572,78 @@ async function init() {
     }
 
     try {
-        ensureSettings()
-        console.info('[Image-Generation-Autopilot] init', {
-            perCharacterEnabled: getSettings()?.perCharacter?.enabled,
-        })
-        patchToastrForDebug()
-        await buildSettingsPanel()
-        applyPerCharacterOverrides()
-        injectReswipeButtonTemplate()
-        refreshReswipeButtons()
-
-        const chat = document.getElementById('chat')
-        chat?.addEventListener('click', async (event) => {
-            const reswipeTarget = event.target.closest('.auto-multi-reswipe')
-            const rewriteTarget = event.target.closest('.auto-multi-rewrite')
-
-            if (!reswipeTarget && !rewriteTarget) {
-                return
-            }
-
-            event.preventDefault()
-            event.stopPropagation()
-
-            const target = reswipeTarget || rewriteTarget
-            const messageElement = target.closest('.mes')
-            const messageId = Number(messageElement?.getAttribute('mesid'))
-            if (!Number.isFinite(messageId)) {
-                return
-            }
-
-            const settings = getSettings()
-            if (!settings.enabled) {
-                return
-            }
-
-            if (rewriteTarget) {
-                await handleManualPromptRewrite(messageId)
-                return
-            }
-
-            const message = getCtx().chat?.[messageId]
-            if (!shouldAutoFill(message)) {
-                return
-            }
-
-            const paintbrush = await waitForPaintbrush(messageId)
-            if (!paintbrush) {
-                console.warn(
-                    '[Image-Generation-Autopilot] No SD control found for message',
-                    messageId,
-                )
-                return
-            }
-
-            queueAutoFill(messageId, paintbrush)
-        })
+        await initComponents()
 
         const { eventSource, eventTypes } = getCtx()
+
+        state.managers = {
+            state: new state.components.StateManager(),
+            detector: new state.components.GenerationDetector(
+                eventSource,
+                eventTypes,
+            ),
+        }
+
+        ensureSettings()
+        const settings = getSettings()
+  logger.debug('init settings', {
+    enabled: settings.enabled,
+    autoGenEnabled: settings.autoGeneration?.enabled,
+    perCharacterEnabled: settings.perCharacter?.enabled,
+  })
+        patchToastrForDebug()
+  await buildSettingsPanel()
+  logger.debug('buildSettingsPanel done')
+  applyPerCharacterOverrides()
+  logger.debug('applyPerCharacterOverrides done')
+  injectReswipeButtonTemplate()
+  logger.debug('injectReswipeButtonTemplate done')
+  refreshReswipeButtons()
+  logger.debug('refreshReswipeButtons done')
+
+        const chat = document.getElementById('chat')
+        chat?.addEventListener(
+            'click',
+            async (event) => {
+                const reswipeTarget = event.target.closest('.auto-multi-reswipe')
+                const rewriteTarget = event.target.closest('.auto-multi-rewrite')
+
+                if (!reswipeTarget && !rewriteTarget) {
+                    return
+                }
+
+                event.preventDefault()
+                event.stopPropagation()
+                event.stopImmediatePropagation()
+
+                const target = reswipeTarget || rewriteTarget
+                const messageElement = target.closest('.mes')
+                const messageId = Number(messageElement?.getAttribute('mesid'))
+                if (!Number.isFinite(messageId)) {
+                    return
+                }
+
+                const settings = getSettings()
+                if (!settings.enabled) {
+                    return
+                }
+
+                if (rewriteTarget) {
+                    await handleManualPromptRewrite(messageId)
+                    return
+                }
+
+                const paintbrush = await waitForPaintbrush(messageId)
+                if (!paintbrush) {
+                    logger.warn('No SD control found for message', messageId)
+                    return
+                }
+
+                queueAutoFill(messageId, paintbrush)
+            },
+            true,
+        )
+
         eventSource.on(
             eventTypes.CHARACTER_MESSAGE_RENDERED,
             handleMessageRendered,
@@ -5178,10 +4683,7 @@ async function init() {
         state.initialized = true
         log('Initialized')
     } catch (error) {
-        console.error(
-            '[Image-Generation-Autopilot] Initialization failed:',
-            error,
-        )
+        logger.error('Initialization failed:', error)
         // Reset initialization state to allow retry
         state.initialized = false
     }
@@ -5191,15 +4693,13 @@ async function init() {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.eventSource || !ctx.eventTypes) {
-            console.warn(
-                '[Image-Generation-Autopilot] Context not ready, retrying...',
-            )
+            logger.warn('Context not ready, retrying...')
             setTimeout(() => bootstrap(), 100)
             return
         }
         ctx.eventSource.on(ctx.eventTypes.APP_READY, () => void init())
     } catch (error) {
-        console.error('[Image-Generation-Autopilot] Bootstrap failed:', error)
+        logger.error('Bootstrap failed:', error)
         setTimeout(() => bootstrap(), 100)
     }
 })()
