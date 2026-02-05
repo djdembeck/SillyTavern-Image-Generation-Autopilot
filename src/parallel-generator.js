@@ -212,10 +212,10 @@ class ParallelGenerator {
 
         if (this._abortRequested) {
             const abortError = new Error('aborted')
-            for (let i = 0; i < results.length; i += 1) {
-                if (!results[i]) {
-                    const task = tasks[i]
-                    results[i] = createErrorResult(
+            for (const task of tasks) {
+                const idx = task.index
+                if (!results[idx]) {
+                    results[idx] = createErrorResult(
                         task.prompt,
                         task.modelId,
                         abortError,
