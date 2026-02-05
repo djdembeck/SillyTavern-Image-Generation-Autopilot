@@ -429,7 +429,8 @@ export class ImageSelectionDialog {
 
         if (this.domElements.lightbox) {
             this.domElements.lightbox.addEventListener('click', (e) => {
-                if (e.target.id === 'lightbox-select') {
+                if (e.target.closest('#lightbox-select')) {
+                    e.stopPropagation();
                     const index = parseInt(
                         this.domElements.lightbox.dataset.index,
                         10,
@@ -438,17 +439,17 @@ export class ImageSelectionDialog {
                     this._updateLightboxSelectState(index);
                     return;
                 }
-                if (e.target.id === 'lightbox-prev') {
+                if (e.target.closest('#lightbox-prev')) {
                     e.stopPropagation();
                     this._navigateLightbox(-1);
                     return;
                 }
-                if (e.target.id === 'lightbox-next') {
+                if (e.target.closest('#lightbox-next')) {
                     e.stopPropagation();
                     this._navigateLightbox(1);
                     return;
                 }
-                if (e.target.id === 'lightbox-close') {
+                if (e.target.closest('#lightbox-close')) {
                     e.stopPropagation();
                     this._hideLightbox();
                     return;
