@@ -168,7 +168,7 @@ export class ImageSelectionDialog {
                     <button class="image-selection-btn regenerate hidden" id="btn-img-regenerate-selected" title="Regenerate only the selected images">
                         <i class="fa-solid fa-rotate-right"></i> Regenerate Selected
                     </button>
-                    <button class="image-selection-btn hidden" id="btn-img-retry" title="Retry only failed generations">
+                    <button class="image-selection-btn warning hidden" id="btn-img-retry" title="Retry only failed generations">
                         <i class="fa-solid fa-arrows-rotate"></i> Retry Failed
                     </button>
                     <button class="image-selection-btn" id="btn-edit-prompt" title="Edit the working prompt">
