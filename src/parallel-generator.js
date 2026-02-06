@@ -112,20 +112,20 @@ class ParallelGenerator {
 
         const quiet = !!options.quiet
         const modelCycle = buildModelCycle(options.modelQueue)
-        const tasks = entries.map((entry, index) => {
+        let modelCycleIndex = 0
+        const tasks = entries.map((entry) => {
             const prompt = typeof entry.prompt === 'string' ? entry.prompt : ''
             const perPromptModelId = entry.modelId?.trim()
-            const modelId =
-                perPromptModelId ||
-                options.modelId ||
-                (modelCycle.length > 0
-                    ? modelCycle[index % modelCycle.length]
-                    : undefined)
-    return {
-      index: entry.index,
-      prompt,
-      modelId,
-    }
+            let modelId = perPromptModelId || options.modelId
+            if (!modelId && modelCycle.length > 0) {
+                modelId = modelCycle[modelCycleIndex % modelCycle.length]
+            }
+            modelCycleIndex++
+            return {
+              index: entry.index,
+              prompt,
+              modelId,
+            }
         })
 
         const stats = { completed: 0, failed: 0 }
