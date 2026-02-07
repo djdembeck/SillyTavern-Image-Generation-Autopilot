@@ -131,104 +131,97 @@ class ParallelGenerator {
             }
         })
 
+        // Group consecutive tasks by model to batch same-model generations
+        const batches = []
+        let currentBatch = { modelId: tasks[0]?.modelId, tasks: [] }
+        for (const task of tasks) {
+            if (task.modelId !== currentBatch.modelId) {
+                batches.push(currentBatch)
+                currentBatch = { modelId: task.modelId, tasks: [] }
+            }
+            currentBatch.tasks.push(task)
+        }
+        if (currentBatch.tasks.length > 0) {
+            batches.push(currentBatch)
+        }
+
         const stats = { completed: 0, failed: 0 }
-        let nextIndex = 0
         const workerCount = this.concurrencyLimit === 0 ? total : Math.min(this.concurrencyLimit, total)
         const retryLimit = Number.isFinite(options.retryLimit)
             ? options.retryLimit
             : 1
 
-        // Mutex to serialize model changes (fixes race condition with concurrent workers)
-        let modelChangeMutex = Promise.resolve()
+        // Process batches sequentially to avoid model change race conditions
+        // Within each batch, tasks run concurrently
+        for (const batch of batches) {
+            if (this._abortRequested) break
 
-        const worker = async (slotIndex) => {
-            while (true) {
-                if (this._abortRequested) {
-                    return
-                }
+            const batchTasks = batch.tasks
+            const batchPromises = []
 
-                const taskIndex = nextIndex
-                nextIndex += 1
-                if (taskIndex >= tasks.length) {
-                    return
-                }
+            for (let i = 0; i < Math.min(workerCount, batchTasks.length); i += 1) {
+                batchPromises.push((async () => {
+                    for (let j = i; j < batchTasks.length; j += workerCount) {
+                        if (this._abortRequested) break
 
-                const task = tasks[taskIndex]
-                let result
-                let attempts = 0
-                let lastError = null
+                        const task = batchTasks[j]
+                        let result
+                        let attempts = 0
+                        let lastError = null
 
-                while (attempts <= retryLimit) {
-                    if (this._abortRequested) break
+                        while (attempts <= retryLimit) {
+                            if (this._abortRequested) break
 
-                    try {
-                        // Acquire mutex before making API call (serializes model changes to prevent race condition)
-                        let releaseLock
-                        const lockPromise = new Promise((resolve) => {
-                            releaseLock = resolve
-                        })
-                        const previousLock = modelChangeMutex
-                        modelChangeMutex = lockPromise
-                        await previousLock
-
-                        try {
-                            const response = await this.callSdSlash(
-                                task.prompt,
-                                quiet,
-                                task.modelId,
-                            )
-                            if (response == null) {
-                                throw new Error('SD generation failed')
+                            try {
+                                const response = await this.callSdSlash(
+                                    task.prompt,
+                                    quiet,
+                                    task.modelId,
+                                )
+                                if (response == null) {
+                                    throw new Error('SD generation failed')
+                                }
+                                result = createSuccessResult(
+                                    task.prompt,
+                                    task.modelId,
+                                    response,
+                                )
+                                stats.completed += 1
+                                lastError = null
+                                break
+                            } catch (error) {
+                                lastError = error
+                                attempts += 1
+                                if (stats.completed === 0 && stats.failed >= workerCount) {
+                                    break
+                                }
                             }
-                            result = createSuccessResult(
-                                task.prompt,
-                                task.modelId,
-                                response,
-                            )
-                            stats.completed += 1
-                            lastError = null
-                        } finally {
-                            // Release mutex after callSdSlash completes (including model restore)
-                            releaseLock()
                         }
-                        break
-                    } catch (error) {
-                        lastError = error
-                        attempts += 1
-                        if (stats.completed === 0 && stats.failed >= workerCount) {
-                            break
+
+                        if (lastError) {
+                            result = createErrorResult(task.prompt, task.modelId, lastError)
+                            stats.failed += 1
+                        }
+
+                        results[task.index] = result
+                        if (this._progressHandler) {
+                            this._progressHandler({
+                                completed: stats.completed,
+                                failed: stats.failed,
+                                total,
+                                slotIndex: i,
+                                taskIndex: task.index,
+                                result,
+                            })
                         }
                     }
-                }
-
-                if (lastError) {
-                    result = createErrorResult(task.prompt, task.modelId, lastError)
-                    stats.failed += 1
-                }
-
-                results[task.index] = result
-                if (this._progressHandler) {
-                    this._progressHandler({
-                        completed: stats.completed,
-                        failed: stats.failed,
-                        total,
-                        slotIndex,
-                        taskIndex: task.index,
-                        result,
-                    })
-                }
+                })())
             }
+
+            await Promise.all(batchPromises)
         }
 
-        try {
-            const workers = []
-            for (let i = 0; i < workerCount; i += 1) {
-                workers.push(worker(i))
-            }
-            await Promise.all(workers)
-        } finally {
-            this._running = false
-        }
+        this._running = false
 
         if (this._abortRequested) {
             const abortError = new Error('aborted')
