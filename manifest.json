@@ -1,7 +1,7 @@
 {
     "display_name": "Image Generation Autopilot",
     "author": "djdembeck",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "js": "index.js",
     "css": ["style.css"],
     "dependencies": ["stable-diffusion"],

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.1] - 2026-02-07
+
+### Fixed
+
+- **Mobile dialog close button visibility**: Fixed an issue where the close button (X) was not visible on mobile devices due to z-index conflicts. The button now has:
+  - Higher z-index (1000 desktop, 1001 mobile with !important)
+  - Semi-transparent background with border for better visibility
+  - Larger touch target (44px) for easier mobile interaction
+  - Dialog wrapper z-index increased to 9999 to appear above SillyTavern header
+- **Model queue cycling bug**: Fixed a bug in the parallel generator that caused all images to use only one model instead of properly cycling through the model queue. The issue was using the entry index for modulo calculation which didn't properly increment across tasks. Fixed by introducing a separate `modelCycleIndex` counter that increments for each task, ensuring proper round-robin distribution across the model queue.
+
 ## [2.0.0] - 2026-02-05
 
 ### BREAKING CHANGES
