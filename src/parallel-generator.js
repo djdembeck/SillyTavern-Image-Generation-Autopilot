@@ -117,8 +117,11 @@ class ParallelGenerator {
             const prompt = typeof entry.prompt === 'string' ? entry.prompt : ''
             const perPromptModelId = entry.modelId?.trim()
             let modelId = perPromptModelId || options.modelId
-            if (!modelId && modelCycle.length > 0) {
+            const usedCycle = !modelId && modelCycle.length > 0
+            if (usedCycle) {
                 modelId = modelCycle[modelCycleIndex % modelCycle.length]
+            }
+            if (usedCycle) {
                 modelCycleIndex++
             }
             return {

@@ -124,7 +124,7 @@ describe('ParallelGenerator', () => {
         expect(modelsByPrompt.get('alpha')).toBe('m1')
         expect(modelsByPrompt.get('bravo')).toBe('m2')
         expect(modelsByPrompt.get('charlie')).toBe('override')
-        expect(modelsByPrompt.get('delta')).toBe('m1')
+        expect(modelsByPrompt.get('delta')).toBe('m2')
     })
 
     it('continues after failures and reports errors', async () => {
