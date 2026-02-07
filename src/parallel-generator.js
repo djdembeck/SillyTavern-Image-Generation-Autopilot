@@ -162,21 +162,14 @@ class ParallelGenerator {
                     if (this._abortRequested) break
 
                     try {
-                        console.debug(`[Worker ${slotIndex}] Acquiring mutex for model: ${task.modelId}`)
-                        // Acquire mutex before making API call (serializes model changes)
-                        const releaseMutex = await (() => {
-                            let currentResolve
-                            const nextPromise = new Promise((resolve) => {
-                                currentResolve = resolve
-                            })
-                            const previousPromise = modelChangeMutex
-                            modelChangeMutex = nextPromise
-                            return async () => {
-                                await previousPromise
-                                return currentResolve
-                            }
-                        })()
-                        console.debug(`[Worker ${slotIndex}] Mutex acquired, calling API with model: ${task.modelId}`)
+                        // Acquire mutex before making API call (serializes model changes to prevent race condition)
+                        let releaseLock
+                        const lockPromise = new Promise((resolve) => {
+                            releaseLock = resolve
+                        })
+                        const previousLock = modelChangeMutex
+                        modelChangeMutex = lockPromise
+                        await previousLock
 
                         try {
                             const response = await this.callSdSlash(
@@ -184,7 +177,6 @@ class ParallelGenerator {
                                 quiet,
                                 task.modelId,
                             )
-                            console.debug(`[Worker ${slotIndex}] API call complete`)
                             if (response == null) {
                                 throw new Error('SD generation failed')
                             }
@@ -196,10 +188,8 @@ class ParallelGenerator {
                             stats.completed += 1
                             lastError = null
                         } finally {
-                            console.debug(`[Worker ${slotIndex}] Releasing mutex`)
                             // Release mutex after callSdSlash completes (including model restore)
-                            const release = await releaseMutex()
-                            release()
+                            releaseLock()
                         }
                         break
                     } catch (error) {
