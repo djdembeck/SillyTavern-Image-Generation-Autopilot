@@ -198,6 +198,10 @@ class ParallelGenerator {
                             }
                         }
 
+                        if (this._abortRequested && result === undefined) {
+                            continue
+                        }
+
                         if (lastError) {
                             result = createErrorResult(task.prompt, task.modelId, lastError)
                             stats.failed += 1
