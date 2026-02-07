@@ -8,7 +8,7 @@ This is a SillyTavern browser extension written in vanilla JavaScript with ES mo
 
 ### Key Directories and Files
 
-```
+```text
 /
 ├── index.js              # Main extension entry point (4700+ lines)
 ├── style.css             # All extension styles
@@ -73,8 +73,8 @@ const logger = {
 export class ImageSelectionDialog {
   constructor(dependenciesOrFactory) {
     // Dependency injection pattern for testing
-    this.PopupClass = dependencies.PopupClass || window.Popup || class MockPopup { ... };
-    this.generatorFactory = dependencies.generatorFactory || ((opts) => new ParallelGenerator(opts));
+    this.PopupClass = dependenciesOrFactory.PopupClass || window.Popup || class MockPopup { ... };
+    this.generatorFactory = dependenciesOrFactory.generatorFactory || ((opts) => new ParallelGenerator(opts));
     // ...
   }
 }
@@ -169,7 +169,7 @@ Use **conventional commits** for all commits:
 
 ### Format
 
-```
+```text
 <type>: <short description>
 ```
 
@@ -187,7 +187,7 @@ Use **conventional commits** for all commits:
 
 ### Examples
 
-```
+```text
 fix: ensure mobile dialog close button is always visible
 fix: fix model queue cycling bug in parallel generator
 feat: add preset profiles for quick configuration switching
@@ -201,7 +201,7 @@ style: increase lightbox checkbox tap area for mobile
 
 PR titles from `develop` → `main` MUST use conventional commit style:
 
-```
+```text
 ✓ Good: "chore: sync main branch with develop"
 ✓ Good: "fix: resolve mobile dialog z-index conflicts"
 ✗ Bad: "Sync main with develop"
