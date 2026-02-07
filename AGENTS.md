@@ -341,6 +341,21 @@ context.writeExtensionField(MODULE_NAME, 'presets', presets);
 7. Create GitHub Release
 8. **DO NOT touch `release` branch** - CI handles it
 
+#### Changelog Format
+
+When updating `CHANGELOG.md`, focus on **user-visible behavior changes**, not implementation details:
+
+- **DO**: Describe what was fixed from the user's perspective
+  - "Fixed a bug where all images would use only one model instead of cycling through the queue"
+  - "Fixed mobile dialog close button not being visible"
+  
+- **DON'T**: Mention specific code, variables, or technical implementation
+  - ~~"Fixed by introducing a separate `modelCycleIndex` counter"~~
+  - ~~"Added mutex to serialize model changes"~~
+  - ~~"Changed z-index from 100 to 1000 with !important"~~
+
+Keep entries concise and focused on the impact to users.
+
 ### Important Warnings
 
 ⚠️ **NEVER manually modify `release` branch**
