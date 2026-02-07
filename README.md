@@ -163,6 +163,16 @@ Include lighting details, mood, time of day, and camera angle in each image desc
 
 ---
 
+## 💡 Bonus
+
+**Save on AI costs** with this NanoGPT referral link:
+
+Get a **5% discount** on web usage when you sign up: https://nano-gpt.com/r/NeDEp3UR
+
+NanoGPT provides affordable AI API access and can be used alongside this extension if you experiment with alternative image generation providers.
+
+---
+
 ## 🙏 Credits
 
 - UI styling inspired by Pathweaver's extension design.
