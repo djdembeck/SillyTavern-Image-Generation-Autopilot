@@ -119,8 +119,8 @@ class ParallelGenerator {
             let modelId = perPromptModelId || options.modelId
             if (!modelId && modelCycle.length > 0) {
                 modelId = modelCycle[modelCycleIndex % modelCycle.length]
+                modelCycleIndex++
             }
-            modelCycleIndex++
             return {
               index: entry.index,
               prompt,
