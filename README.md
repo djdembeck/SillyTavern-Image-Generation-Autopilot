@@ -28,6 +28,20 @@ Use this if you're contributing or debugging.
 
 ---
 
+## 💡 Affordable Image Generation
+
+Looking for cost-effective image generation? Consider **NanoGPT**:
+
+- **Z Image Turbo**: Excellent for realistic styles and detailed scenes
+- **Qwen Image**: Perfect for animated, anime, and stylized art
+- **Generous limits**: Subscription plans include nearly unlimited image generation for your roleplays
+
+Both models work seamlessly with this extension's parallel generation features.
+
+Use this referral link for a **5% discount**: https://nano-gpt.com/r/NeDEp3UR
+
+---
+
 ## ✨ What it does
 
 - **Prompt-driven image generation**: The AI includes `<pic prompt="detailed description">` tags in its responses

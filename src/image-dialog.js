@@ -370,7 +370,7 @@ export class ImageSelectionDialog {
                         manualWrapper.style.padding = '0';
                     }
 
-                    manualWrapper.style.setProperty('z-index', '999', 'important');
+                    manualWrapper.style.setProperty('z-index', '9999', 'important');
                     manualWrapper.style.setProperty('position', 'fixed', 'important');
                     manualWrapper.style.background = 'rgba(20, 20, 30, 0.98)';
                     manualWrapper.style.border =
