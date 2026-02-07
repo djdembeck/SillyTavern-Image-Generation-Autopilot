@@ -138,6 +138,9 @@ class ParallelGenerator {
             ? options.retryLimit
             : 1
 
+        // Mutex to serialize model changes (fixes race condition with concurrent workers)
+        let modelChangeMutex = Promise.resolve()
+
         const worker = async (slotIndex) => {
             while (true) {
                 if (this._abortRequested) {
@@ -159,21 +162,41 @@ class ParallelGenerator {
                     if (this._abortRequested) break
 
                     try {
-                        const response = await this.callSdSlash(
-                            task.prompt,
-                            quiet,
-                            task.modelId,
-                        )
-                        if (response == null) {
-                            throw new Error('SD generation failed')
+                        // Acquire mutex before making API call (serializes model changes)
+                        const releaseMutex = await (() => {
+                            let currentResolve
+                            const nextPromise = new Promise((resolve) => {
+                                currentResolve = resolve
+                            })
+                            const previousPromise = modelChangeMutex
+                            modelChangeMutex = nextPromise
+                            return async () => {
+                                await previousPromise
+                                return currentResolve
+                            }
+                        })()
+
+                        try {
+                            const response = await this.callSdSlash(
+                                task.prompt,
+                                quiet,
+                                task.modelId,
+                            )
+                            if (response == null) {
+                                throw new Error('SD generation failed')
+                            }
+                            result = createSuccessResult(
+                                task.prompt,
+                                task.modelId,
+                                response,
+                            )
+                            stats.completed += 1
+                            lastError = null
+                        } finally {
+                            // Release mutex after callSdSlash completes (including model restore)
+                            const release = await releaseMutex()
+                            release()
                         }
-                        result = createSuccessResult(
-                            task.prompt,
-                            task.modelId,
-                            response,
-                        )
-                        stats.completed += 1
-                        lastError = null
                         break
                     } catch (error) {
                         lastError = error
