@@ -363,7 +363,7 @@
                             class="text_pole"
                         />
                     </label>
-                    <label title="Number of images to generate in parallel (0 = Unlimited, 1-8).">
+                    <label title="Number of images to generate in parallel (0 = Unlimited, 1-8). When using multiple models in the queue, images are batched by model and processed sequentially (one model batch at a time) to avoid model switching race conditions.">
                         <span>Concurrency</span>
                         <input
                             type="number"
@@ -375,7 +375,7 @@
                         />
                     </label>
                 </div>
-                <small>Number of images to generate in parallel (0 = Unlimited, 1-8)</small>
+                <small>Number of images to generate in parallel (0 = Unlimited, 1-8). Note: When using multiple models in the queue, images are batched by model and processed sequentially to avoid model switching conflicts.</small>
             </section>
 
             <section class="auto-multi-panel auto-multi-panel--presets" id="auto_multi_presets_panel">
