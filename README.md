@@ -28,6 +28,20 @@ Use this if you're contributing or debugging.
 
 ---
 
+## 💡 Affordable Image Generation
+
+Looking for cost-effective image generation? Consider **NanoGPT**:
+
+- **Z Image Turbo**: Excellent for realistic styles and detailed scenes
+- **Qwen Image**: Perfect for animated, anime, and stylized art
+- **Generous limits**: Subscription plans include nearly unlimited image generation for your roleplays
+
+Both models work seamlessly with this extension's parallel generation features.
+
+Use this referral link for a **5% discount**: https://nano-gpt.com/r/NeDEp3UR
+
+---
+
 ## ✨ What it does
 
 - **Prompt-driven image generation**: The AI includes `<pic prompt="detailed description">` tags in its responses
@@ -80,6 +94,7 @@ This is the heart of the 2.0 experience. The dialog shows:
 - Images generate concurrently based on your **concurrency limit** (1-8)
 - The progress HUD at the bottom shows: `Generating 3 of 8... (ModelName)`
 - A **Stop** button lets you cancel all pending generations instantly
+- **Model Queue Note:** When using multiple models, images are grouped by model and processed in batches (one model at a time) to prevent race conditions. Within each batch, images generate concurrently.
 
 ### 4. Image Insertion
 After clicking **"Keep Selected"**:
@@ -104,7 +119,7 @@ A global progress indicator appears whenever images are generating:
 | -------------------------------- | -------------------------------------------------------------------------- |
 | **Enable auto image generation** | Turns the `<pic prompt>` automation on/off.                                |
 | **Insert mode**                  | Where images go: inline, replace marker, or new message.                   |
-| **Concurrency**                  | How many images generate in parallel (1-8). Higher = faster, more API load.|
+| **Concurrency**                  | How many images generate in parallel (1-8). Higher = faster, more API load. When using multiple models, images are batched by model and processed sequentially per batch.|
 | **Default images per model**     | Baseline count when the model queue is empty.                              |
 | **Model queue**                  | Run multiple SD models with per-model counts for variety.                  |
 | **Prompt injection**             | Main prompt, positive/negative rules, example prompt, and count rules.     |

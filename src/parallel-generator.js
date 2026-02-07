@@ -112,103 +112,120 @@ class ParallelGenerator {
 
         const quiet = !!options.quiet
         const modelCycle = buildModelCycle(options.modelQueue)
-        const tasks = entries.map((entry, index) => {
+        let modelCycleIndex = 0
+        const tasks = entries.map((entry) => {
             const prompt = typeof entry.prompt === 'string' ? entry.prompt : ''
             const perPromptModelId = entry.modelId?.trim()
-            const modelId =
-                perPromptModelId ||
-                options.modelId ||
-                (modelCycle.length > 0
-                    ? modelCycle[index % modelCycle.length]
-                    : undefined)
-    return {
-      index: entry.index,
-      prompt,
-      modelId,
-    }
+            let modelId = perPromptModelId || options.modelId
+            const usedCycle = !modelId && modelCycle.length > 0
+            if (usedCycle) {
+                modelId = modelCycle[modelCycleIndex % modelCycle.length]
+            }
+            if (usedCycle) {
+                modelCycleIndex++
+            }
+            return {
+              index: entry.index,
+              prompt,
+              modelId,
+            }
         })
 
+        // Group consecutive tasks by model to batch same-model generations
+        const batches = []
+        let currentBatch = { modelId: tasks[0]?.modelId, tasks: [] }
+        for (const task of tasks) {
+            if (task.modelId !== currentBatch.modelId) {
+                batches.push(currentBatch)
+                currentBatch = { modelId: task.modelId, tasks: [] }
+            }
+            currentBatch.tasks.push(task)
+        }
+        if (currentBatch.tasks.length > 0) {
+            batches.push(currentBatch)
+        }
+
         const stats = { completed: 0, failed: 0 }
-        let nextIndex = 0
         const workerCount = this.concurrencyLimit === 0 ? total : Math.min(this.concurrencyLimit, total)
         const retryLimit = Number.isFinite(options.retryLimit)
             ? options.retryLimit
             : 1
 
-        const worker = async (slotIndex) => {
-            while (true) {
-                if (this._abortRequested) {
-                    return
-                }
+        // Process batches sequentially to avoid model change race conditions
+        // Within each batch, tasks run concurrently
+        for (const batch of batches) {
+            if (this._abortRequested) break
 
-                const taskIndex = nextIndex
-                nextIndex += 1
-                if (taskIndex >= tasks.length) {
-                    return
-                }
+            const batchTasks = batch.tasks
+            const batchPromises = []
 
-                const task = tasks[taskIndex]
-                let result
-                let attempts = 0
-                let lastError = null
+            for (let i = 0; i < Math.min(workerCount, batchTasks.length); i += 1) {
+                batchPromises.push((async () => {
+                    for (let j = i; j < batchTasks.length; j += workerCount) {
+                        if (this._abortRequested) break
 
-                while (attempts <= retryLimit) {
-                    if (this._abortRequested) break
+                        const task = batchTasks[j]
+                        let result
+                        let attempts = 0
+                        let lastError = null
 
-                    try {
-                        const response = await this.callSdSlash(
-                            task.prompt,
-                            quiet,
-                            task.modelId,
-                        )
-                        if (response == null) {
-                            throw new Error('SD generation failed')
+                        while (attempts <= retryLimit) {
+                            if (this._abortRequested) break
+
+                            try {
+                                const response = await this.callSdSlash(
+                                    task.prompt,
+                                    quiet,
+                                    task.modelId,
+                                )
+                                if (response == null) {
+                                    throw new Error('SD generation failed')
+                                }
+                                result = createSuccessResult(
+                                    task.prompt,
+                                    task.modelId,
+                                    response,
+                                )
+                                stats.completed += 1
+                                lastError = null
+                                break
+                            } catch (error) {
+                                lastError = error
+                                attempts += 1
+                                if (stats.completed === 0 && stats.failed >= workerCount) {
+                                    break
+                                }
+                            }
                         }
-                        result = createSuccessResult(
-                            task.prompt,
-                            task.modelId,
-                            response,
-                        )
-                        stats.completed += 1
-                        lastError = null
-                        break
-                    } catch (error) {
-                        lastError = error
-                        attempts += 1
-                        if (stats.completed === 0 && stats.failed >= workerCount) {
-                            break
+
+                        if (this._abortRequested && result === undefined) {
+                            continue
+                        }
+
+                        if (lastError) {
+                            result = createErrorResult(task.prompt, task.modelId, lastError)
+                            stats.failed += 1
+                        }
+
+                        results[task.index] = result
+                        if (this._progressHandler) {
+                            this._progressHandler({
+                                completed: stats.completed,
+                                failed: stats.failed,
+                                total,
+                                slotIndex: i,
+                                taskIndex: task.index,
+                                result,
+                            })
                         }
                     }
-                }
-
-                if (lastError) {
-                    result = createErrorResult(task.prompt, task.modelId, lastError)
-                    stats.failed += 1
-                }
-
-                results[task.index] = result
-                if (this._progressHandler) {
-                    this._progressHandler({
-                        completed: stats.completed,
-                        failed: stats.failed,
-                        total,
-                        slotIndex,
-                        taskIndex: task.index,
-                        result,
-                    })
-                }
+                })())
             }
+
+            await Promise.all(batchPromises)
         }
 
-        try {
-            const workers = []
-            for (let i = 0; i < workerCount; i += 1) {
-                workers.push(worker(i))
-            }
-            await Promise.all(workers)
-        } finally {
-            this._running = false
-        }
+        this._running = false
 
         if (this._abortRequested) {
             const abortError = new Error('aborted')

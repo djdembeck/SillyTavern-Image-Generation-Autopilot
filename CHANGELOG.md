@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.0.1] - 2026-02-07
+
+### Fixed
+
+- **Mobile dialog close button visibility**: Fixed an issue where the close button (X) was not visible on mobile devices due to z-index conflicts. The button now appears above all other elements with proper touch targets for mobile interaction.
+- **Model queue cycling bug**: Fixed a bug where all images would use only one model instead of properly cycling through the model queue. Images now correctly distribute across configured models in round-robin fashion.
+- **Model queue race condition**: Fixed a race condition when using multiple models concurrently that caused all images to use the same model. Images are now batched by model and processed sequentially per batch to ensure correct model assignment.
+- **Abort handling**: Fixed an issue where aborting generation mid-execution could send undefined results to the progress handler. Aborted tasks are now properly skipped without updating stats or emitting progress events.
+
 ## [2.0.0] - 2026-02-05
 
 ### BREAKING CHANGES
