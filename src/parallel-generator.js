@@ -162,6 +162,7 @@ class ParallelGenerator {
                     if (this._abortRequested) break
 
                     try {
+                        console.debug(`[Worker ${slotIndex}] Acquiring mutex for model: ${task.modelId}`)
                         // Acquire mutex before making API call (serializes model changes)
                         const releaseMutex = await (() => {
                             let currentResolve
@@ -175,6 +176,7 @@ class ParallelGenerator {
                                 return currentResolve
                             }
                         })()
+                        console.debug(`[Worker ${slotIndex}] Mutex acquired, calling API with model: ${task.modelId}`)
 
                         try {
                             const response = await this.callSdSlash(
@@ -182,6 +184,7 @@ class ParallelGenerator {
                                 quiet,
                                 task.modelId,
                             )
+                            console.debug(`[Worker ${slotIndex}] API call complete`)
                             if (response == null) {
                                 throw new Error('SD generation failed')
                             }
@@ -193,6 +196,7 @@ class ParallelGenerator {
                             stats.completed += 1
                             lastError = null
                         } finally {
+                            console.debug(`[Worker ${slotIndex}] Releasing mutex`)
                             // Release mutex after callSdSlash completes (including model restore)
                             const release = await releaseMutex()
                             release()
