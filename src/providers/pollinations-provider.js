@@ -40,8 +40,17 @@ export class PollinationsProvider extends ImageProvider {
 
     const params = new URLSearchParams();
 
-    const width = options.width || this.config.width || 1024;
-    const height = options.height || this.config.height || 1024;
+    let width = options.width || this.config.width || 1024;
+    let height = options.height || this.config.height || 1024;
+
+    if (options.aspectRatio) {
+      const dimensions = this.parseAspectRatio(options.aspectRatio);
+      if (dimensions) {
+        width = dimensions.width;
+        height = dimensions.height;
+      }
+    }
+
     const seed = options.seed !== undefined ? options.seed : this.config.seed;
     const model = options.model || this.config.model || 'flux';
     const nologo = options.nologo !== undefined ? options.nologo : this.config.nologo;
@@ -70,6 +79,23 @@ export class PollinationsProvider extends ImageProvider {
 
     const queryString = params.toString();
     return `${baseUrl}/prompt/${encodedPrompt}${queryString ? '?' + queryString : ''}`;
+  }
+
+  parseAspectRatio(ratio) {
+    switch (ratio) {
+      case '1:1':
+        return { width: 1024, height: 1024 };
+      case '16:9':
+        return { width: 1024, height: 576 };
+      case '9:16':
+        return { width: 576, height: 1024 };
+      case '4:3':
+        return { width: 1024, height: 768 };
+      case '3:4':
+        return { width: 768, height: 1024 };
+      default:
+        return null;
+    }
   }
 
   generate(prompt, options = {}) {

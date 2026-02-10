@@ -61,7 +61,12 @@ export class NanoGPTProvider extends ImageProvider {
       response_format: 'url'
     };
 
-    if (options.width && options.height) {
+    if (options.aspectRatio) {
+      const dimensions = this.parseAspectRatio(options.aspectRatio);
+      if (dimensions) {
+        body.size = `${dimensions.width}x${dimensions.height}`;
+      }
+    } else if (options.width && options.height) {
       body.size = `${options.width}x${options.height}`;
     }
 
@@ -70,6 +75,23 @@ export class NanoGPTProvider extends ImageProvider {
     }
 
     return body;
+  }
+
+  parseAspectRatio(ratio) {
+    switch (ratio) {
+      case '1:1':
+        return { width: 1024, height: 1024 };
+      case '16:9':
+        return { width: 1024, height: 576 };
+      case '9:16':
+        return { width: 576, height: 1024 };
+      case '4:3':
+        return { width: 1024, height: 768 };
+      case '3:4':
+        return { width: 768, height: 1024 };
+      default:
+        return null;
+    }
   }
 
   parseResponse(response) {
