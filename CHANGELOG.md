@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.2.0] - 2026-02-09
+
+### Added
+
+- **Image Gallery**: Built-in gallery for browsing and managing generated images
+  - Thumbnail grid view with fullscreen lightbox
+  - Search images by prompt text
+  - Filter by provider and date range
+  - Delete individual images or clear all
+  - Metadata storage (timestamp, provider, prompt, model)
+- **Aspect Ratio Control**: Choose from 5 aspect ratios (1:1, 16:9, 9:16, 4:3, 3:4)
+  - All providers support aspect ratio conversion to width/height
+  - Default is 1:1 (1024x1024)
+- **Slash Commands**: Quick image generation via chat commands
+  - `/generate [prompt]` - Generate image from prompt
+  - `/img [prompt]` - Alias for /generate
+- **Gallery Storage Module**: IndexedDB-based storage with 52 comprehensive tests
+
+### Changed
+
+- Providers now automatically convert aspect ratios to appropriate dimensions
+- Aspect ratio setting added to settings UI
+
+## [2.1.0] - 2026-02-09
+
+### Added
+
+- **Multi-provider support**: Configure multiple image generation providers with automatic fallback chains. Supported providers include NanoGPT, Pollinations, and OpenRouter.
+- **AI prompt summarizer**: Automatically generate image prompts from chat context using LLM providers. The summarizer analyzes recent messages and creates detailed, context-aware prompts without requiring `<pic>` tags.
+- **Provider settings UI**: New settings panel for configuring API keys, models, and fallback chains for each provider.
+- **Provider registry system**: Modular provider architecture with base provider class and provider-specific implementations.
+- **Comprehensive test coverage**: Added 80+ new tests for provider system and summarizer functionality.
+
+### Changed
+
+- Extension now supports provider failover - if the primary provider fails, it automatically tries the next provider in the fallback chain.
+- Provider-specific configuration allows different API keys and model selections per provider.
+
 ## [2.0.1] - 2026-02-07
 
 ### Fixed

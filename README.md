@@ -45,6 +45,8 @@ Use this referral link for a **5% discount**: https://nano-gpt.com/r/NeDEp3UR
 ## ✨ What it does
 
 - **Prompt-driven image generation**: The AI includes `<pic prompt="detailed description">` tags in its responses
+- **AI-powered prompt summarizer**: Automatically generates image prompts from chat context using LLM providers (NanoGPT, OpenRouter, etc.)
+- **Multi-provider support**: Configure multiple image generation providers with automatic fallback chains
 - **Automatic detection**: When the AI wants an image, the extension automatically opens the generation dialog
 - **Parallel Selection Dialog**: Generates multiple images concurrently and displays them in a live grid as they complete
 - **Interactive selection**: Pick your favorite images from the batch, choose where to insert them
@@ -113,11 +115,167 @@ A global progress indicator appears whenever images are generating:
 
 ---
 
+## 🔌 Multi-Provider Support
+
+Configure multiple image generation providers with automatic fallback for maximum reliability.
+
+### Supported Providers
+
+| Provider | Description | Setup |
+|----------|-------------|-------|
+| **NanoGPT** | AI-powered image generation with various models | API key from [nano-gpt.com](https://nano-gpt.com/r/NeDEp3UR) |
+| **Pollinations** | Free, no-signup image generation | No setup required |
+| **OpenRouter** | Unified API for multiple image models | API key from [openrouter.ai](https://openrouter.ai) |
+
+### Provider Configuration
+
+Access provider settings in **Settings → Extensions → Image Generation Autopilot → Provider Settings**:
+
+1. **Primary Provider**: Your main image generation service
+2. **Fallback Chain**: Ordered list of backup providers if primary fails
+3. **Provider-specific settings**: API keys, model selection, and parameters per provider
+
+### Example Configuration
+
+```json
+{
+  "primaryProvider": "nanogpt",
+  "fallbackChain": ["pollinations", "openrouter"],
+  "providers": {
+    "nanogpt": {
+      "apiKey": "your-nanogpt-key",
+      "model": "z-image-turbo"
+    },
+    "openrouter": {
+      "apiKey": "your-openrouter-key",
+      "model": "stability-ai/sdxl"
+    }
+  }
+}
+```
+
+---
+
+## 🤖 AI Prompt Summarizer
+
+Instead of relying solely on `<pic>` tags, the AI summarizer can automatically generate image prompts from chat context using LLM providers.
+
+### How It Works
+
+1. Analyzes recent chat messages and character information
+2. Uses an LLM to create detailed, context-aware image prompts
+3. Triggers image generation with the generated prompt
+
+### Setup
+
+1. Enable **AI Summarizer** in extension settings
+2. Configure your preferred LLM provider:
+   - **NanoGPT** (recommended): Use models like `gpt-4`, `claude-3-opus-20240229`
+   - **OpenAI**: Requires OpenAI API key
+   - **Anthropic**: Requires Anthropic API key
+   - **Custom**: Configure any OpenAI-compatible endpoint
+3. Set your API key in the provider settings
+4. Adjust summarization parameters (max tokens, temperature)
+
+### Configuration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| **Provider** | LLM service to use | `nanogpt` |
+| **Model** | Specific model for summarization | `gpt-4` |
+| **Max Tokens** | Maximum prompt length | 500 |
+| **Temperature** | Creativity level (0-1) | 0.7 |
+| **Context Messages** | How many chat messages to analyze | Last 10 |
+| **System Prompt** | Custom instructions for the LLM | Default template |
+
+### Custom System Prompt
+
+You can customize how the LLM generates prompts:
+
+```
+You are an expert at creating anime-style image prompts.
+Focus on: character expressions, dynamic poses, vibrant colors.
+Always include: art style, lighting direction, background details.
+```
+
+---
+
+## 🖼️ Image Gallery
+
+Browse and manage all your generated images with the built-in gallery.
+
+### Features
+
+- **Thumbnail grid**: View all generated images in a scrollable grid
+- **Fullscreen view**: Click any image to see it full-size
+- **Search by prompt**: Find images by searching prompt text
+- **Filter by provider**: Show only images from specific providers
+- **Delete individual images**: Remove unwanted images from the gallery
+- **Clear all**: Delete all gallery images at once
+
+### How to Access
+
+The gallery UI is automatically available when the extension is enabled. Generated images are saved to IndexedDB with metadata including:
+- Timestamp
+- Provider used
+- Generation prompt
+- Model information
+
+---
+
+## 📐 Aspect Ratio Control
+
+Choose the perfect aspect ratio for your generated images.
+
+### Available Ratios
+
+| Ratio | Dimensions | Best For |
+|-------|------------|----------|
+| **1:1** | 1024x1024 | Square images, social media posts |
+| **16:9** | 1024x576 | Landscape, widescreen scenes |
+| **9:16** | 576x1024 | Portrait, mobile phone screens |
+| **4:3** | 1024x768 | Standard photo ratio |
+| **3:4** | 768x1024 | Portrait standard photos |
+
+### Setting Aspect Ratio
+
+1. Open **Settings → Extensions → Image Generation Autopilot**
+2. Find the **Aspect ratio** dropdown in the **Timing & strategy** section
+3. Select your preferred ratio
+4. New images will use this ratio automatically
+
+---
+
+## ⌨️ Slash Commands
+
+Quickly generate images using chat commands.
+
+### Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/generate [prompt]` | Generate an image from prompt | `/generate a beautiful sunset over mountains` |
+| `/img [prompt]` | Alias for `/generate` | `/img a cat playing in the garden` |
+
+### Usage
+
+Type the command followed by your prompt in the chat input:
+```
+/generate a mystical forest with glowing mushrooms
+```
+
+The image selection dialog will open with your prompt ready for generation.
+
+---
+
 ## ⚙️ Key settings
 
 | Area                             | Purpose                                                                    |
 | -------------------------------- | -------------------------------------------------------------------------- |
 | **Enable auto image generation** | Turns the `<pic prompt>` automation on/off.                                |
+| **Enable AI summarizer**         | Use LLM to auto-generate prompts from chat context.                        |
+| **Primary provider**             | Main image generation service (NanoGPT, Pollinations, OpenRouter).         |
+| **Fallback chain**               | Backup providers to try if primary fails.                                  |
 | **Insert mode**                  | Where images go: inline, replace marker, or new message.                   |
 | **Concurrency**                  | How many images generate in parallel (1-8). Higher = faster, more API load. When using multiple models, images are batched by model and processed sequentially per batch.|
 | **Default images per model**     | Baseline count when the model queue is empty.                              |
@@ -194,5 +352,10 @@ Include lighting details, mood, time of day, and camera angle in each image desc
   - `ParallelGenerator`: Handles concurrent generation with configurable limits
   - `GenerationDetector`: Listens to SillyTavern events for completion detection
   - `StateManager`: Manages generation state and cleanup
+  - **Provider system** (`src/providers/`): Multi-provider support with fallback
+    - `BaseProvider`: Abstract base class for all providers
+    - `ProviderRegistry`: Manages provider registration and selection
+    - `NanoGptProvider`, `PollinationsProvider`, `OpenRouterProvider`: Provider implementations
+  - **PromptSummarizer** (`src/summarizer.js`): AI-powered prompt generation from chat context
 - Licensed under MIT (see `LICENSE`).
 - AI developer: gemini-3-flash-preview via OhMyOpenCode.

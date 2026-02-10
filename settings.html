@@ -327,6 +327,37 @@
                 ></div>
             </section>
 
+            <section class="auto-multi-panel auto-multi-panel--providers" id="auto_multi_providers_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-cloud"></i> Provider
+                            configuration
+                        </p>
+                        <h5>Configure image generation providers</h5>
+                    </div>
+                    <div
+                        class="auto-multi-provider__actions flex-container flexGap5"
+                    >
+                        <button
+                            id="auto_multi_add_provider"
+                            class="menu_button auto-multi-add-provider"
+                        >
+                            <span class="fa-solid fa-plus"></span>
+                            <span>Add provider</span>
+                        </button>
+                    </div>
+                </header>
+                <p class="caption">
+                    Configure multiple image generation providers with API keys
+                    and custom endpoints. Providers are tried in priority order.
+                </p>
+                <div
+                    id="auto_multi_provider_list"
+                    class="auto-multi-provider-list"
+                ></div>
+            </section>
+
             <section class="auto-multi-panel" id="auto_multi_cadence_panel">
                 <header>
                     <div>
@@ -351,6 +382,16 @@
                             id="auto_multi_image_target"
                             class="text_pole"
                         />
+                    </label>
+                    <label title="Aspect ratio for generated images.">
+                        <span>Aspect ratio</span>
+                        <select id="auto_multi_aspect_ratio" class="text_pole">
+                            <option value="1:1">1:1 (Square)</option>
+                            <option value="16:9">16:9 (Landscape)</option>
+                            <option value="9:16">9:16 (Portrait)</option>
+                            <option value="4:3">4:3 (Standard)</option>
+                            <option value="3:4">3:4 (Portrait Standard)</option>
+                        </select>
                     </label>
                     <label title="Delay between generation requests to avoid provider rate limits.">
                         <span>Delay between requests (ms)</span>
@@ -454,6 +495,75 @@
                     </p>
                 </div>
             </section>
+
+            <section class="auto-multi-panel" id="auto_multi_avatar_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-user-circle"></i> Character Avatar
+                        </p>
+                        <h5>Manage character avatar reference</h5>
+                    </div>
+                    <p class="caption">
+                        Set a reference avatar image for character consistency in generations.
+                    </p>
+                </header>
+                <div class="auto-multi-avatar-display" id="auto_multi_avatar_display">
+                    <div class="auto-multi-avatar-placeholder">
+                        <i class="fa-solid fa-image"></i>
+                        <span>No avatar set</span>
+                    </div>
+                </div>
+                <div class="auto-multi-avatar-actions flex-container flexGap10">
+                    <button
+                        type="button"
+                        id="auto_multi_avatar_clear"
+                        class="menu_button warning hidden"
+                        title="Clear the saved avatar for this character."
+                    >
+                        <i class="fa-solid fa-trash"></i> Clear Avatar
+                    </button>
+                </div>
+                <p class="caption">
+                    Avatars can be set from generated images using the "Set as Avatar" button in the image viewer.
+                </p>
+            </section>
+
+            <section class="auto-multi-panel" id="auto_multi_advanced_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-sliders"></i> Advanced Features
+                        </p>
+                        <h5>Context depth and image linking</h5>
+                    </div>
+                    <p class="caption">
+                        Configure context gathering and previous image linking for AI summarizer.
+                    </p>
+                </header>
+                <div class="auto-multi-grid">
+                    <label title="Number of previous chat messages to include in AI summarizer context (1-10).">
+                        <span>Context Depth (messages back)</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            step="1"
+                            id="auto_multi_context_depth"
+                            class="text_pole"
+                            value="5"
+                        />
+                    </label>
+                </div>
+                <label class="checkbox_label auto-multi-inline" title="Link new generations with the previous image for visual consistency.">
+                    <input type="checkbox" id="auto_multi_link_previous_image" />
+                    <span>Link with previous image</span>
+                </label>
+                <p class="caption">
+                    When enabled, the last generated image in this chat will be referenced for visual consistency in subsequent generations.
+                </p>
+            </section>
+
             <section class="auto-multi-panel" id="auto_multi_debug_panel">
                 <header>
                     <div>

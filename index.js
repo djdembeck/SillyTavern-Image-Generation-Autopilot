@@ -15,6 +15,7 @@ const defaultSettings = Object.freeze({
     modelQueue: [],
     modelQueueEnabled: true,
     swipeModel: '',
+    aspectRatio: '1:1',
     perCharacter: {
         enabled: false,
         globalDefaults: {},
@@ -43,6 +44,17 @@ const defaultSettings = Object.freeze({
             position: 'deep_system',
             depth: 0,
         },
+    },
+    providers: [],
+    summarizer: {
+        enabled: false,
+        provider: 'nanogpt',
+        model: 'gpt-4',
+        apiKey: '',
+        maxTokens: 500,
+        temperature: 0.7,
+        maxContextMessages: 10,
+        linkPrevious: false,
     },
 })
 
@@ -80,7 +92,17 @@ const state = {
         GenerationDetector: null,
         ParallelGenerator: null,
         ImageSelectionDialog: null,
+        ProviderRegistry: null,
+        PromptSummarizer: null,
+        AvatarStorage: null,
+        ImageLinker: null,
+        GalleryStorage: null,
     },
+    providerRegistry: null,
+    summarizer: null,
+    avatarStorage: null,
+    imageLinker: null,
+    galleryStorage: null,
 }
 
 let debugModeCache = null
@@ -153,14 +175,19 @@ const TEMPLATE_ROOT = resolveTemplateRoot()
 
 /**
  * Dynamically import and cache component modules.
- * @returns {Promise<{StateManager: Function, GenerationDetector: Function, ParallelGenerator: Function, ImageSelectionDialog: Function}>}
+ * @returns {Promise<{StateManager: Function, GenerationDetector: Function, ParallelGenerator: Function, ImageSelectionDialog: Function, ProviderRegistry: Function, PromptSummarizer: Function}>}
  */
 async function initComponents() {
     if (
         state.components.StateManager &&
         state.components.GenerationDetector &&
         state.components.ParallelGenerator &&
-        state.components.ImageSelectionDialog
+        state.components.ImageSelectionDialog &&
+        state.components.ProviderRegistry &&
+        state.components.PromptSummarizer &&
+        state.components.AvatarStorage &&
+        state.components.ImageLinker &&
+        state.components.GalleryStorage
     ) {
         return state.components
     }
@@ -168,18 +195,31 @@ async function initComponents() {
     const extensionPath = `scripts/extensions/${TEMPLATE_ROOT}`
 
     try {
-        const [stateModule, eventsModule, generatorModule, dialogModule] =
+        const [stateModule, eventsModule, generatorModule, dialogModule, providersModule, summarizerModule, avatarModule, imageLinkerModule, galleryModule] =
             await Promise.all([
                 import(`/${extensionPath}/src/state-manager.js`),
                 import(`/${extensionPath}/src/generation-events.js`),
                 import(`/${extensionPath}/src/parallel-generator.js`),
                 import(`/${extensionPath}/src/image-dialog.js`),
+                import(`/${extensionPath}/src/providers/index.js`),
+                import(`/${extensionPath}/src/summarizer.js`),
+                import(`/${extensionPath}/src/avatar-storage.js`),
+                import(`/${extensionPath}/src/image-linking.js`),
+                import(`/${extensionPath}/src/gallery-storage.js`),
             ])
 
         state.components.StateManager = stateModule.StateManager
         state.components.GenerationDetector = eventsModule.GenerationDetector
         state.components.ParallelGenerator = generatorModule.ParallelGenerator
         state.components.ImageSelectionDialog = dialogModule.ImageSelectionDialog
+        state.components.ProviderRegistry = providersModule.ProviderRegistry
+        state.components.NanoGPTProvider = providersModule.NanoGPTProvider
+        state.components.PollinationsProvider = providersModule.PollinationsProvider
+        state.components.OpenRouterProvider = providersModule.OpenRouterProvider
+        state.components.PromptSummarizer = summarizerModule.PromptSummarizer
+        state.components.AvatarStorage = avatarModule.AvatarStorage
+        state.components.ImageLinker = imageLinkerModule.ImageLinker
+        state.components.GalleryStorage = galleryModule.GalleryStorage
 
         logger.debug('Components initialized:', Object.keys(state.components))
         return state.components
@@ -191,6 +231,110 @@ async function initComponents() {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const log = (...args) => logger.debug(...args)
+
+function createProviderRegistry(settings) {
+    if (!state.components.ProviderRegistry) {
+        return null
+    }
+
+    const registry = new state.components.ProviderRegistry()
+    const providerSettings = settings?.providers || []
+
+    if (!Array.isArray(providerSettings) || providerSettings.length === 0) {
+        return registry
+    }
+
+    providerSettings.forEach((providerConfig) => {
+        if (!providerConfig || !providerConfig.enabled) {
+            return
+        }
+
+        try {
+            let ProviderClass = null
+            switch (providerConfig.type) {
+                case 'nanogpt':
+                    ProviderClass = state.components.NanoGPTProvider ||
+                        (state.components.ProviderRegistry && state.components.ProviderRegistry.fromConfig && state.components.ProviderRegistry)
+                    break
+                case 'pollinations':
+                    ProviderClass = state.components.PollinationsProvider
+                    break
+                case 'openrouter':
+                    ProviderClass = state.components.OpenRouterProvider
+                    break
+                default:
+                    logger.warn('Unknown provider type:', providerConfig.type)
+                    return
+            }
+
+            if (ProviderClass) {
+                const instance = new ProviderClass(providerConfig.config || {})
+                registry.register(providerConfig.id || providerConfig.name, instance, {
+                    priority: providerConfig.priority || 100,
+                    enabled: providerConfig.enabled,
+                })
+            }
+        } catch (error) {
+            logger.error('Failed to register provider:', providerConfig.name, error)
+        }
+    })
+
+    return registry
+}
+
+function initProviderRegistry(settings) {
+    if (state.providerRegistry) {
+        state.providerRegistry.clear()
+    }
+
+    state.providerRegistry = createProviderRegistry(settings)
+
+    if (state.providerRegistry && state.components.ParallelGenerator) {
+        const enabledProviders = state.providerRegistry.getEnabledProviders()
+        if (enabledProviders.length > 0) {
+            logger.info('Provider registry initialized with', enabledProviders.length, 'providers')
+        }
+    }
+
+    return state.providerRegistry
+}
+
+function createSummarizer(settings) {
+    if (!state.components.PromptSummarizer) {
+        return null
+    }
+
+    const summarizerSettings = settings?.summarizer
+    if (!summarizerSettings || !summarizerSettings.enabled) {
+        return null
+    }
+
+    try {
+        const config = {
+            apiKey: summarizerSettings.apiKey,
+            provider: summarizerSettings.provider,
+            model: summarizerSettings.model,
+            maxTokens: summarizerSettings.maxTokens,
+            temperature: summarizerSettings.temperature,
+            baseUrl: summarizerSettings.baseUrl,
+        }
+
+        return new state.components.PromptSummarizer(config)
+    } catch (error) {
+        logger.error('Failed to create summarizer:', error)
+        return null
+    }
+}
+
+function initSummarizer(settings) {
+    state.summarizer = createSummarizer(settings)
+
+    if (state.summarizer) {
+        logger.info('Prompt summarizer initialized')
+    }
+
+    return state.summarizer
+}
 
 function logPerCharacter(action, payload) {
     const settings = getSettings()
@@ -254,6 +398,15 @@ function getCtx() {
         )
     }
     return SillyTavern.getContext()
+}
+
+function getCurrentCharacterId() {
+    try {
+        const ctx = getCtx()
+        return ctx.characterId || null
+    } catch {
+        return null
+    }
 }
 
 function ensureSettings() {
@@ -1900,6 +2053,18 @@ async function buildSettingsPanel() {
     const debugModeInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_debug_mode')
     )
+    const contextDepthInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_context_depth')
+    )
+    const linkPreviousImageInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_link_previous_image')
+    )
+    const avatarDisplay = /** @type {HTMLDivElement | null} */ (
+        container.querySelector('#auto_multi_avatar_display')
+    )
+    const avatarClearButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_avatar_clear')
+    )
     const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_pic_count_mode')
     )
@@ -1914,6 +2079,12 @@ async function buildSettingsPanel() {
     )
     const concurrencyInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_swipe_concurrency')
+    )
+    const providerListContainer = /** @type {HTMLDivElement | null} */ (
+        container.querySelector('#auto_multi_provider_list')
+    )
+    const addProviderButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_add_provider')
     )
     if (
         !(
@@ -1979,6 +2150,8 @@ async function buildSettingsPanel() {
         promptPositionSelect,
         promptDepthInput,
         debugModeInput,
+        contextDepthInput,
+        linkPreviousImageInput,
         picCountModeSelect,
         picCountExactInput,
         picCountMinInput,
@@ -1991,9 +2164,13 @@ async function buildSettingsPanel() {
         characterEnabledInput,
         characterResetButton,
         concurrencyInput,
+        providerListContainer,
+        addProviderButton,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
+        avatarDisplay,
+        avatarClearButton,
     }
 
     enabledInput.addEventListener('change', () => {
@@ -2150,6 +2327,35 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
+    contextDepthInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = parseInt(contextDepthInput.value, 10)
+        if (current.summarizer) {
+            current.summarizer.maxContextMessages = Number.isFinite(value) && value >= 1 && value <= 10
+                ? value
+                : 5
+            contextDepthInput.value = String(current.summarizer.maxContextMessages)
+            saveSettings()
+        }
+    })
+
+    linkPreviousImageInput?.addEventListener('change', () => {
+        const current = getSettings()
+        if (!current.summarizer) {
+            current.summarizer = { ...defaultSettings.summarizer }
+        }
+        current.summarizer.linkPrevious = linkPreviousImageInput.checked
+        saveSettings()
+    })
+
+    avatarClearButton?.addEventListener('click', () => {
+        const charId = getCurrentCharacterId()
+        if (charId && state.avatarStorage) {
+            state.avatarStorage.deleteAvatar(charId)
+            updateAvatarDisplay()
+        }
+    })
+
     picCountModeSelect?.addEventListener('change', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.picCountMode =
@@ -2205,6 +2411,11 @@ async function buildSettingsPanel() {
     refreshModelsButton?.addEventListener('click', (event) => {
         event.preventDefault()
         syncModelSelectOptions(true)
+    })
+
+    addProviderButton?.addEventListener('click', (event) => {
+        event.preventDefault()
+        handleAddProvider()
     })
 
     // Get preset UI elements
@@ -2590,9 +2801,334 @@ async function syncProfileSelectOptions(showFeedback = false) {
     }
 
     if (showFeedback) {
-        log('Profile list refreshed.', { 
+        log('Profile list refreshed.', {
             profiles: connectionProfiles.length
         })
+    }
+}
+
+function handleAddProvider() {
+    const settings = getSettings()
+    const providers = Array.isArray(settings.providers)
+        ? [...settings.providers]
+        : []
+    const newId = `provider_${Date.now()}`
+    providers.push({
+        id: newId,
+        type: 'nanogpt',
+        name: 'New Provider',
+        enabled: true,
+        priority: providers.length + 1,
+        config: {
+            apiKey: '',
+            baseUrl: 'https://nano-gpt.com/api/v1',
+            model: 'z-image-turbo'
+        }
+    })
+    settings.providers = providers
+    saveSettings()
+}
+
+function updateProviderEntry(index, patch) {
+    const numericIndex = Number(index)
+    if (!Number.isInteger(numericIndex)) {
+        return
+    }
+
+    const settings = getSettings()
+    const providers = Array.isArray(settings.providers)
+        ? [...settings.providers]
+        : []
+    if (!providers[numericIndex]) {
+        return
+    }
+
+    const next = { ...providers[numericIndex] }
+    if (typeof patch.type === 'string') {
+        next.type = patch.type
+    }
+    if (typeof patch.name === 'string') {
+        next.name = patch.name
+    }
+    if (typeof patch.enabled === 'boolean') {
+        next.enabled = patch.enabled
+    }
+    if (typeof patch.priority === 'number') {
+        next.priority = patch.priority
+    }
+    if (patch.config) {
+        next.config = { ...next.config, ...patch.config }
+    }
+
+    providers[numericIndex] = next
+    settings.providers = providers
+    saveSettings()
+}
+
+function removeProviderEntry(index) {
+    const numericIndex = Number(index)
+    if (!Number.isInteger(numericIndex)) {
+        return
+    }
+
+    const settings = getSettings()
+    const providers = Array.isArray(settings.providers)
+        ? [...settings.providers]
+        : []
+    if (numericIndex < 0 || numericIndex >= providers.length) {
+        return
+    }
+
+    providers.splice(numericIndex, 1)
+    settings.providers = providers
+    saveSettings()
+}
+
+function renderProviderRows(providers) {
+    if (!state.ui?.providerListContainer) {
+        return
+    }
+
+    const container = state.ui.providerListContainer
+    container.innerHTML = ''
+
+    if (!providers.length) {
+        const emptyMessage = document.createElement('p')
+        emptyMessage.className = 'note auto-multi-provider-empty margin0'
+        emptyMessage.textContent =
+            'No providers configured. Add a provider to enable multi-provider image generation.'
+        container.appendChild(emptyMessage)
+        return
+    }
+
+    providers.forEach((provider, index) => {
+        const row = document.createElement('div')
+        row.className =
+            'auto-multi-provider-row flex-container flexGap10 alignitemscenter'
+        row.dataset.index = String(index)
+
+        const enabledField = document.createElement('div')
+        enabledField.className = 'auto-multi-provider-field flex0'
+        const enabledLabel = document.createElement('label')
+        enabledLabel.className = 'checkbox_label'
+        const enabledCheckbox = document.createElement('input')
+        enabledCheckbox.type = 'checkbox'
+        enabledCheckbox.checked = provider.enabled
+        enabledCheckbox.addEventListener('change', () =>
+            updateProviderEntry(index, { enabled: enabledCheckbox.checked }),
+        )
+        enabledLabel.appendChild(enabledCheckbox)
+        enabledField.appendChild(enabledLabel)
+
+        const typeField = document.createElement('div')
+        typeField.className = 'auto-multi-provider-field flex1'
+        const typeLabel = document.createElement('span')
+        typeLabel.textContent = 'Type'
+        const typeSelect = document.createElement('select')
+        typeSelect.className = 'text_pole auto-multi-provider-type'
+        const types = [
+            { value: 'nanogpt', label: 'NanoGPT' },
+            { value: 'pollinations', label: 'Pollinations' },
+            { value: 'openrouter', label: 'OpenRouter' }
+        ]
+        types.forEach(type => {
+            const option = document.createElement('option')
+            option.value = type.value
+            option.textContent = type.label
+            if (type.value === provider.type) {
+                option.selected = true
+            }
+            typeSelect.appendChild(option)
+        })
+        typeSelect.addEventListener('change', () => {
+            const newType = typeSelect.value
+            const defaultConfig = getDefaultProviderConfig(newType)
+            updateProviderEntry(index, { type: newType, config: defaultConfig })
+        })
+        typeField.append(typeLabel, typeSelect)
+
+        const nameField = document.createElement('div')
+        nameField.className = 'auto-multi-provider-field flex2'
+        const nameLabel = document.createElement('span')
+        nameLabel.textContent = 'Name'
+        const nameInput = document.createElement('input')
+        nameInput.type = 'text'
+        nameInput.value = provider.name
+        nameInput.className = 'text_pole auto-multi-provider-name'
+        nameInput.addEventListener('change', () =>
+            updateProviderEntry(index, { name: nameInput.value }),
+        )
+        nameField.append(nameLabel, nameInput)
+
+        const priorityField = document.createElement('div')
+        priorityField.className = 'auto-multi-provider-field flex0'
+        const priorityLabel = document.createElement('span')
+        priorityLabel.textContent = 'Priority'
+        const priorityInput = document.createElement('input')
+        priorityInput.type = 'number'
+        priorityInput.min = '1'
+        priorityInput.max = '100'
+        priorityInput.step = '1'
+        priorityInput.value = String(provider.priority)
+        priorityInput.className = 'text_pole auto-multi-provider-priority'
+        priorityInput.addEventListener('change', () => {
+            const nextValue = Math.max(1, Math.min(100, parseInt(priorityInput.value, 10) || 1))
+            priorityInput.value = String(nextValue)
+            updateProviderEntry(index, { priority: nextValue })
+        })
+        priorityField.append(priorityLabel, priorityInput)
+
+        const configField = document.createElement('div')
+        configField.className = 'auto-multi-provider-field flex3'
+        const configLabel = document.createElement('span')
+        configLabel.textContent = 'Configuration'
+        const configContainer = document.createElement('div')
+        configContainer.className = 'auto-multi-provider-config'
+
+        const apiKeyInput = document.createElement('input')
+        apiKeyInput.type = 'password'
+        apiKeyInput.placeholder = 'API Key'
+        apiKeyInput.value = provider.config.apiKey || ''
+        apiKeyInput.className = 'text_pole auto-multi-provider-apikey'
+        apiKeyInput.addEventListener('change', () =>
+            updateProviderEntry(index, { config: { apiKey: apiKeyInput.value } }),
+        )
+
+        const baseUrlInput = document.createElement('input')
+        baseUrlInput.type = 'text'
+        baseUrlInput.placeholder = 'Base URL'
+        baseUrlInput.value = provider.config.baseUrl || ''
+        baseUrlInput.className = 'text_pole auto-multi-provider-baseurl'
+        baseUrlInput.addEventListener('change', () =>
+            updateProviderEntry(index, { config: { baseUrl: baseUrlInput.value } }),
+        )
+
+        const modelInput = document.createElement('input')
+        modelInput.type = 'text'
+        modelInput.placeholder = 'Model'
+        modelInput.value = provider.config.model || ''
+        modelInput.className = 'text_pole auto-multi-provider-model'
+        modelInput.addEventListener('change', () =>
+            updateProviderEntry(index, { config: { model: modelInput.value } }),
+        )
+
+        configContainer.append(apiKeyInput, baseUrlInput, modelInput)
+
+        if (provider.type === 'openrouter') {
+            const httpRefererInput = document.createElement('input')
+            httpRefererInput.type = 'text'
+            httpRefererInput.placeholder = 'HTTP Referer'
+            httpRefererInput.value = provider.config.httpReferer || ''
+            httpRefererInput.className = 'text_pole auto-multi-provider-httpreferer'
+            httpRefererInput.addEventListener('change', () =>
+                updateProviderEntry(index, { config: { httpReferer: httpRefererInput.value } }),
+            )
+
+            const xTitleInput = document.createElement('input')
+            xTitleInput.type = 'text'
+            xTitleInput.placeholder = 'X-Title'
+            xTitleInput.value = provider.config.xTitle || ''
+            xTitleInput.className = 'text_pole auto-multi-provider-xtitle'
+            xTitleInput.addEventListener('change', () =>
+                updateProviderEntry(index, { config: { xTitle: xTitleInput.value } }),
+            )
+
+            configContainer.append(httpRefererInput, xTitleInput)
+        }
+        configField.append(configLabel, configContainer)
+
+        const testButton = document.createElement('button')
+        testButton.className =
+            'menu_button auto-multi-test-provider fa-solid fa-plug'
+        testButton.type = 'button'
+        testButton.title = 'Test provider connection'
+        testButton.addEventListener('click', (event) => {
+            event.preventDefault()
+            testProviderConnection(index)
+        })
+
+        const removeButton = document.createElement('button')
+        removeButton.className =
+            'menu_button auto-multi-remove-provider fa-solid fa-trash-can'
+        removeButton.type = 'button'
+        removeButton.title = 'Remove this provider'
+        removeButton.addEventListener('click', (event) => {
+            event.preventDefault()
+            removeProviderEntry(index)
+        })
+
+        row.append(enabledField, typeField, nameField, priorityField, configField, testButton, removeButton)
+        container.appendChild(row)
+    })
+}
+
+function getDefaultProviderConfig(type) {
+    switch (type) {
+        case 'nanogpt':
+            return {
+                apiKey: '',
+                baseUrl: 'https://nano-gpt.com/api/v1',
+                model: 'z-image-turbo'
+            }
+        case 'pollinations':
+            return {
+                baseUrl: 'https://image.pollinations.ai',
+                model: 'flux'
+            }
+        case 'openrouter':
+            return {
+                apiKey: '',
+                baseUrl: 'https://openrouter.ai/api/v1',
+                httpReferer: '',
+                xTitle: '',
+                model: ''
+            }
+        default:
+            return {}
+    }
+}
+
+async function testProviderConnection(index) {
+    const settings = getSettings()
+    const providers = Array.isArray(settings.providers) ? settings.providers : []
+    const provider = providers[index]
+
+    if (!provider) {
+        logger.warn('Provider not found for testing:', index)
+        return
+    }
+
+    logger.debug('Testing provider connection:', provider.name)
+
+    if (typeof window.toastr === 'object' && typeof window.toastr.info === 'function') {
+        window.toastr.info(`Testing connection to ${provider.name}...`, 'Provider Test')
+    }
+
+    try {
+        const testUrl = provider.config.baseUrl
+        if (!testUrl) {
+            throw new Error('Base URL is not configured')
+        }
+
+        const response = await fetch(testUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+
+        if (response.ok || response.status === 404 || response.status === 405) {
+            if (typeof window.toastr === 'object' && typeof window.toastr.success === 'function') {
+                window.toastr.success(`Connection to ${provider.name} successful!`, 'Provider Test')
+            }
+        } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+    } catch (error) {
+        logger.error('Provider connection test failed:', error)
+        if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+            window.toastr.error(`Failed to connect to ${provider.name}: ${error.message}`, 'Provider Test')
+        }
     }
 }
 
@@ -2711,6 +3247,14 @@ function syncUiFromSettings() {
     if (state.ui.debugModeInput) {
         state.ui.debugModeInput.checked = settings.debugMode
     }
+    if (state.ui.contextDepthInput) {
+        state.ui.contextDepthInput.value = String(
+            settings.summarizer?.maxContextMessages || 5
+        )
+    }
+    if (state.ui.linkPreviousImageInput) {
+        state.ui.linkPreviousImageInput.checked = settings.summarizer?.linkPrevious || false
+    }
     if (state.ui.characterEnabledInput) {
         state.ui.characterEnabledInput.checked =
             settings.perCharacter?.enabled || false
@@ -2796,6 +3340,10 @@ function syncUiFromSettings() {
     )
     settings.modelQueue = configuredQueue
     renderModelQueueRows(configuredQueue)
+
+    const configuredProviders = Array.isArray(settings.providers) ? settings.providers : []
+    settings.providers = configuredProviders
+    renderProviderRows(configuredProviders)
     syncModelSelectOptions()
     syncProfileSelectOptions()
     if (settings.enabled) {
@@ -2841,6 +3389,8 @@ function syncUiFromSettings() {
             ? 'with no delay between requests.'
             : `with ${settings.delayMs} ms between requests.`
     state.ui.summary.textContent = `Will queue ${segments.join(', ')} ${delayBlurb} ${strategyBlurb}`
+
+    updateAvatarDisplay()
 }
 
 function ensureGlobalProgressElement(messageId) {
@@ -3193,13 +3743,29 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
     const modelQueue = getSwipePlan(settings)
     const modelOptions = getSdModelOptions()
 
+    if (!state.avatarStorage && components.AvatarStorage) {
+        state.avatarStorage = new components.AvatarStorage()
+    }
+
+    if (!state.imageLinker && components.ImageLinker) {
+        state.imageLinker = new components.ImageLinker()
+    }
+
+    const characterId = getCurrentCharacterId()
+
     const generatorFactory = (options) => {
         const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
+
+        if (!state.providerRegistry) {
+            initProviderRegistry(settings)
+        }
+
         const generator = new components.ParallelGenerator({
             concurrencyLimit: concurrencyValue,
             callSdSlash: async (prompt, quiet, modelId) => {
                 return callSdSlashWithModel(prompt, modelId, quiet)
             },
+            providerRegistry: state.providerRegistry,
         })
         return generator
     }
@@ -3208,6 +3774,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         generatorFactory,
         PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
         modelOptions,
+        characterId,
         onRewrite: async (prompt) => {
             log('Dialog requested rewrite', { prompt, sourceMessageId })
             return await callChatRewrite(
@@ -3217,11 +3784,23 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 sourceMessageId,
             )
         },
+        onSetAvatar: (imageUrl, charId) => {
+            if (state.avatarStorage && charId) {
+                const success = state.avatarStorage.saveAvatar(charId, {
+                    imageUrl,
+                    characterId: charId,
+                })
+                if (success) {
+                    updateAvatarDisplay()
+                }
+            }
+        },
     })
-    
+
     const generatorOptions = {
         modelQueue: modelQueue,
         quiet: true,
+        characterId,
     }
 
     try {
@@ -3368,6 +3947,69 @@ async function handleDialogResult(dialogResult, triggerMessage) {
         log('Images inserted as new message', {
             imageCount: dialogResult.selected.length,
         })
+    }
+
+    // Store the last generated image for linking
+    if (state.imageLinker && dialogResult.selected?.length > 0) {
+        const chatId = context.getCurrentChatId?.() || context.chatId
+        if (chatId) {
+            const lastImage = dialogResult.selected[dialogResult.selected.length - 1]
+            state.imageLinker.storeLastImage(chatId, {
+                imageUrl: lastImage,
+                prompt: dialogResult.prompt || '',
+                timestamp: Date.now(),
+            })
+            log('Stored last image reference for linking', { chatId, imageUrl: lastImage })
+        }
+    }
+}
+
+async function handleManualTrigger(prompt) {
+    const settings = getSettings()
+    if (!settings.enabled) {
+        if (typeof window !== "undefined" && window.toastr) {
+            window.toastr.warning('Image Generation Autopilot is disabled')
+        } else {
+            console.warn('Image Generation Autopilot is disabled')
+        }
+        return
+    }
+
+    const ctx = getCtx()
+    const chat = ctx.chat || []
+    const messageId = chat.length > 0 ? chat.length - 1 : 0
+    const message = chat[messageId]
+
+    if (!message) {
+        if (typeof window !== "undefined" && window.toastr) {
+            window.toastr.warning('No message found to attach images to')
+        } else {
+            console.warn('No message found to attach images to')
+        }
+        return
+    }
+
+    const DialogClass = state.components.ImageSelectionDialog
+    if (!DialogClass) {
+        logger.error('ImageSelectionDialog component not loaded')
+        return
+    }
+
+    const generator = new state.components.ParallelGenerator({
+        concurrencyLimit: settings.concurrency ?? 4,
+    })
+
+    const dialog = new DialogClass({
+        PopupClass: window.Popup,
+        generatorFactory: () => generator,
+    })
+
+    const result = await dialog.show([prompt], {
+        messageId,
+    })
+
+    if (result && result.selected?.length > 0) {
+        await handleDialogResult(result, message)
     }
 }
 
@@ -3606,6 +4248,49 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     return rewritten || ''
 }
 
+async function extractPromptsFromMessage(message, settings) {
+    const autoSettings = settings.autoGeneration
+    const summarizerSettings = settings.summarizer
+
+    if (summarizerSettings?.enabled && state.summarizer) {
+        const context = getCtx()
+        const chat = context.chat || []
+        const recentMessages = chat.slice(-(summarizerSettings.maxContextMessages || 10))
+
+        const chatContext = {
+            messages: recentMessages.map((m) => ({
+                role: m.is_user ? 'user' : 'assistant',
+                content: m.mes || '',
+                name: m.name || '',
+            })),
+            character: context.character,
+        }
+
+        try {
+            const result = await state.summarizer.summarize(chatContext)
+            if (result?.prompt) {
+                return [result.prompt]
+            }
+        } catch (error) {
+            logger.warn('Summarizer failed, falling back to pic tag detection:', error)
+        }
+    }
+
+    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
+    if (!regex) {
+        return []
+    }
+
+    const matches = getPicPromptMatches(message?.mes, regex)
+    if (!matches.length) {
+        return []
+    }
+
+    return matches
+        .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
+        .filter((p) => p.trim())
+}
+
 async function handleIncomingMessage(messageId) {
     if (state.isRewriting) {
         log('Ignoring incoming message (currently rewriting)')
@@ -3642,19 +4327,11 @@ async function handleIncomingMessage(messageId) {
                 : message.mes,
     })
 
-    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
-    if (!regex) {
-        return
+    if (!state.summarizer && settings.summarizer?.enabled) {
+        initSummarizer(settings)
     }
 
-    const matches = getPicPromptMatches(message?.mes, regex)
-    if (!matches.length) {
-        return
-    }
-
-    const prompts = matches
-        .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
-        .filter((p) => p.trim())
+    const prompts = await extractPromptsFromMessage(message, settings)
 
     if (!prompts.length) {
         return
@@ -4566,6 +5243,70 @@ function refreshReswipeButtons() {
     })
 }
 
+function updateAvatarDisplay() {
+    if (!state.ui?.avatarDisplay) {
+        return
+    }
+
+    const charId = getCurrentCharacterId()
+    if (!charId || !state.avatarStorage) {
+        state.ui.avatarDisplay.innerHTML = `
+            <div class="auto-multi-avatar-placeholder">
+                <i class="fa-solid fa-image"></i>
+                <span>No avatar set</span>
+            </div>
+        `
+        if (state.ui.avatarClearButton) {
+            state.ui.avatarClearButton.classList.add('hidden')
+        }
+        return
+    }
+
+    const avatar = state.avatarStorage.getAvatar(charId)
+    if (avatar?.imageUrl) {
+        state.ui.avatarDisplay.innerHTML = `
+            <img src="${avatar.imageUrl}" alt="Character Avatar" />
+        `
+        if (state.ui.avatarClearButton) {
+            state.ui.avatarClearButton.classList.remove('hidden')
+        }
+    } else {
+        state.ui.avatarDisplay.innerHTML = `
+            <div class="auto-multi-avatar-placeholder">
+                <i class="fa-solid fa-image"></i>
+                <span>No avatar set</span>
+            </div>
+        `
+        if (state.ui.avatarClearButton) {
+            state.ui.avatarClearButton.classList.add('hidden')
+        }
+    }
+}
+
+function registerSlashCommands() {
+    if (typeof SillyTavern === 'undefined' || !SillyTavern.registerSlashCommand) {
+        return
+    }
+
+    SillyTavern.registerSlashCommand('generate', (args) => {
+        const prompt = args.join(' ').trim()
+        if (!prompt) {
+            toastr.warning('Please provide a prompt: /generate [prompt]')
+            return
+        }
+        handleManualTrigger(prompt)
+    }, [], '/generate [prompt] - Generate an image from the provided prompt')
+
+    SillyTavern.registerSlashCommand('img', (args) => {
+        const prompt = args.join(' ').trim()
+        if (!prompt) {
+            toastr.warning('Please provide a prompt: /img [prompt]')
+            return
+        }
+        handleManualTrigger(prompt)
+    }, [], '/img [prompt] - Alias for /generate')
+}
+
 async function init() {
     if (state.initialized) {
         return
@@ -4573,6 +5314,19 @@ async function init() {
 
     try {
         await initComponents()
+
+        if (!state.avatarStorage && state.components.AvatarStorage) {
+            state.avatarStorage = new state.components.AvatarStorage()
+        }
+
+        if (!state.imageLinker && state.components.ImageLinker) {
+            state.imageLinker = new state.components.ImageLinker()
+        }
+
+        if (!state.galleryStorage && state.components.GalleryStorage) {
+            state.galleryStorage = new state.components.GalleryStorage()
+            await state.galleryStorage.init()
+        }
 
         const { eventSource, eventTypes } = getCtx()
 
@@ -4679,6 +5433,8 @@ async function init() {
         }
 
         document.addEventListener('change', handleDocumentChange)
+
+        registerSlashCommands()
 
         state.initialized = true
         log('Initialized')

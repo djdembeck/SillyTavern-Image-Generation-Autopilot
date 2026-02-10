@@ -61,6 +61,8 @@ export class ImageSelectionDialog {
         this.onRewrite = dependencies.onRewrite || null;
         this.isRewriting = false;
         this.isLightboxTransitioning = false;
+        this.characterId = dependencies.characterId || null;
+        this.onSetAvatar = dependencies.onSetAvatar || null;
     }
 
     show(prompts, options = {}) {
@@ -68,6 +70,7 @@ export class ImageSelectionDialog {
             this.resolvePromise = resolve;
             this.rejectPromise = reject;
             this.prompts = prompts;
+            this.characterId = options.characterId || this.characterId;
             this.generatorOptions = options;
             this.currentCount = prompts.length;
             
@@ -229,6 +232,9 @@ export class ImageSelectionDialog {
                     <div class="lightbox-image-wrapper">
                         <img id="lightbox-img" src="" alt="Enlarged view" />
                         <div id="lightbox-select" class="lightbox-select-btn fa-solid fa-circle-check"></div>
+                        <div id="lightbox-set-avatar" class="lightbox-set-avatar-btn" title="Set as Character Avatar">
+                            <i class="fa-solid fa-user-circle"></i>
+                        </div>
                     </div>
                     <div id="lightbox-counter" class="lightbox-counter"></div>
                 </div>
@@ -326,6 +332,9 @@ export class ImageSelectionDialog {
                 this.domElements.manualClose =
                     container.querySelector('#manual-close-dialog') ||
                     document.querySelector('#manual-close-dialog');
+                this.domElements.lightboxSetAvatar =
+                    container.querySelector('#lightbox-set-avatar') ||
+                    document.querySelector('#lightbox-set-avatar');
 
                 this._attachListeners();
                 this._syncGrid();
@@ -452,6 +461,11 @@ export class ImageSelectionDialog {
                 if (e.target.closest('#lightbox-close')) {
                     e.stopPropagation();
                     this._hideLightbox();
+                    return;
+                }
+                if (e.target.closest('#lightbox-set-avatar')) {
+                    e.stopPropagation();
+                    this._handleSetAsAvatar();
                     return;
                 }
                 this._hideLightbox();
@@ -793,6 +807,37 @@ export class ImageSelectionDialog {
         const imgWrapper = this.domElements.lightbox?.querySelector('.lightbox-image-wrapper');
         if (imgWrapper) {
             imgWrapper.classList.toggle('selected', isSelected);
+        }
+    }
+
+    _handleSetAsAvatar() {
+        const index = parseInt(this.domElements.lightbox?.dataset?.index, 10);
+        if (isNaN(index)) {
+            logger.warn('Cannot set avatar: invalid index');
+            return;
+        }
+
+        const slot = this.slots[index];
+        if (!slot || slot.status !== 'success') {
+            logger.warn('Cannot set avatar: no image at index', index);
+            return;
+        }
+
+        if (!this.onSetAvatar) {
+            logger.warn('Cannot set avatar: no onSetAvatar callback provided');
+            return;
+        }
+
+        const imageUrl = slot.result.result;
+        this.onSetAvatar(imageUrl, this.characterId);
+        logger.info('Set as avatar requested for image at index', index);
+
+        const btn = this.domElements.lightboxSetAvatar;
+        if (btn) {
+            btn.classList.add('success');
+            setTimeout(() => {
+                btn.classList.remove('success');
+            }, 1500);
         }
     }
 
