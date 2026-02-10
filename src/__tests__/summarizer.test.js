@@ -6,6 +6,8 @@
  * This is an alternative to <pic> tag detection.
  */
 
+const MODULE_NAME = "PromptSummarizer"
+
 import { describe, expect, it, beforeEach } from 'bun:test'
 import { PromptSummarizer } from '../summarizer.js'
 

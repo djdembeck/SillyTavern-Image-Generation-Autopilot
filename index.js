@@ -3996,7 +3996,7 @@ async function handleManualTrigger(prompt) {
     }
 
     const generator = new state.components.ParallelGenerator({
-        concurrencyLimit: settings.concurrency || 4,
+        concurrencyLimit: settings.concurrency ?? 4,
     })
 
     const dialog = new DialogClass({

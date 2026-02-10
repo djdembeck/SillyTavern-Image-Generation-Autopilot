@@ -86,16 +86,12 @@ export class ContextDepthManager {
         })
 
         const numDepth = depth !== undefined ? Number(depth) : this.defaultDepth
-        const isOutOfRange = Number.isNaN(numDepth) || numDepth < this.minDepth || numDepth > this.maxDepth
+        const clampedDepth = Number.isNaN(numDepth) ? this.defaultDepth : Math.max(this.minDepth, Math.min(this.maxDepth, numDepth))
 
-        if (isOutOfRange) {
-            return validMessages
-        }
-
-        const startIndex = Math.max(0, validMessages.length - numDepth)
+        const startIndex = Math.max(0, validMessages.length - clampedDepth)
         const result = validMessages.slice(startIndex)
 
-        logger.debug(`Retrieved ${result.length} messages (depth: ${numDepth})`)
+        logger.debug(`Retrieved ${result.length} messages (depth: ${clampedDepth})`)
         return result
     }
 
