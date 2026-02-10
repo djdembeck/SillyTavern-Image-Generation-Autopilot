@@ -62,7 +62,7 @@ export class ContextDepthManager {
     _clampDepth(depth) {
         const numDepth = Number(depth)
         if (Number.isNaN(numDepth)) {
-            return this.defaultDepth
+            return this.defaultDepth ?? this.minDepth
         }
         return Math.max(this.minDepth, Math.min(this.maxDepth, numDepth))
     }

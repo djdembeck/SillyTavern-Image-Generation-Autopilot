@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { ContextDepthManager } from '../context-depth'
+import { ContextDepthManager } from '../context-depth.js'
 
 describe('ContextDepthManager', () => {
     it('initializes with default depth of 5', () => {
@@ -94,7 +94,7 @@ describe('ContextDepthManager', () => {
             expect(result).toHaveLength(2)
         })
 
-        it('clamps provided depth to valid range (1-10)', () => {
+        it('returns all messages when provided depth is out of range', () => {
             const manager = new ContextDepthManager()
             const chat = [
                 { id: 1, name: 'User', mes: '1' },
