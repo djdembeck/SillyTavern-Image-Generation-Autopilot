@@ -253,14 +253,14 @@ function createProviderRegistry(settings) {
             let ProviderClass = null
             switch (providerConfig.type) {
                 case 'nanogpt':
-                    ProviderClass = state.components.ProviderRegistry.NanoGPTProvider ||
-                        (state.components.ProviderRegistry.fromConfig && state.components.ProviderRegistry)
+                    ProviderClass = state.components.NanoGPTProvider ||
+                        (state.components.ProviderRegistry && state.components.ProviderRegistry.fromConfig && state.components.ProviderRegistry)
                     break
                 case 'pollinations':
-                    ProviderClass = state.components.ProviderRegistry.PollinationsProvider
+                    ProviderClass = state.components.PollinationsProvider
                     break
                 case 'openrouter':
-                    ProviderClass = state.components.ProviderRegistry.OpenRouterProvider
+                    ProviderClass = state.components.OpenRouterProvider
                     break
                 default:
                     logger.warn('Unknown provider type:', providerConfig.type)
@@ -3013,6 +3013,28 @@ function renderProviderRows(providers) {
         )
 
         configContainer.append(apiKeyInput, baseUrlInput, modelInput)
+
+        if (provider.type === 'openrouter') {
+            const httpRefererInput = document.createElement('input')
+            httpRefererInput.type = 'text'
+            httpRefererInput.placeholder = 'HTTP Referer'
+            httpRefererInput.value = provider.config.httpReferer || ''
+            httpRefererInput.className = 'text_pole auto-multi-provider-httpreferer'
+            httpRefererInput.addEventListener('change', () =>
+                updateProviderEntry(index, { config: { httpReferer: httpRefererInput.value } }),
+            )
+
+            const xTitleInput = document.createElement('input')
+            xTitleInput.type = 'text'
+            xTitleInput.placeholder = 'X-Title'
+            xTitleInput.value = provider.config.xTitle || ''
+            xTitleInput.className = 'text_pole auto-multi-provider-xtitle'
+            xTitleInput.addEventListener('change', () =>
+                updateProviderEntry(index, { config: { xTitle: xTitleInput.value } }),
+            )
+
+            configContainer.append(httpRefererInput, xTitleInput)
+        }
         configField.append(configLabel, configContainer)
 
         const testButton = document.createElement('button')
@@ -3945,7 +3967,11 @@ async function handleDialogResult(dialogResult, triggerMessage) {
 async function handleManualTrigger(prompt) {
     const settings = getSettings()
     if (!settings.enabled) {
-        toastr.warning('Image Generation Autopilot is disabled')
+        if (typeof window !== "undefined" && window.toastr) {
+            window.toastr.warning('Image Generation Autopilot is disabled')
+        } else {
+            console.warn('Image Generation Autopilot is disabled')
+        }
         return
     }
 
@@ -3955,7 +3981,11 @@ async function handleManualTrigger(prompt) {
     const message = chat[messageId]
 
     if (!message) {
-        toastr.warning('No message found to attach images to')
+        if (typeof window !== "undefined" && window.toastr) {
+            window.toastr.warning('No message found to attach images to')
+        } else {
+            console.warn('No message found to attach images to')
+        }
         return
     }
 
@@ -3966,7 +3996,7 @@ async function handleManualTrigger(prompt) {
     }
 
     const generator = new state.components.ParallelGenerator({
-        concurrency: settings.concurrency || 4,
+        concurrencyLimit: settings.concurrency || 4,
     })
 
     const dialog = new DialogClass({
