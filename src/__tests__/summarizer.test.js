@@ -257,14 +257,9 @@ describe('PromptSummarizer Interface (RED Phase)', () => {
     })
 
     it('should include error details in thrown error', async () => {
-      const summarizer = new PromptSummarizer({ apiKey: 'test-key' })
-      const chatContext = { messages: [] }
-      try {
-        await summarizer.summarize(chatContext)
-      } catch (error) {
-        expect(error.message).toBeDefined()
-        expect(typeof error.message).toBe('string')
-      }
+      const summarizer = new PromptSummarizer({ apiKey: 'invalid-key' })
+      const chatContext = { messages: [{ role: 'user', content: 'test' }] }
+      await expect(summarizer.summarize(chatContext)).rejects.toThrow()
     })
   })
 
