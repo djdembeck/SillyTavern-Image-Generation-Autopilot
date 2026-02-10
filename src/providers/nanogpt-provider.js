@@ -23,12 +23,14 @@ export class NanoGPTProvider extends ImageProvider {
     { id: 'qwen-image', name: 'Qwen Image', description: 'Perfect for animated, anime, and stylized art' }
   ];
 
-  constructor(config = {}) {
+  constructor(config = {}, { fetch = globalThis.fetch, AbortController = globalThis.AbortController } = {}) {
     super({
       baseUrl: config.baseUrl || NanoGPTProvider.defaultBaseUrl,
       model: config.model || NanoGPTProvider.defaultModel,
       ...config
     });
+    this.fetch = fetch;
+    this.AbortController = AbortController;
   }
 
   get imagesGenerateEndpoint() {
@@ -275,5 +277,3 @@ export class NanoGPTProvider extends ImageProvider {
     return 'https://nano-gpt.com/pricing';
   }
 }
-
-export default NanoGPTProvider;
