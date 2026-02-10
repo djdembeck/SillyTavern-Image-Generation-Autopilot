@@ -15,6 +15,7 @@ const defaultSettings = Object.freeze({
     modelQueue: [],
     modelQueueEnabled: true,
     swipeModel: '',
+    aspectRatio: '1:1',
     perCharacter: {
         enabled: false,
         globalDefaults: {},
@@ -95,11 +96,13 @@ const state = {
         PromptSummarizer: null,
         AvatarStorage: null,
         ImageLinker: null,
+        GalleryStorage: null,
     },
     providerRegistry: null,
     summarizer: null,
     avatarStorage: null,
     imageLinker: null,
+    galleryStorage: null,
 }
 
 let debugModeCache = null
@@ -183,7 +186,8 @@ async function initComponents() {
         state.components.ProviderRegistry &&
         state.components.PromptSummarizer &&
         state.components.AvatarStorage &&
-        state.components.ImageLinker
+        state.components.ImageLinker &&
+        state.components.GalleryStorage
     ) {
         return state.components
     }
@@ -191,7 +195,7 @@ async function initComponents() {
     const extensionPath = `scripts/extensions/${TEMPLATE_ROOT}`
 
     try {
-        const [stateModule, eventsModule, generatorModule, dialogModule, providersModule, summarizerModule, avatarModule, imageLinkerModule] =
+        const [stateModule, eventsModule, generatorModule, dialogModule, providersModule, summarizerModule, avatarModule, imageLinkerModule, galleryModule] =
             await Promise.all([
                 import(`/${extensionPath}/src/state-manager.js`),
                 import(`/${extensionPath}/src/generation-events.js`),
@@ -201,6 +205,7 @@ async function initComponents() {
                 import(`/${extensionPath}/src/summarizer.js`),
                 import(`/${extensionPath}/src/avatar-storage.js`),
                 import(`/${extensionPath}/src/image-linking.js`),
+                import(`/${extensionPath}/src/gallery-storage.js`),
             ])
 
         state.components.StateManager = stateModule.StateManager
@@ -211,6 +216,7 @@ async function initComponents() {
         state.components.PromptSummarizer = summarizerModule.PromptSummarizer
         state.components.AvatarStorage = avatarModule.AvatarStorage
         state.components.ImageLinker = imageLinkerModule.ImageLinker
+        state.components.GalleryStorage = galleryModule.GalleryStorage
 
         logger.debug('Components initialized:', Object.keys(state.components))
         return state.components
@@ -3933,6 +3939,47 @@ async function handleDialogResult(dialogResult, triggerMessage) {
     }
 }
 
+async function handleManualTrigger(prompt) {
+    const settings = getSettings()
+    if (!settings.enabled) {
+        toastr.warning('Image Generation Autopilot is disabled')
+        return
+    }
+
+    const ctx = getCtx()
+    const chat = ctx.chat || []
+    const messageId = chat.length > 0 ? chat.length - 1 : 0
+    const message = chat[messageId]
+
+    if (!message) {
+        toastr.warning('No message found to attach images to')
+        return
+    }
+
+    const DialogClass = state.components.ImageSelectionDialog
+    if (!DialogClass) {
+        logger.error('ImageSelectionDialog component not loaded')
+        return
+    }
+
+    const generator = new state.components.ParallelGenerator({
+        concurrency: settings.concurrency || 4,
+    })
+
+    const dialog = new DialogClass({
+        PopupClass: window.Popup,
+        generatorFactory: () => generator,
+    })
+
+    const result = await dialog.show([prompt], {
+        messageId,
+    })
+
+    if (result && result.selected?.length > 0) {
+        await handleDialogResult(result, message)
+    }
+}
+
 function normalizeRewriteResponse(result) {
     if (!result) {
         return ''
@@ -5203,6 +5250,30 @@ function updateAvatarDisplay() {
     }
 }
 
+function registerSlashCommands() {
+    if (typeof SillyTavern === 'undefined' || !SillyTavern.registerSlashCommand) {
+        return
+    }
+
+    SillyTavern.registerSlashCommand('generate', (args) => {
+        const prompt = args.join(' ').trim()
+        if (!prompt) {
+            toastr.warning('Please provide a prompt: /generate [prompt]')
+            return
+        }
+        handleManualTrigger(prompt)
+    }, [], '/generate [prompt] - Generate an image from the provided prompt')
+
+    SillyTavern.registerSlashCommand('img', (args) => {
+        const prompt = args.join(' ').trim()
+        if (!prompt) {
+            toastr.warning('Please provide a prompt: /img [prompt]')
+            return
+        }
+        handleManualTrigger(prompt)
+    }, [], '/img [prompt] - Alias for /generate')
+}
+
 async function init() {
     if (state.initialized) {
         return
@@ -5217,6 +5288,11 @@ async function init() {
 
         if (!state.imageLinker && state.components.ImageLinker) {
             state.imageLinker = new state.components.ImageLinker()
+        }
+
+        if (!state.galleryStorage && state.components.GalleryStorage) {
+            state.galleryStorage = new state.components.GalleryStorage()
+            await state.galleryStorage.init()
         }
 
         const { eventSource, eventTypes } = getCtx()
@@ -5324,6 +5400,8 @@ async function init() {
         }
 
         document.addEventListener('change', handleDocumentChange)
+
+        registerSlashCommands()
 
         state.initialized = true
         log('Initialized')
