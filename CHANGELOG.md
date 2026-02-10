@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1.0] - 2026-02-09
+
+### Added
+
+- **Multi-provider support**: Configure multiple image generation providers with automatic fallback chains. Supported providers include NanoGPT, Pollinations, and OpenRouter.
+- **AI prompt summarizer**: Automatically generate image prompts from chat context using LLM providers. The summarizer analyzes recent messages and creates detailed, context-aware prompts without requiring `<pic>` tags.
+- **Provider settings UI**: New settings panel for configuring API keys, models, and fallback chains for each provider.
+- **Provider registry system**: Modular provider architecture with base provider class and provider-specific implementations.
+- **Comprehensive test coverage**: Added 80+ new tests for provider system and summarizer functionality.
+
+### Changed
+
+- Extension now supports provider failover - if the primary provider fails, it automatically tries the next provider in the fallback chain.
+- Provider-specific configuration allows different API keys and model selections per provider.
+
 ## [2.0.1] - 2026-02-07
 
 ### Fixed

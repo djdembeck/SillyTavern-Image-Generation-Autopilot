@@ -3,6 +3,11 @@ const DEFAULT_COMPLETION_EVENT_KEYS = Object.freeze([
     'MESSAGE_RECEIVED',
 ])
 
+const SUMMARIZER_EVENT_KEYS = Object.freeze([
+    'SUMMARIZER_PROMPT_READY',
+    'SD_GENERATION_COMPLETE',
+])
+
 class GenerationDetector {
     constructor(eventSource, eventTypes, options = {}) {
         if (!eventSource || typeof eventSource.on !== 'function') {
@@ -16,12 +21,16 @@ class GenerationDetector {
         this.eventTypes = eventTypes
         this.onCompleteCallbacks = new Set()
         this.listeners = new Map()
+        this.summarizerCallbacks = new Set()
+
+        const useSummarizer = options.summarizerEnabled === true
         this.completedEventKeys = Array.isArray(options.completedEventKeys)
             ? options.completedEventKeys
-            : DEFAULT_COMPLETION_EVENT_KEYS
+            : (useSummarizer ? SUMMARIZER_EVENT_KEYS : DEFAULT_COMPLETION_EVENT_KEYS)
 
         this.messageHandler = this.messageHandler.bind(this)
         this.completeHandler = this.completeHandler.bind(this)
+        this.summarizerHandler = this.summarizerHandler.bind(this)
 
         this.subscribe()
     }
@@ -34,6 +43,10 @@ class GenerationDetector {
             }
             if (eventKey === 'MESSAGE_RECEIVED') {
                 this.attachListener(eventKey, eventType, this.messageHandler)
+                return
+            }
+            if (eventKey === 'SUMMARIZER_PROMPT_READY') {
+                this.attachListener(eventKey, eventType, this.summarizerHandler)
                 return
             }
             this.attachListener(eventKey, eventType, this.completeHandler)
@@ -57,8 +70,26 @@ class GenerationDetector {
         return () => this.onCompleteCallbacks.delete(callback)
     }
 
+    onSummarizerPrompt(callback) {
+        if (typeof callback !== 'function') {
+            return () => {}
+        }
+        this.summarizerCallbacks.add(callback)
+        return () => this.summarizerCallbacks.delete(callback)
+    }
+
     emitCompletion(payload) {
         this.onCompleteCallbacks.forEach((callback) => {
+            try {
+                callback(payload)
+            } catch (error) {
+                // ignore callback errors to avoid breaking listeners
+            }
+        })
+    }
+
+    emitSummarizerPrompt(payload) {
+        this.summarizerCallbacks.forEach((callback) => {
             try {
                 callback(payload)
             } catch (error) {
@@ -78,6 +109,15 @@ class GenerationDetector {
         this.emitCompletion({ type: 'SD_GENERATION_COMPLETE', payload })
     }
 
+    summarizerHandler(payload) {
+        this.emitSummarizerPrompt({
+            type: 'SUMMARIZER_PROMPT_READY',
+            prompt: payload?.prompt,
+            metadata: payload?.metadata,
+        })
+        this.emitCompletion({ type: 'SUMMARIZER_PROMPT_READY', payload })
+    }
+
     dispose() {
         this.listeners.forEach(({ eventType, handler }) => {
             if (typeof this.eventSource.off === 'function') {
@@ -86,7 +126,8 @@ class GenerationDetector {
         })
         this.listeners.clear()
         this.onCompleteCallbacks.clear()
+        this.summarizerCallbacks.clear()
     }
 }
 
-export { GenerationDetector }
+export { GenerationDetector, DEFAULT_COMPLETION_EVENT_KEYS, SUMMARIZER_EVENT_KEYS }

@@ -73,9 +73,14 @@ class ParallelGenerator {
     constructor(options = {}) {
         this.concurrencyLimit = clampConcurrencyLimit(options.concurrencyLimit)
         this.callSdSlash = options.callSdSlash
+        this.providerRegistry = options.providerRegistry || null
         this._abortRequested = false
         this._progressHandler = null
         this._running = false
+    }
+
+    setProviderRegistry(registry) {
+        this.providerRegistry = registry
     }
 
     abort() {
@@ -98,8 +103,12 @@ class ParallelGenerator {
             return results
         }
 
-        if (typeof this.callSdSlash !== 'function') {
-            const error = new Error('callSdSlash is not configured')
+        const hasProviderRegistry = this.providerRegistry &&
+            typeof this.providerRegistry.getEnabledProviders === 'function' &&
+            this.providerRegistry.getEnabledProviders().length > 0
+
+        if (!hasProviderRegistry && typeof this.callSdSlash !== 'function') {
+            const error = new Error('No generation method available (callSdSlash or providerRegistry)')
             for (let i = 0; i < total; i += 1) {
                 const entry = entries[i]
                 results[i] = createErrorResult(entry.prompt, entry.modelId, error)
@@ -173,11 +182,24 @@ class ParallelGenerator {
                             if (this._abortRequested) break
 
                             try {
-                                const response = await this.callSdSlash(
-                                    task.prompt,
-                                    quiet,
-                                    task.modelId,
-                                )
+                                let response
+
+                                if (hasProviderRegistry) {
+                                    const providerResult = await this.providerRegistry.generateWithFallback(
+                                        task.prompt,
+                                        { modelId: task.modelId, quiet }
+                                    )
+                                    response = providerResult.imageUrl || providerResult
+                                } else if (typeof this.callSdSlash === 'function') {
+                                    response = await this.callSdSlash(
+                                        task.prompt,
+                                        quiet,
+                                        task.modelId,
+                                    )
+                                } else {
+                                    throw new Error('No generation method available')
+                                }
+
                                 if (response == null) {
                                     throw new Error('SD generation failed')
                                 }
