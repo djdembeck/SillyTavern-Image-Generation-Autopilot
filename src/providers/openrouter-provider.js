@@ -13,8 +13,10 @@ export class OpenRouterProvider extends ImageProvider {
   static providerType = 'openai-compatible';
   static requiredConfigFields = ['apiKey', 'baseUrl', 'httpReferer', 'xTitle'];
 
-  constructor(config = {}) {
+  constructor(config = {}, { fetch = globalThis.fetch, AbortController = globalThis.AbortController } = {}) {
     super(config);
+    this.fetch = fetch;
+    this.AbortController = AbortController;
   }
 
   getEndpoint() {
@@ -108,6 +110,10 @@ export class OpenRouterProvider extends ImageProvider {
       result.imageUrl = imageData.url;
     } else if (imageData.b64_json) {
       result.imageUrl = `data:image/png;base64,${imageData.b64_json}`;
+    }
+
+    if (!result.imageUrl) {
+      throw new Error(`No image URL or base64 data received. Raw data: ${JSON.stringify(imageData)}`);
     }
 
     if (imageData.revised_prompt) {
@@ -336,5 +342,3 @@ export class OpenRouterProvider extends ImageProvider {
     };
   }
 }
-
-export default OpenRouterProvider;

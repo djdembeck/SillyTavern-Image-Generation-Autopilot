@@ -1,9 +1,11 @@
+const MODULE_NAME = "OpenRouterProvider";
+
 /**
  * OpenRouter Provider Tests
  * RED Phase: Tests define OpenRouter-specific behavior before implementation
  */
 
-import { describe, expect, it, beforeEach } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { OpenRouterProvider } from '../../providers/openrouter-provider.js';
 import { ImageProvider } from '../../providers/base-provider.js';
 
@@ -596,8 +598,17 @@ describe('OpenRouterProvider', () => {
 
   describe('Model Support', () => {
     let provider;
+    let savedFetch;
 
     beforeEach(() => {
+      savedFetch = global.fetch;
+      global.fetch = () => Promise.resolve({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'model-1', name: 'Test Model' }]
+        })
+      });
+
       const config = {
         apiKey: 'test-key',
         baseUrl: 'https://openrouter.ai/api/v1',
@@ -605,6 +616,10 @@ describe('OpenRouterProvider', () => {
         xTitle: 'Test App'
       };
       provider = new OpenRouterProvider(config);
+    });
+
+    afterEach(() => {
+      global.fetch = savedFetch;
     });
 
     it('should return a Promise from getModels()', () => {
@@ -657,8 +672,10 @@ describe('OpenRouterProvider', () => {
   describe('generate() Method - OpenRouter Integration', () => {
     let provider;
     let mockFetch;
+    let savedFetch;
 
     beforeEach(() => {
+      savedFetch = global.fetch;
       const config = {
         apiKey: 'test-key',
         baseUrl: 'https://openrouter.ai/api/v1',
@@ -676,6 +693,10 @@ describe('OpenRouterProvider', () => {
         })
       });
       global.fetch = mockFetch;
+    });
+
+    afterEach(() => {
+      global.fetch = savedFetch;
     });
 
     it('should accept prompt and options', () => {
