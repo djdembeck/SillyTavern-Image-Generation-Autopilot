@@ -4,6 +4,7 @@
 [test]
 # Test configuration for Bun's built-in test runner
 timeout = 30000  # 30 second timeout for tests
+preload = ["./src/__tests__/jest-setup.js"]
 
 [snapshot]
 # Snapshot testing configuration (optional)
