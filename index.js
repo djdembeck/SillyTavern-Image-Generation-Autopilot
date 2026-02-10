@@ -53,6 +53,7 @@ const defaultSettings = Object.freeze({
         maxTokens: 500,
         temperature: 0.7,
         maxContextMessages: 10,
+        linkPrevious: false,
     },
 })
 
@@ -93,10 +94,12 @@ const state = {
         ProviderRegistry: null,
         PromptSummarizer: null,
         AvatarStorage: null,
+        ImageLinker: null,
     },
     providerRegistry: null,
     summarizer: null,
     avatarStorage: null,
+    imageLinker: null,
 }
 
 let debugModeCache = null
@@ -179,7 +182,8 @@ async function initComponents() {
         state.components.ImageSelectionDialog &&
         state.components.ProviderRegistry &&
         state.components.PromptSummarizer &&
-        state.components.AvatarStorage
+        state.components.AvatarStorage &&
+        state.components.ImageLinker
     ) {
         return state.components
     }
@@ -187,7 +191,7 @@ async function initComponents() {
     const extensionPath = `scripts/extensions/${TEMPLATE_ROOT}`
 
     try {
-        const [stateModule, eventsModule, generatorModule, dialogModule, providersModule, summarizerModule, avatarModule] =
+        const [stateModule, eventsModule, generatorModule, dialogModule, providersModule, summarizerModule, avatarModule, imageLinkerModule] =
             await Promise.all([
                 import(`/${extensionPath}/src/state-manager.js`),
                 import(`/${extensionPath}/src/generation-events.js`),
@@ -196,6 +200,7 @@ async function initComponents() {
                 import(`/${extensionPath}/src/providers/index.js`),
                 import(`/${extensionPath}/src/summarizer.js`),
                 import(`/${extensionPath}/src/avatar-storage.js`),
+                import(`/${extensionPath}/src/image-linking.js`),
             ])
 
         state.components.StateManager = stateModule.StateManager
@@ -205,6 +210,7 @@ async function initComponents() {
         state.components.ProviderRegistry = providersModule.ProviderRegistry
         state.components.PromptSummarizer = summarizerModule.PromptSummarizer
         state.components.AvatarStorage = avatarModule.AvatarStorage
+        state.components.ImageLinker = imageLinkerModule.ImageLinker
 
         logger.debug('Components initialized:', Object.keys(state.components))
         return state.components
@@ -2038,6 +2044,12 @@ async function buildSettingsPanel() {
     const debugModeInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_debug_mode')
     )
+    const contextDepthInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_context_depth')
+    )
+    const linkPreviousImageInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_link_previous_image')
+    )
     const avatarDisplay = /** @type {HTMLDivElement | null} */ (
         container.querySelector('#auto_multi_avatar_display')
     )
@@ -2129,6 +2141,8 @@ async function buildSettingsPanel() {
         promptPositionSelect,
         promptDepthInput,
         debugModeInput,
+        contextDepthInput,
+        linkPreviousImageInput,
         picCountModeSelect,
         picCountExactInput,
         picCountMinInput,
@@ -2301,6 +2315,27 @@ async function buildSettingsPanel() {
     debugModeInput?.addEventListener('change', () => {
         const current = getSettings()
         current.debugMode = debugModeInput.checked
+        saveSettings()
+    })
+
+    contextDepthInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = parseInt(contextDepthInput.value, 10)
+        if (current.summarizer) {
+            current.summarizer.maxContextMessages = Number.isFinite(value) && value >= 1 && value <= 10
+                ? value
+                : 5
+            contextDepthInput.value = String(current.summarizer.maxContextMessages)
+            saveSettings()
+        }
+    })
+
+    linkPreviousImageInput?.addEventListener('change', () => {
+        const current = getSettings()
+        if (!current.summarizer) {
+            current.summarizer = { ...defaultSettings.summarizer }
+        }
+        current.summarizer.linkPrevious = linkPreviousImageInput.checked
         saveSettings()
     })
 
@@ -3181,6 +3216,14 @@ function syncUiFromSettings() {
     if (state.ui.debugModeInput) {
         state.ui.debugModeInput.checked = settings.debugMode
     }
+    if (state.ui.contextDepthInput) {
+        state.ui.contextDepthInput.value = String(
+            settings.summarizer?.maxContextMessages || 5
+        )
+    }
+    if (state.ui.linkPreviousImageInput) {
+        state.ui.linkPreviousImageInput.checked = settings.summarizer?.linkPrevious || false
+    }
     if (state.ui.characterEnabledInput) {
         state.ui.characterEnabledInput.checked =
             settings.perCharacter?.enabled || false
@@ -3673,6 +3716,10 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         state.avatarStorage = new components.AvatarStorage()
     }
 
+    if (!state.imageLinker && components.ImageLinker) {
+        state.imageLinker = new components.ImageLinker()
+    }
+
     const characterId = getCurrentCharacterId()
 
     const generatorFactory = (options) => {
@@ -3869,6 +3916,20 @@ async function handleDialogResult(dialogResult, triggerMessage) {
         log('Images inserted as new message', {
             imageCount: dialogResult.selected.length,
         })
+    }
+
+    // Store the last generated image for linking
+    if (state.imageLinker && dialogResult.selected?.length > 0) {
+        const chatId = context.getCurrentChatId?.() || context.chatId
+        if (chatId) {
+            const lastImage = dialogResult.selected[dialogResult.selected.length - 1]
+            state.imageLinker.storeLastImage(chatId, {
+                imageUrl: lastImage,
+                prompt: dialogResult.prompt || '',
+                timestamp: Date.now(),
+            })
+            log('Stored last image reference for linking', { chatId, imageUrl: lastImage })
+        }
     }
 }
 
@@ -5152,6 +5213,10 @@ async function init() {
 
         if (!state.avatarStorage && state.components.AvatarStorage) {
             state.avatarStorage = new state.components.AvatarStorage()
+        }
+
+        if (!state.imageLinker && state.components.ImageLinker) {
+            state.imageLinker = new state.components.ImageLinker()
         }
 
         const { eventSource, eventTypes } = getCtx()
