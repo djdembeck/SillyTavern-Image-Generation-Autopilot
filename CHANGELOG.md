@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.2.0] - 2026-02-09
+
+### Added
+
+- **Image Gallery**: Built-in gallery for browsing and managing generated images
+  - Thumbnail grid view with fullscreen lightbox
+  - Search images by prompt text
+  - Filter by provider and date range
+  - Delete individual images or clear all
+  - Metadata storage (timestamp, provider, prompt, model)
+- **Aspect Ratio Control**: Choose from 5 aspect ratios (1:1, 16:9, 9:16, 4:3, 3:4)
+  - All providers support aspect ratio conversion to width/height
+  - Default is 1:1 (1024x1024)
+- **Slash Commands**: Quick image generation via chat commands
+  - `/generate [prompt]` - Generate image from prompt
+  - `/img [prompt]` - Alias for /generate
+- **Gallery Storage Module**: IndexedDB-based storage with 52 comprehensive tests
+
+### Changed
+
+- Providers now automatically convert aspect ratios to appropriate dimensions
+- Aspect ratio setting added to settings UI
+
 ## [2.1.0] - 2026-02-09
 
 ### Added

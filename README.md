@@ -200,6 +200,74 @@ Always include: art style, lighting direction, background details.
 
 ---
 
+## 🖼️ Image Gallery
+
+Browse and manage all your generated images with the built-in gallery.
+
+### Features
+
+- **Thumbnail grid**: View all generated images in a scrollable grid
+- **Fullscreen view**: Click any image to see it full-size
+- **Search by prompt**: Find images by searching prompt text
+- **Filter by provider**: Show only images from specific providers
+- **Delete individual images**: Remove unwanted images from the gallery
+- **Clear all**: Delete all gallery images at once
+
+### How to Access
+
+The gallery UI is automatically available when the extension is enabled. Generated images are saved to IndexedDB with metadata including:
+- Timestamp
+- Provider used
+- Generation prompt
+- Model information
+
+---
+
+## 📐 Aspect Ratio Control
+
+Choose the perfect aspect ratio for your generated images.
+
+### Available Ratios
+
+| Ratio | Dimensions | Best For |
+|-------|------------|----------|
+| **1:1** | 1024x1024 | Square images, social media posts |
+| **16:9** | 1024x576 | Landscape, widescreen scenes |
+| **9:16** | 576x1024 | Portrait, mobile phone screens |
+| **4:3** | 1024x768 | Standard photo ratio |
+| **3:4** | 768x1024 | Portrait standard photos |
+
+### Setting Aspect Ratio
+
+1. Open **Settings → Extensions → Image Generation Autopilot**
+2. Find the **Aspect ratio** dropdown in the **Timing & strategy** section
+3. Select your preferred ratio
+4. New images will use this ratio automatically
+
+---
+
+## ⌨️ Slash Commands
+
+Quickly generate images using chat commands.
+
+### Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/generate [prompt]` | Generate an image from prompt | `/generate a beautiful sunset over mountains` |
+| `/img [prompt]` | Alias for `/generate` | `/img a cat playing in the garden` |
+
+### Usage
+
+Type the command followed by your prompt in the chat input:
+```
+/generate a mystical forest with glowing mushrooms
+```
+
+The image selection dialog will open with your prompt ready for generation.
+
+---
+
 ## ⚙️ Key settings
 
 | Area                             | Purpose                                                                    |
