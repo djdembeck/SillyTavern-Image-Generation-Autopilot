@@ -92,9 +92,11 @@ const state = {
         ImageSelectionDialog: null,
         ProviderRegistry: null,
         PromptSummarizer: null,
+        AvatarStorage: null,
     },
     providerRegistry: null,
     summarizer: null,
+    avatarStorage: null,
 }
 
 let debugModeCache = null
@@ -176,7 +178,8 @@ async function initComponents() {
         state.components.ParallelGenerator &&
         state.components.ImageSelectionDialog &&
         state.components.ProviderRegistry &&
-        state.components.PromptSummarizer
+        state.components.PromptSummarizer &&
+        state.components.AvatarStorage
     ) {
         return state.components
     }
@@ -184,7 +187,7 @@ async function initComponents() {
     const extensionPath = `scripts/extensions/${TEMPLATE_ROOT}`
 
     try {
-        const [stateModule, eventsModule, generatorModule, dialogModule, providersModule, summarizerModule] =
+        const [stateModule, eventsModule, generatorModule, dialogModule, providersModule, summarizerModule, avatarModule] =
             await Promise.all([
                 import(`/${extensionPath}/src/state-manager.js`),
                 import(`/${extensionPath}/src/generation-events.js`),
@@ -192,6 +195,7 @@ async function initComponents() {
                 import(`/${extensionPath}/src/image-dialog.js`),
                 import(`/${extensionPath}/src/providers/index.js`),
                 import(`/${extensionPath}/src/summarizer.js`),
+                import(`/${extensionPath}/src/avatar-storage.js`),
             ])
 
         state.components.StateManager = stateModule.StateManager
@@ -200,6 +204,7 @@ async function initComponents() {
         state.components.ImageSelectionDialog = dialogModule.ImageSelectionDialog
         state.components.ProviderRegistry = providersModule.ProviderRegistry
         state.components.PromptSummarizer = summarizerModule.PromptSummarizer
+        state.components.AvatarStorage = avatarModule.AvatarStorage
 
         logger.debug('Components initialized:', Object.keys(state.components))
         return state.components
@@ -378,6 +383,15 @@ function getCtx() {
         )
     }
     return SillyTavern.getContext()
+}
+
+function getCurrentCharacterId() {
+    try {
+        const ctx = getCtx()
+        return ctx.characterId || null
+    } catch {
+        return null
+    }
 }
 
 function ensureSettings() {
@@ -2024,6 +2038,12 @@ async function buildSettingsPanel() {
     const debugModeInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_debug_mode')
     )
+    const avatarDisplay = /** @type {HTMLDivElement | null} */ (
+        container.querySelector('#auto_multi_avatar_display')
+    )
+    const avatarClearButton = /** @type {HTMLButtonElement | null} */ (
+        container.querySelector('#auto_multi_avatar_clear')
+    )
     const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_pic_count_mode')
     )
@@ -2126,6 +2146,8 @@ async function buildSettingsPanel() {
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
+        avatarDisplay,
+        avatarClearButton,
     }
 
     enabledInput.addEventListener('change', () => {
@@ -2280,6 +2302,14 @@ async function buildSettingsPanel() {
         const current = getSettings()
         current.debugMode = debugModeInput.checked
         saveSettings()
+    })
+
+    avatarClearButton?.addEventListener('click', () => {
+        const charId = getCurrentCharacterId()
+        if (charId && state.avatarStorage) {
+            state.avatarStorage.deleteAvatar(charId)
+            updateAvatarDisplay()
+        }
     })
 
     picCountModeSelect?.addEventListener('change', () => {
@@ -3285,6 +3315,8 @@ function syncUiFromSettings() {
             ? 'with no delay between requests.'
             : `with ${settings.delayMs} ms between requests.`
     state.ui.summary.textContent = `Will queue ${segments.join(', ')} ${delayBlurb} ${strategyBlurb}`
+
+    updateAvatarDisplay()
 }
 
 function ensureGlobalProgressElement(messageId) {
@@ -3637,6 +3669,12 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
     const modelQueue = getSwipePlan(settings)
     const modelOptions = getSdModelOptions()
 
+    if (!state.avatarStorage && components.AvatarStorage) {
+        state.avatarStorage = new components.AvatarStorage()
+    }
+
+    const characterId = getCurrentCharacterId()
+
     const generatorFactory = (options) => {
         const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
 
@@ -3658,6 +3696,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         generatorFactory,
         PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
         modelOptions,
+        characterId,
         onRewrite: async (prompt) => {
             log('Dialog requested rewrite', { prompt, sourceMessageId })
             return await callChatRewrite(
@@ -3667,11 +3706,23 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 sourceMessageId,
             )
         },
+        onSetAvatar: (imageUrl, charId) => {
+            if (state.avatarStorage && charId) {
+                const success = state.avatarStorage.saveAvatar(charId, {
+                    imageUrl,
+                    characterId: charId,
+                })
+                if (success) {
+                    updateAvatarDisplay()
+                }
+            }
+        },
     })
-    
+
     const generatorOptions = {
         modelQueue: modelQueue,
         quiet: true,
+        characterId,
     }
 
     try {
@@ -5051,6 +5102,46 @@ function refreshReswipeButtons() {
     })
 }
 
+function updateAvatarDisplay() {
+    if (!state.ui?.avatarDisplay) {
+        return
+    }
+
+    const charId = getCurrentCharacterId()
+    if (!charId || !state.avatarStorage) {
+        state.ui.avatarDisplay.innerHTML = `
+            <div class="auto-multi-avatar-placeholder">
+                <i class="fa-solid fa-image"></i>
+                <span>No avatar set</span>
+            </div>
+        `
+        if (state.ui.avatarClearButton) {
+            state.ui.avatarClearButton.classList.add('hidden')
+        }
+        return
+    }
+
+    const avatar = state.avatarStorage.getAvatar(charId)
+    if (avatar?.imageUrl) {
+        state.ui.avatarDisplay.innerHTML = `
+            <img src="${avatar.imageUrl}" alt="Character Avatar" />
+        `
+        if (state.ui.avatarClearButton) {
+            state.ui.avatarClearButton.classList.remove('hidden')
+        }
+    } else {
+        state.ui.avatarDisplay.innerHTML = `
+            <div class="auto-multi-avatar-placeholder">
+                <i class="fa-solid fa-image"></i>
+                <span>No avatar set</span>
+            </div>
+        `
+        if (state.ui.avatarClearButton) {
+            state.ui.avatarClearButton.classList.add('hidden')
+        }
+    }
+}
+
 async function init() {
     if (state.initialized) {
         return
@@ -5058,6 +5149,10 @@ async function init() {
 
     try {
         await initComponents()
+
+        if (!state.avatarStorage && state.components.AvatarStorage) {
+            state.avatarStorage = new state.components.AvatarStorage()
+        }
 
         const { eventSource, eventTypes } = getCtx()
 

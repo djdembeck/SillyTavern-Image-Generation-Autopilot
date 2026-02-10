@@ -485,6 +485,75 @@
                     </p>
                 </div>
             </section>
+
+            <section class="auto-multi-panel" id="auto_multi_avatar_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-user-circle"></i> Character Avatar
+                        </p>
+                        <h5>Manage character avatar reference</h5>
+                    </div>
+                    <p class="caption">
+                        Set a reference avatar image for character consistency in generations.
+                    </p>
+                </header>
+                <div class="auto-multi-avatar-display" id="auto_multi_avatar_display">
+                    <div class="auto-multi-avatar-placeholder">
+                        <i class="fa-solid fa-image"></i>
+                        <span>No avatar set</span>
+                    </div>
+                </div>
+                <div class="auto-multi-avatar-actions flex-container flexGap10">
+                    <button
+                        type="button"
+                        id="auto_multi_avatar_clear"
+                        class="menu_button warning hidden"
+                        title="Clear the saved avatar for this character."
+                    >
+                        <i class="fa-solid fa-trash"></i> Clear Avatar
+                    </button>
+                </div>
+                <p class="caption">
+                    Avatars can be set from generated images using the "Set as Avatar" button in the image viewer.
+                </p>
+            </section>
+
+            <section class="auto-multi-panel" id="auto_multi_advanced_panel">
+                <header>
+                    <div>
+                        <p class="eyebrow">
+                            <i class="fa-solid fa-sliders"></i> Advanced Features
+                        </p>
+                        <h5>Context depth and image linking</h5>
+                    </div>
+                    <p class="caption">
+                        Configure context gathering and previous image linking for AI summarizer.
+                    </p>
+                </header>
+                <div class="auto-multi-grid">
+                    <label title="Number of previous chat messages to include in AI summarizer context (1-10).">
+                        <span>Context Depth (messages back)</span>
+                        <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            step="1"
+                            id="auto_multi_context_depth"
+                            class="text_pole"
+                            value="5"
+                        />
+                    </label>
+                </div>
+                <label class="checkbox_label auto-multi-inline" title="Link new generations with the previous image for visual consistency.">
+                    <input type="checkbox" id="auto_multi_link_previous_image" />
+                    <span>Link with previous image</span>
+                </label>
+                <p class="caption">
+                    When enabled, the last generated image in this chat will be referenced for visual consistency in subsequent generations.
+                </p>
+            </section>
+
             <section class="auto-multi-panel" id="auto_multi_debug_panel">
                 <header>
                     <div>
