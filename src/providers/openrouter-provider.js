@@ -182,29 +182,123 @@ export class OpenRouterProvider extends ImageProvider {
     return error;
   }
 
-  generate(prompt, options = {}) {
+  async generate(prompt, options = {}) {
     if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') {
-      const promise = Promise.reject(new Error('Prompt is required and must be a non-empty string'));
-      promise.catch(() => {});
-      return promise;
+      throw new Error('Prompt is required and must be a non-empty string');
     }
 
     const validation = this.validateConfig(this.config);
     if (!validation.isValid) {
-      const promise = Promise.reject(new Error(`Invalid configuration: ${validation.errors.join(', ')}`));
-      promise.catch(() => {});
-      return promise;
+      throw new Error(`Invalid configuration: ${validation.errors.join(', ')}`);
     }
 
-    const promise = Promise.reject(new Error('generate() method not implemented in OpenRouterProvider'));
-    promise.catch(() => {});
-    return promise;
+    const url = this.getEndpoint();
+    const headers = this.getHeaders();
+    const body = this.buildRequestBody(prompt, options);
+
+    const controller = new AbortController();
+    const timeout = options.timeout || this.config.timeout || 120000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      const responseData = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const error = this.parseError(responseData, response.status);
+        error.response = responseData;
+        error.status = response.status;
+        throw error;
+      }
+
+      return this.parseResponse(responseData, prompt);
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      if (error.name === 'AbortError') {
+        const timeoutError = new Error('Request timeout');
+        timeoutError.code = 'TIMEOUT';
+        throw timeoutError;
+      }
+
+      if (error.status || error.code) {
+        throw error;
+      }
+
+      const networkError = new Error(error.message || 'Network error');
+      networkError.code = 'NETWORK_ERROR';
+      networkError.originalError = error;
+      throw networkError;
+    }
   }
 
-  getModels() {
-    const promise = Promise.reject(new Error('getModels() method not implemented in OpenRouterProvider'));
-    promise.catch(() => {});
-    return promise;
+  async getModels() {
+    if (this._modelsCache) {
+      return this._modelsCache;
+    }
+
+    const baseUrl = this.config.baseUrl;
+    const url = `${baseUrl}/models`;
+    const headers = {
+      'Authorization': `Bearer ${this.config.apiKey}`,
+      'HTTP-Referer': this.config.httpReferer,
+      'X-Title': this.config.xTitle
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers
+      });
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = await response.json();
+
+      if (!data.data || !Array.isArray(data.data)) {
+        return [];
+      }
+
+      const imageModels = data.data.filter(model => {
+        const id = model.id?.toLowerCase() || '';
+        const description = model.description?.toLowerCase() || '';
+        const name = model.name?.toLowerCase() || '';
+
+        const imageKeywords = [
+          'image', 'dall-e', 'sdxl', 'stable-diffusion', 'flux', 'imagen',
+          'midjourney', 'art', 'picture', 'photo', 'visual', 'generate'
+        ];
+
+        return imageKeywords.some(keyword =>
+          id.includes(keyword) ||
+          description.includes(keyword) ||
+          name.includes(keyword)
+        );
+      });
+
+      const models = imageModels.map(model => ({
+        id: model.id,
+        name: model.name || model.id,
+        description: model.description || `Image generation model via OpenRouter`,
+        provider: 'OpenRouter'
+      }));
+
+      this._modelsCache = models;
+
+      return models;
+    } catch (error) {
+      return [];
+    }
   }
 
   validateConfig(config) {

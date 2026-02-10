@@ -213,6 +213,9 @@ async function initComponents() {
         state.components.ParallelGenerator = generatorModule.ParallelGenerator
         state.components.ImageSelectionDialog = dialogModule.ImageSelectionDialog
         state.components.ProviderRegistry = providersModule.ProviderRegistry
+        state.components.NanoGPTProvider = providersModule.NanoGPTProvider
+        state.components.PollinationsProvider = providersModule.PollinationsProvider
+        state.components.OpenRouterProvider = providersModule.OpenRouterProvider
         state.components.PromptSummarizer = summarizerModule.PromptSummarizer
         state.components.AvatarStorage = avatarModule.AvatarStorage
         state.components.ImageLinker = imageLinkerModule.ImageLinker

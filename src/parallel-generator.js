@@ -235,7 +235,7 @@ class ParallelGenerator {
                                 completed: stats.completed,
                                 failed: stats.failed,
                                 total,
-                                slotIndex: i,
+                                slotIndex: task.index,
                                 taskIndex: task.index,
                                 result,
                             })

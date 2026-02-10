@@ -656,6 +656,7 @@ describe('OpenRouterProvider', () => {
 
   describe('generate() Method - OpenRouter Integration', () => {
     let provider;
+    let mockFetch;
 
     beforeEach(() => {
       const config = {
@@ -666,6 +667,15 @@ describe('OpenRouterProvider', () => {
         model: 'openai/dall-e-3'
       };
       provider = new OpenRouterProvider(config);
+
+      // Mock fetch for these tests
+      mockFetch = () => Promise.resolve({
+        ok: true,
+        json: async () => ({
+          data: [{ url: 'https://example.com/image.png' }]
+        })
+      });
+      global.fetch = mockFetch;
     });
 
     it('should accept prompt and options', () => {
@@ -674,30 +684,21 @@ describe('OpenRouterProvider', () => {
     });
 
     it('should use configured model by default', async () => {
-      // For RED phase, test that the method exists and accepts the right params
-      try {
-        await provider.generate('test prompt');
-      } catch (error) {
-        expect(error.message.toLowerCase()).toContain('not implemented');
-      }
+      const result = await provider.generate('test prompt');
+      expect(result).toHaveProperty('imageUrl', 'https://example.com/image.png');
+      expect(result).toHaveProperty('metadata');
     });
 
     it('should allow overriding model in options', async () => {
-      try {
-        await provider.generate('test prompt', { model: 'stability-ai/sd-xl' });
-      } catch (error) {
-        expect(error.message.toLowerCase()).toContain('not implemented');
-      }
+      const result = await provider.generate('test prompt', { model: 'stability-ai/sd-xl' });
+      expect(result).toHaveProperty('imageUrl', 'https://example.com/image.png');
+      expect(result).toHaveProperty('metadata');
     });
 
     it('should return standard response format', async () => {
-      try {
-        const result = await provider.generate('test prompt');
-        expect(result).toHaveProperty('imageUrl');
-        expect(result).toHaveProperty('metadata');
-      } catch (error) {
-        expect(error.message.toLowerCase()).toContain('not implemented');
-      }
+      const result = await provider.generate('test prompt');
+      expect(result).toHaveProperty('imageUrl');
+      expect(result).toHaveProperty('metadata');
     });
   });
 
