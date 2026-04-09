@@ -58,7 +58,6 @@ export class ImageSelectionDialog {
         this.selectedModelId = null;
         this.editedPrompt = null;
         this.currentCount = 0;
-        this.onRewrite = dependencies.onRewrite || null;
         this.isRewriting = false;
         this.onResummarize = dependencies.onResummarize || null;
         this.isResummarizing = false;
@@ -1256,7 +1255,12 @@ export class ImageSelectionDialog {
                 logger.warn('Rewrite returned empty or invalid result', { rewritten });
             }
         } catch (error) {
-            logger.error('Rewrite failed:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error('Rewrite failed:', errorMessage);
+
+            if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+                window.toastr.error(errorMessage, 'Rewrite Failed');
+            }
         } finally {
             this.isRewriting = false;
             btn.disabled = false;
@@ -1322,7 +1326,12 @@ export class ImageSelectionDialog {
                 logger.warn('Resummarize returned empty or invalid result', { resummarized });
             }
         } catch (error) {
-            logger.error('Resummarize failed:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error('Resummarize failed:', errorMessage);
+
+            if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+                window.toastr.error(errorMessage, 'Resummarize Failed');
+            }
         } finally {
             this.isResummarizing = false;
             btn.disabled = false;

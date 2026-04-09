@@ -35,17 +35,16 @@ describe('Auto-generate integration with summarizer', () => {
     })
 
     it('passes message context, depth, names, and settings to summarizeWithAI', () => {
-        expect(handleIncomingMessageSource).toContain('messages: summarizerMessages')
+        expect(handleIncomingMessageSource).toContain('messages: context.chat || []')
         expect(handleIncomingMessageSource).toContain('messageDepth')
         expect(handleIncomingMessageSource).toContain('settings: summarizerSettings')
         expect(handleIncomingMessageSource).toContain('charName')
         expect(handleIncomingMessageSource).toContain('userName')
     })
 
-    it('builds summarizer message context using configured message depth', () => {
-        expect(handleIncomingMessageSource).toContain(
-            '.slice(Math.max(0, resolvedId - messageDepth + 1), resolvedId + 1)',
-        )
+    it('lets summarizeWithAI handle message slicing internally', () => {
+        // summarizeWithAI internally calls selectMessages which handles slicing
+        expect(handleIncomingMessageSource).not.toContain('.slice(')
     })
 
     it('does not call regex extraction in auto-generate flow', () => {

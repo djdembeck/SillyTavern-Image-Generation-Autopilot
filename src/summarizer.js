@@ -52,6 +52,8 @@ function getSillyTavernContext() {
 
 /**
  * Retrieves a character's description from SillyTavern character data.
+ * Character name lookup is case-insensitive (e.g., 'Alice' will match 'alice' or 'ALICE').
+ * Supports both array format (newer SillyTavern) and object format (older versions).
  * @param {string} charName - Character name to look up
  * @returns {string} Character description or empty string if not found
  */

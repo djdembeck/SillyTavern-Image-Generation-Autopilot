@@ -5,3 +5,6 @@ oh-my-opencode.json
 
 # Sisyphus/Agent working directories
 .sisyphus/
+
+# Chunkhound database files
+.chunkhound/

@@ -235,6 +235,84 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(onResummarizeMock).toHaveBeenCalledWith("original prompt");
         });
+
+        it("should handle errors in _handlePromptRewrite gracefully", async () => {
+            const onResummarizeMock = mock(() => Promise.reject(new Error("API rate limit exceeded")));
+
+            const errorDialog = new ImageSelectionDialog({
+                generatorFactory: () => mockGenerator,
+                onResummarize: onResummarizeMock
+            });
+
+            errorDialog.show(["test prompt"], {});
+
+            const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
+            const mockRewriteIcon = createMockElement('i');
+            mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
+            mockRewriteBtn.appendChild(mockRewriteIcon);
+            const mockTextNode = { textContent: ' Rewrite Prompt' };
+            mockRewriteBtn.appendChild(mockTextNode);
+
+            const mockTextarea = createMockElement('img-prompt-editor');
+            mockTextarea.value = "original prompt";
+
+            errorDialog.domElements.promptRewriteBtn = mockRewriteBtn;
+            errorDialog.domElements.promptTextarea = mockTextarea;
+            errorDialog.editedPrompt = "original prompt";
+            errorDialog.isRewriting = false;
+
+            errorDialog._attachListeners();
+
+            if (mockRewriteBtn.listeners && mockRewriteBtn.listeners.click) {
+                try {
+                    await mockRewriteBtn.listeners.click();
+                } catch (error) {
+                    // Expected to throw
+                }
+            }
+
+            expect(onResummarizeMock).toHaveBeenCalled();
+            expect(errorDialog.isRewriting).toBe(false);
+        });
+
+        it("should keep dialog open when rewrite fails", async () => {
+            const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
+
+            const errorDialog = new ImageSelectionDialog({
+                generatorFactory: () => mockGenerator,
+                onResummarize: onResummarizeMock
+            });
+
+            errorDialog.show(["test prompt"], {});
+
+            const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
+            const mockRewriteIcon = createMockElement('i');
+            mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
+            mockRewriteBtn.appendChild(mockRewriteIcon);
+            const mockTextNode = { textContent: ' Rewrite Prompt' };
+            mockRewriteBtn.appendChild(mockTextNode);
+
+            const mockTextarea = createMockElement('img-prompt-editor');
+            mockTextarea.value = "original prompt";
+
+            errorDialog.domElements.promptRewriteBtn = mockRewriteBtn;
+            errorDialog.domElements.promptTextarea = mockTextarea;
+            errorDialog.editedPrompt = "original prompt";
+
+            errorDialog._attachListeners();
+
+            let errorCaught = false;
+            try {
+                if (mockRewriteBtn.listeners && mockRewriteBtn.listeners.click) {
+                    await mockRewriteBtn.listeners.click();
+                }
+            } catch (error) {
+                errorCaught = true;
+            }
+
+            expect(onResummarizeMock).toHaveBeenCalled();
+            expect(errorDialog.editedPrompt).toBe("original prompt");
+        });
     });
 
     describe("Debouncing for resummarize", () => {

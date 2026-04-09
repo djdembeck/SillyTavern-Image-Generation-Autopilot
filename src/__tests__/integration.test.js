@@ -230,12 +230,7 @@ describe('full flow integration', () => {
         expect(summarizeWithAI).toHaveBeenCalledTimes(1)
         expect(summarizeWithAI).toHaveBeenCalledWith(
             expect.objectContaining({
-                messages: [
-                    {
-                        role: 'assistant',
-                        content: 'Alice steps into the forest clearing.',
-                    },
-                ],
+                messages: context.chat,
                 messageDepth: 1,
                 charName: 'Alice',
                 userName: 'User',

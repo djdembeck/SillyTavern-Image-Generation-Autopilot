@@ -1132,7 +1132,7 @@ const FILLER_PATTERNS = [
     /^(?:the|your|an?)\s+(?:enhanced|expanded|detailed|rewritten|improved|transformed)\s+prompt\s*(?:is|:)?\s*/i,
     /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?|variations?))\s*(?:for\s+[^:]+)?[:.]?\s*/i,
     /^(?:prompt|output|result|here you go|expanded prompt)\s*[:]\s*/i,
-    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题|你的消息是空的|不知道你想了解什么|我会尽力帮助你|欢迎和我聊聊)\s*[:!。,，？！]?\s*/i,
+    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题|你的消息是空的|不知道你想了解什么|我会尽力帮助你|欢迎和我聊聊)\s*[:!。,,?!]?\s*/i,
     /^["'"`]+\s*/,
     /\s*["'"`]+$/,
 ]
@@ -2580,7 +2580,7 @@ function syncModelSelectOptions(showFeedback = false) {
 async function syncProfileSelectOptions(showFeedback = false) {
     const ctx = getCtx()
     let connectionProfiles = []
-    
+
     try {
         const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
         const raw = result?.pipe || (typeof result === 'string' ? result : '')
@@ -2634,7 +2634,7 @@ async function syncProfileSelectOptions(showFeedback = false) {
     }
 
     if (showFeedback) {
-        log('Profile list refreshed.', { 
+        log('Profile list refreshed.', {
             profiles: connectionProfiles.length
         })
     }
@@ -2916,7 +2916,7 @@ function ensureGlobalProgressElement(messageId) {
         container.className = 'auto-multi-global-progress'
         container.innerHTML = `
             <div class="auto-multi-global-progress__meta">
-                <span class="auto-multi-global-progress__status">Preparing generation queue…</span>
+                <span class="auto-multi-global-progress__status">Preparing generation queue...</span>
                 <span class="auto-multi-global-progress__ratio">0 / 0</span>
             </div>
             <progress value="0" max="1"></progress>
@@ -3000,7 +3000,7 @@ function updateProgressUi(messageId, current, target, waiting, labelText = '') {
     const displayCurrent = Math.min(clampedCurrent + 1, safeTarget)
     const descriptor =
         labelText ||
-        (waiting ? 'Preparing generation queue…' : 'Image Generation Autopilot')
+        (waiting ? 'Preparing generation queue...' : 'Image Generation Autopilot')
 
     entry.container.classList.toggle('waiting', !!waiting)
     entry.statusLabel.textContent = descriptor
@@ -3276,17 +3276,17 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
             const context = getCtx()
             const autoSettings = settings.autoGeneration
             const summarizerSettings = autoSettings?.summarizer || {}
-            
+
             const messageDepth = Math.max(
                 1,
                 Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
             )
-            
+
             const chat = context.chat || []
             const message = chat[sourceMessageId]
             const charName = message?.name || context.name2 || context.character_name || ''
             const userName = context.name1 || context.user_name || 'User'
-            
+
             const summarizerMessages = chat
                 .slice(Math.max(0, sourceMessageId - messageDepth + 1), sourceMessageId + 1)
                 .map((entry) => ({
@@ -3294,7 +3294,15 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                     content: typeof entry?.mes === 'string' ? entry.mes.trim() : '',
                 }))
                 .filter((entry) => entry.content)
-            
+
+            if (summarizerMessages.length === 0) {
+                logger.warn('[ImageAutopilot] No messages to resummarize - all filtered out')
+                if (typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
+                    window.toastr.warning('No valid message content found to resummarize', 'Resummarize Failed')
+                }
+                throw new Error('No messages to resummarize')
+            }
+
             try {
                 const result = await summarizeWithAI({
                     messages: summarizerMessages,
@@ -3304,25 +3312,25 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                     charName,
                     userName,
                 })
-                
+
                 if (typeof result !== 'string' || !result.trim()) {
                     throw new Error('AI returned an empty response')
                 }
-                
+
                 return result
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error)
                 logger.error('[ImageAutopilot] Resummarize failed:', errorMessage)
-                
+
                 if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
                     window.toastr.error(errorMessage, 'Resummarize Failed')
                 }
-                
+
                 throw error
             }
         },
     })
-    
+
     const generatorOptions = {
         modelQueue: modelQueue,
         quiet: true,
@@ -3358,13 +3366,13 @@ async function handleDialogResult(dialogResult, triggerMessage) {
         for (const imageUrl of dialogResult.selected) {
             appendGeneratedMedia(triggerMessage, imageUrl, '', true)
         }
-        
+
         const messageId = dialogResult.sourceMessageId
         let messageElement = document.querySelector(`.mes[mesid="${messageId}"]`)
         if (!messageElement) {
             messageElement = await waitForMessageElement(messageId, 2000)
         }
-        
+
         if (messageElement && typeof window.appendMediaToMessage === 'function') {
             sanitizeMessageMediaState(triggerMessage)
             window.appendMediaToMessage(triggerMessage, messageElement)
@@ -3372,7 +3380,7 @@ async function handleDialogResult(dialogResult, triggerMessage) {
             sanitizeMessageMediaState(triggerMessage)
             window.updateMessageBlock(messageId, triggerMessage)
         }
-        
+
         if (typeof context.saveChat === 'function') {
             await context.saveChat()
         }
@@ -3558,7 +3566,7 @@ function buildPromptRewriteSystem(injection) {
 function buildPromptRewriteUser(originalPrompt, contextText = '') {
     const contextPart = contextText ? `STORY CONTEXT:\n${contextText}\n\n` : ''
     const promptPart = originalPrompt ? `EXISTING PROMPT:\n${originalPrompt}\n\n` : ''
-    
+
     return `${contextPart}${promptPart}INSTRUCTION: Generate an expanded technical Stable Diffusion prompt based on the story context above. Wrap the result in <sd_prompt>...</sd_prompt> tags. Output ONLY English.`
 }
 
@@ -3574,18 +3582,18 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
 
             const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
             originalProfile = profileResult?.pipe
-            
+
             const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
             originalPreset = presetResult?.pipe
 
-            log('Switching connection profile for rewrite', { 
+            log('Switching connection profile for rewrite', {
                 target: realName,
-                previousProfile: originalProfile, 
-                previousPreset: originalPreset 
+                previousProfile: originalProfile,
+                previousPreset: originalPreset
             })
 
             await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
-            
+
             await sleep(100)
         } catch (error) {
             logger.warn('Failed to switch profile:', error)
@@ -3598,7 +3606,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     const regex = parseRegexFromString(settings.autoGeneration.promptInjection.regex)
 
     const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
-    
+
     if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
         const cleanMes = chat[messageId].mes.replace(regex, '').trim()
         if (cleanMes) {
@@ -3694,7 +3702,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     } finally {
         state.isRewriting = false
         await cleanupRewriteMessages(startLength)
-        
+
         if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
             if (originalProfile) {
                 log('Restoring connection profile', { originalProfile })
@@ -3751,13 +3759,6 @@ async function handleIncomingMessage(messageId) {
         1,
         Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
     )
-    const summarizerMessages = (context.chat || [])
-        .slice(Math.max(0, resolvedId - messageDepth + 1), resolvedId + 1)
-        .map((entry) => ({
-            role: entry?.is_user ? 'user' : 'assistant',
-            content: typeof entry?.mes === 'string' ? entry.mes.trim() : '',
-        }))
-        .filter((entry) => entry.content)
 
     const charName = message.name || context.name2 || context.character_name || ''
     const userName = context.name1 || context.user_name || 'User'
@@ -3765,7 +3766,7 @@ async function handleIncomingMessage(messageId) {
     let summarizedPrompt = ''
     try {
         summarizedPrompt = await summarizeWithAI({
-            messages: summarizerMessages,
+            messages: context.chat || [],
             messageDepth,
             settings: summarizerSettings,
             systemPromptTemplate: summarizerSettings.systemPromptTemplate,
@@ -3775,21 +3776,21 @@ async function handleIncomingMessage(messageId) {
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         logger.error('[ImageAutopilot] Auto-generation summarizer failed:', errorMessage)
-        
+
         if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
             window.toastr.error(errorMessage, 'Image Summarization Failed')
         }
-        
+
         return
     }
 
     if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
         logger.error('[ImageAutopilot] Auto-generation failed: Empty summarizer response')
-        
+
         if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
             window.toastr.error('AI returned an empty response', 'Image Summarization Failed')
         }
-        
+
         return
     }
 
@@ -3906,7 +3907,7 @@ async function handleManualPromptRewrite(messageId) {
         log('Hammer action complete (images message deleted)', {
             lastImageMessageId,
         })
-        
+
         await handleIncomingMessage(resolvedId)
         return
     }

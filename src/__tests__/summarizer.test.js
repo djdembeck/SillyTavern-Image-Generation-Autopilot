@@ -346,6 +346,26 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
     })
 
+    it('handles case-insensitive lookup in array format', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: [
+                    {
+                        name: 'alice',
+                        data: {
+                            name: 'alice',
+                            description: 'A brave adventurer'
+                        }
+                    }
+                ]
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
+    })
+
     it('returns empty string for non-existent character', async () => {
         const { getCharacterDescription } = await import('../summarizer.js')
         
