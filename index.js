@@ -43,6 +43,24 @@ const defaultSettings = Object.freeze({
             position: 'deep_system',
             depth: 0,
         },
+        summarizer: {
+            messageDepth: 1,
+            systemPromptTemplate: `You are an expert at creating detailed image generation prompts from roleplay scenarios.
+
+Character Appearance:
+{{APPEARANCE_LINES}}
+
+Your task is to analyze the recent conversation and create a comprehensive image generation prompt that captures:
+1. The characters present and their current state
+2. The scene setting, atmosphere, and mood
+3. Visual details that would make a compelling image
+
+Output Format:
+Characters:
+- [Character Name]: [Brief description of appearance, pose, expression, clothing]
+
+Scene: [Detailed description of the environment, lighting, camera angle, style]`,
+        },
     },
 })
 

@@ -7,36 +7,38 @@ describe('Settings UI', () => {
         it('should have message depth setting with correct range (1-10)', () => {
             const actualDefaults = {
                 autoGeneration: {
-                    promptInjection: {
-                        depth: 0,
+                    summarizer: {
+                        messageDepth: 1,
                     },
                 },
             }
-            expect(actualDefaults.autoGeneration.promptInjection.depth).toBeGreaterThanOrEqual(1)
-            expect(actualDefaults.autoGeneration.promptInjection.depth).toBeLessThanOrEqual(10)
+            expect(actualDefaults.autoGeneration.summarizer.messageDepth).toBeGreaterThanOrEqual(1)
+            expect(actualDefaults.autoGeneration.summarizer.messageDepth).toBeLessThanOrEqual(10)
         })
 
         it('should have system prompt textarea setting', () => {
             const actualDefaults = {
                 autoGeneration: {
-                    promptInjection: {},
-                },
-            }
-            expect(actualDefaults.autoGeneration.promptInjection.systemPrompt).toBeDefined()
-            expect(typeof actualDefaults.autoGeneration.promptInjection.systemPrompt).toBe('string')
-        })
-
-        it('should have default values: depth=1, template="Pawtrait-adapted"', () => {
-            const actualDefaults = {
-                autoGeneration: {
-                    promptInjection: {
-                        depth: 0,
-                        template: '',
+                    summarizer: {
+                        systemPromptTemplate: 'Template content',
                     },
                 },
             }
-            expect(actualDefaults.autoGeneration.promptInjection.depth).toBe(1)
-            expect(actualDefaults.autoGeneration.promptInjection.template).toBe('Pawtrait-adapted')
+            expect(actualDefaults.autoGeneration.summarizer.systemPromptTemplate).toBeDefined()
+            expect(typeof actualDefaults.autoGeneration.summarizer.systemPromptTemplate).toBe('string')
+        })
+
+        it('should have default values: depth=1, template contains Pawtrait structure', () => {
+            const actualDefaults = {
+                autoGeneration: {
+                    summarizer: {
+                        messageDepth: 1,
+                        systemPromptTemplate: 'Character Appearance:\n{{APPEARANCE_LINES}}',
+                    },
+                },
+            }
+            expect(actualDefaults.autoGeneration.summarizer.messageDepth).toBe(1)
+            expect(actualDefaults.autoGeneration.summarizer.systemPromptTemplate).toContain('Character')
         })
     })
 
@@ -52,28 +54,26 @@ describe('Settings UI', () => {
         it('should persist settings correctly', () => {
             const testSettings = {
                 autoGeneration: {
-                    promptInjection: {
-                        depth: 5,
-                        systemPrompt: 'Custom system prompt',
-                        template: 'Custom-template',
+                    summarizer: {
+                        messageDepth: 5,
+                        systemPromptTemplate: 'Custom system prompt',
                     },
                 },
             }
             window.extensionSettings[MODULE_NAME] = testSettings
             const loadedSettings = window.extensionSettings[MODULE_NAME]
-            expect(loadedSettings.autoGeneration.promptInjection.depth).toBe(5)
-            expect(loadedSettings.autoGeneration.promptInjection.systemPrompt).toBe('Custom system prompt')
-            expect(loadedSettings.autoGeneration.promptInjection.template).toBe('Custom-template')
+            expect(loadedSettings.autoGeneration.summarizer.messageDepth).toBe(5)
+            expect(loadedSettings.autoGeneration.summarizer.systemPromptTemplate).toBe('Custom system prompt')
         })
 
         it('should have correct default depth when not explicitly set', () => {
-            const defaultDepth = 0
+            const defaultDepth = 1
             const minimalSettings = {}
             const merged = {
-                ...{ depth: defaultDepth },
+                ...{ messageDepth: defaultDepth },
                 ...minimalSettings,
             }
-            expect(merged.depth).toBe(1)
+            expect(merged.messageDepth).toBe(1)
         })
     })
 })
