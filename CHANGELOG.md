@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [2.1.0] - 2026-04-09
+
+### Added
+
+- **AI-powered prompt summarization**: Prompts are now automatically improved using AI to generate better image results. The summarization analyzes the conversation context to create more detailed and accurate prompts.
+- **Resummarize button**: Added a button in the image selection dialog to regenerate prompts on demand. Users can refine prompts until they produce the desired images.
+- **Message depth settings**: New settings to control how many previous messages the summarization considers when generating prompts.
+- **System prompt customization**: Added the ability to customize the system prompt used for AI summarization, giving users full control over prompt generation behavior.
+
+### Changed
+
+- **Edit/Rewrite button behavior**: Modified the prompt editing workflow to give users more control. Now allows direct editing of prompts before regeneration, making it easier to refine image generation requests.
+- **Prompt quality improvements**: Prompts now integrate character descriptions from the active character card, resulting in more contextually accurate image generations.
+
 ## [2.0.1] - 2026-02-07
 
 ### Fixed
