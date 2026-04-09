@@ -1,3 +1,5 @@
+import { summarizeWithAI } from './src/summarizer.js'
+
 const MODULE_NAME = 'Image-Generation-Autopilot'
 const INSERT_TYPE = Object.freeze({
     DISABLED: 'disabled',
@@ -3694,30 +3696,55 @@ async function handleIncomingMessage(messageId) {
                 : message.mes,
     })
 
-    const regex = parseRegexFromString(autoSettings.promptInjection.regex)
-    if (!regex) {
+    const summarizerSettings = autoSettings.summarizer || {}
+    const messageDepth = Math.max(
+        1,
+        Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
+    )
+    const summarizerMessages = (context.chat || [])
+        .slice(Math.max(0, resolvedId - messageDepth + 1), resolvedId + 1)
+        .map((entry) => ({
+            role: entry?.is_user ? 'user' : 'assistant',
+            content: typeof entry?.mes === 'string' ? entry.mes.trim() : '',
+        }))
+        .filter((entry) => entry.content)
+
+    const charName = message.name || context.name2 || context.character_name || ''
+    const userName = context.name1 || context.user_name || 'User'
+
+    let summarizedPrompt = ''
+    try {
+        summarizedPrompt = await summarizeWithAI({
+            messages: summarizerMessages,
+            messageDepth,
+            settings: summarizerSettings,
+            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+            charName,
+            userName,
+        })
+    } catch (error) {
+        logger.warn('Auto-generation summarizer failed', error)
         return
     }
 
-    const matches = getPicPromptMatches(message?.mes, regex)
-    if (!matches.length) {
+    if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
         return
     }
 
-    const prompts = matches
-        .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
-        .filter((p) => p.trim())
-
-    if (!prompts.length) {
+    if (summarizedPrompt.startsWith('Error:')) {
+        logger.warn('Auto-generation summarizer returned error', summarizedPrompt)
         return
     }
 
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
-    for (let prompt of prompts) {
-        for (let i = 0; i < swipesPerImage; i += 1) {
-            expandedPrompts.push(prompt)
-        }
+    const prompt = summarizedPrompt.trim()
+    for (let i = 0; i < swipesPerImage; i += 1) {
+        expandedPrompts.push(prompt)
+    }
+
+    if (!expandedPrompts.length) {
+        return
     }
 
     state.autoGenMessages.add(resolvedId)
