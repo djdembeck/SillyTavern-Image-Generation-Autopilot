@@ -42,11 +42,20 @@ const createMockElement = (id = '') => {
         alt: "",
         style: {},
         className: "",
+        disabled: false,
         appendChild: mock((child) => {
             children.push(child);
             return child;
         }),
-        children,
+        get children() {
+            return children;
+        },
+        get lastChild() {
+            return children.length > 0 ? children[children.length - 1] : null;
+        },
+        get firstChild() {
+            return children.length > 0 ? children[0] : null;
+        },
         listeners
     };
     return el;
@@ -144,6 +153,12 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             
             // Mock the DOM elements including the resummarize button
             const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
+            const mockIcon = createMockElement('i');
+            mockIcon.className = 'fa-solid fa-robot';
+            mockResummarizeBtn.appendChild(mockIcon);
+            const mockTextNode = { textContent: ' Resummarize' };
+            mockResummarizeBtn.appendChild(mockTextNode);
+            
             const mockTextarea = createMockElement('img-prompt-editor');
             mockTextarea.value = "original prompt";
             
@@ -151,9 +166,10 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             resummarizeDialog.domElements.promptTextarea = mockTextarea;
             resummarizeDialog.editedPrompt = "original prompt";
             
-            // Click the resummarize button
+            resummarizeDialog._attachListeners();
+            
             if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
-                mockResummarizeBtn.listeners.click();
+                await mockResummarizeBtn.listeners.click();
             }
             
             // The onResummarize callback should have been called
@@ -166,20 +182,18 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
         it("should allow direct text modification without AI call", async () => {
             dialog.show(["original prompt"], {});
             
-            // Set up mock textarea
             const mockTextarea = createMockElement('img-prompt-editor');
             mockTextarea.value = "original prompt";
             
             dialog.domElements.promptTextarea = mockTextarea;
             dialog.editedPrompt = "original prompt";
             
-            // Simulate user typing directly in textarea
+            dialog._attachListeners();
+            
             if (mockTextarea.listeners && mockTextarea.listeners.input) {
-                // Manually trigger input event with new value
                 mockTextarea.listeners.input({ target: { value: "manually edited prompt" } });
             }
             
-            // The editedPrompt should be updated directly without calling any AI
             expect(dialog.editedPrompt).toBe("manually edited prompt");
         });
     });
@@ -195,8 +209,13 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             
             rewriteDialog.show(["test prompt"], {});
             
-            // Set up mock elements
             const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
+            const mockRewriteIcon = createMockElement('i');
+            mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
+            mockRewriteBtn.appendChild(mockRewriteIcon);
+            const mockRewriteTextNode = { textContent: ' Rewrite Prompt' };
+            mockRewriteBtn.appendChild(mockRewriteTextNode);
+            
             const mockTextarea = createMockElement('img-prompt-editor');
             const mockApplyBtn = createMockElement('btn-prompt-apply');
             
@@ -207,12 +226,12 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             rewriteDialog.domElements.promptApplyBtn = mockApplyBtn;
             rewriteDialog.editedPrompt = "original prompt";
             
-            // Click rewrite button
+            rewriteDialog._attachListeners();
+            
             if (mockRewriteBtn.listeners && mockRewriteBtn.listeners.click) {
-                mockRewriteBtn.listeners.click();
+                await mockRewriteBtn.listeners.click();
             }
             
-            // Should call onRewrite for fresh summarization
             expect(onRewriteMock).toHaveBeenCalled();
             expect(onRewriteMock).toHaveBeenCalledWith("original prompt");
         });
@@ -229,8 +248,13 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             
             debouncedDialog.show(["test prompt"], {});
             
-            // Set up mock elements
             const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
+            const mockIcon = createMockElement('i');
+            mockIcon.className = 'fa-solid fa-robot';
+            mockResummarizeBtn.appendChild(mockIcon);
+            const mockTextNode = { textContent: ' Resummarize' };
+            mockResummarizeBtn.appendChild(mockTextNode);
+            
             const mockTextarea = createMockElement('img-prompt-editor');
             mockTextarea.value = "prompt";
             
@@ -238,15 +262,14 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             debouncedDialog.domElements.promptTextarea = mockTextarea;
             debouncedDialog.editedPrompt = "prompt";
             
-            // Click rapidly multiple times
+            debouncedDialog._attachListeners();
+            
             if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
-                mockResummarizeBtn.listeners.click();
-                mockResummarizeBtn.listeners.click();
-                mockResummarizeBtn.listeners.click();
+                await mockResummarizeBtn.listeners.click();
+                await mockResummarizeBtn.listeners.click();
+                await mockResummarizeBtn.listeners.click();
             }
             
-            // Should only call onResummarize once due to debouncing
-            // The second and third calls should be debounced
             expect(onResummarizeMock).toHaveBeenCalledTimes(1);
         });
     });

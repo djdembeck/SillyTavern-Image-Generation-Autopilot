@@ -60,6 +60,9 @@ export class ImageSelectionDialog {
         this.currentCount = 0;
         this.onRewrite = dependencies.onRewrite || null;
         this.isRewriting = false;
+        this.onResummarize = dependencies.onResummarize || null;
+        this.isResummarizing = false;
+        this.lastResummarizeTime = 0;
         this.isLightboxTransitioning = false;
     }
 
@@ -192,6 +195,9 @@ export class ImageSelectionDialog {
                     <button class="image-selection-btn primary" id="btn-prompt-rewrite" title="Have the AI rewrite the prompt based on context">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> Rewrite Prompt
                     </button>
+                    <button class="image-selection-btn primary" id="btn-prompt-resummarize" title="Generate a fresh summary of the prompt">
+                        <i class="fa-solid fa-robot"></i> Resummarize
+                    </button>
                     <button class="image-selection-btn primary" id="btn-prompt-apply">Apply & Regenerate</button>
                     <button class="image-selection-btn" id="btn-prompt-close">Close</button>
                 </div>
@@ -296,6 +302,9 @@ export class ImageSelectionDialog {
                 this.domElements.promptRewriteBtn =
                     container.querySelector('#btn-prompt-rewrite') ||
                     document.querySelector('#btn-prompt-rewrite');
+                this.domElements.promptResummarizeBtn =
+                    container.querySelector('#btn-prompt-resummarize') ||
+                    document.querySelector('#btn-prompt-resummarize');
                 this.domElements.promptApplyBtn =
                     container.querySelector('#btn-prompt-apply') ||
                     document.querySelector('#btn-prompt-apply');
@@ -619,6 +628,12 @@ export class ImageSelectionDialog {
         if (this.domElements.promptRewriteBtn) {
             this.domElements.promptRewriteBtn.addEventListener('click', () => {
                 this._handlePromptRewrite();
+            });
+        }
+
+        if (this.domElements.promptResummarizeBtn) {
+            this.domElements.promptResummarizeBtn.addEventListener('click', () => {
+                this._handlePromptResummarize();
             });
         }
 
@@ -1247,6 +1262,72 @@ export class ImageSelectionDialog {
             btn.disabled = false;
             if (icon) {
                 icon.className = 'fa-solid fa-wand-magic-sparkles';
+            }
+            btn.lastChild.textContent = originalText;
+        }
+    }
+
+    async _handlePromptResummarize() {
+        const RESUMMARIZE_DEBOUNCE_MS = 1000;
+        
+        logger.info('Resummarize button clicked', {
+            hasOnResummarize: !!this.onResummarize,
+            isResummarizing: this.isResummarizing,
+            prompt: this.editedPrompt,
+            timeSinceLastCall: Date.now() - this.lastResummarizeTime
+        });
+        
+        const now = Date.now();
+        if (now - this.lastResummarizeTime < RESUMMARIZE_DEBOUNCE_MS) {
+            logger.warn('Resummarize debounced', {
+                timeSinceLastCall: now - this.lastResummarizeTime
+            });
+            return;
+        }
+        
+        if (!this.onResummarize || this.isResummarizing) {
+            logger.warn('Resummarize aborted', {
+                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already resummarizing'
+            });
+            return;
+        }
+
+        const btn = this.domElements.promptResummarizeBtn;
+        const icon = btn.querySelector('i');
+        const originalText = btn.lastChild.textContent;
+
+        try {
+            this.isResummarizing = true;
+            this.lastResummarizeTime = now;
+            btn.disabled = true;
+            if (icon) {
+                icon.className = 'fa-solid fa-circle-notch fa-spin';
+            }
+            btn.lastChild.textContent = ' Resummarizing...';
+
+            const resummarized = await this.onResummarize(this.editedPrompt);
+            logger.debug('Resummarize result received:', resummarized);
+            
+            if (resummarized && resummarized !== this.editedPrompt) {
+                this.editedPrompt = resummarized;
+                if (this.domElements.promptTextarea) {
+                    this.domElements.promptTextarea.value = resummarized;
+                }
+                if (this.domElements.promptApplyBtn) {
+                    this.domElements.promptApplyBtn.classList.add('highlight');
+                }
+            } else if (resummarized === this.editedPrompt) {
+                logger.warn('Resummarize returned identical prompt', { resummarized });
+            } else {
+                logger.warn('Resummarize returned empty or invalid result', { resummarized });
+            }
+        } catch (error) {
+            logger.error('Resummarize failed:', error);
+        } finally {
+            this.isResummarizing = false;
+            btn.disabled = false;
+            if (icon) {
+                icon.className = 'fa-solid fa-robot';
             }
             btn.lastChild.textContent = originalText;
         }

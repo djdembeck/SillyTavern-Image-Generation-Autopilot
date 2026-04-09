@@ -652,6 +652,22 @@
     cursor: wait;
 }
 
+#btn-prompt-resummarize {
+    background: rgba(168, 85, 247, 0.2);
+    border-color: rgba(168, 85, 247, 0.4);
+    color: #a855f7;
+}
+
+#btn-prompt-resummarize:hover {
+    background: rgba(168, 85, 247, 0.3);
+    border-color: rgba(168, 85, 247, 0.6);
+}
+
+#btn-prompt-resummarize:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
 /* Highlight animation for Apply & Regenerate button after prompt rewrite */
 @keyframes highlight-pulse {
     0% {
