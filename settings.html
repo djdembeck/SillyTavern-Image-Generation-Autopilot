@@ -275,6 +275,29 @@
                             </select>
                         </label>
                     </div>
+                    <hr class="auto-multi-divider" />
+                    <div class="auto-multi-grid">
+                        <label title="How many recent messages to include when creating image generation prompts. Higher values provide more context but use more tokens.">
+                            <span>Message context depth</span>
+                            <input
+                                type="number"
+                                min="1"
+                                max="10"
+                                step="1"
+                                id="summarizer-depth"
+                                class="text_pole"
+                            />
+                        </label>
+                    </div>
+                    <label title="System prompt template used to generate image descriptions. Use {{APPEARANCE_LINES}} as a placeholder for character appearance data.">
+                        <span>Summarizer system prompt template</span>
+                        <textarea
+                            id="summarizer-system-prompt"
+                            class="text_pole auto-multi-textarea"
+                            rows="10"
+                            placeholder="You are an expert at creating detailed image generation prompts..."
+                        ></textarea>
+                    </label>
                 </div>
 
             </section>

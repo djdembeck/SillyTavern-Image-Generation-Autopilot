@@ -1933,6 +1933,12 @@ async function buildSettingsPanel() {
     const concurrencyInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_swipe_concurrency')
     )
+    const summarizerDepthInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#summarizer-depth')
+    )
+    const summarizerSystemPromptInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#summarizer-system-prompt')
+    )
     if (
         !(
             enabledInput &&
@@ -1966,7 +1972,9 @@ async function buildSettingsPanel() {
             picCountModeSelect &&
             picCountExactInput &&
             picCountMinInput &&
-            picCountMaxInput
+            picCountMaxInput &&
+            summarizerDepthInput &&
+            summarizerSystemPromptInput
         )
     ) {
         logger.warn('Auto-generation inputs missing')
@@ -2009,6 +2017,8 @@ async function buildSettingsPanel() {
         characterEnabledInput,
         characterResetButton,
         concurrencyInput,
+        summarizerDepthInput,
+        summarizerSystemPromptInput,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -2212,6 +2222,20 @@ async function buildSettingsPanel() {
         picCountMaxInput.value = String(
             current.autoGeneration.promptInjection.picCountMax,
         )
+        saveSettings()
+    })
+
+    summarizerDepthInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(1, Math.min(10, parseInt(summarizerDepthInput.value, 10) || 1))
+        current.autoGeneration.summarizer.messageDepth = value
+        summarizerDepthInput.value = String(value)
+        saveSettings()
+    })
+
+    summarizerSystemPromptInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.summarizer.systemPromptTemplate = summarizerSystemPromptInput.value
         saveSettings()
     })
 
@@ -2764,6 +2788,16 @@ function syncUiFromSettings() {
                 3,
             ),
         )
+    }
+
+    if (state.ui.summarizerDepthInput) {
+        const depth = Math.max(1, Math.min(10, settings.autoGeneration.summarizer.messageDepth || 1))
+        state.ui.summarizerDepthInput.value = String(depth)
+    }
+
+    if (state.ui.summarizerSystemPromptInput) {
+        state.ui.summarizerSystemPromptInput.value =
+            settings.autoGeneration.summarizer.systemPromptTemplate || ''
     }
 
     const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
