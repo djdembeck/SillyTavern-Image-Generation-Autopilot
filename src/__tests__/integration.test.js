@@ -222,6 +222,10 @@ describe('full flow integration', () => {
                     warn: mock(),
                 },
                 window: globalThis.window,
+                stripPicTags: (content) => {
+                    if (typeof content !== 'string') return content
+                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+                },
             },
         )
 
@@ -418,6 +422,10 @@ describe('full flow integration', () => {
                     warn: mock(),
                 },
                 window: globalThis.window,
+                stripPicTags: (content) => {
+                    if (typeof content !== 'string') return content
+                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+                },
             },
         )
 

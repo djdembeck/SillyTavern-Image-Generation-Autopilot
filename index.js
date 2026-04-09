@@ -7,6 +7,26 @@ const INSERT_TYPE = Object.freeze({
     REPLACE: 'replace',
     NEW_MESSAGE: 'new',
 })
+
+// Regex to detect and capture prompt from <pic> tags (case-insensitive)
+const PIC_TAG_REGEX = /<pic[^>]*\sprompt="([\s\S]*?)"(?=\s*\/?>)/gi
+// Regex to strip <pic> tags from message content
+const STRIP_PIC_TAG_REGEX = /<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi
+const CLOSE_PIC_TAG_REGEX = /<\/pic>/gi
+
+/**
+ * Strip <pic> tags from message content so they don't influence summarization
+ * @param {string} content - The message content to clean
+ * @returns {string} The content with <pic> tags removed
+ */
+function stripPicTags(content) {
+    if (typeof content !== 'string') return content
+    return content
+        .replace(STRIP_PIC_TAG_REGEX, '')
+        .replace(CLOSE_PIC_TAG_REGEX, '')
+        .trim()
+}
+
 const defaultSettings = Object.freeze({
     enabled: true,
     debugMode: false,
@@ -27,23 +47,6 @@ const defaultSettings = Object.freeze({
         promptRewrite: {
             enabled: false,
             modelId: '',
-        },
-        promptInjection: {
-            enabled: true,
-            mainPrompt:
-                'Insert <pic prompt="detailed scene description"> tags at the end of each reply.',
-            instructionsPositive: '',
-            instructionsNegative: '',
-            examplePrompt: '',
-            lengthLimit: 0,
-            lengthLimitType: 'none',
-            picCountMode: 'exact',
-            picCountExact: 1,
-            picCountMin: 1,
-            picCountMax: 3,
-            regex: '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
-            position: 'deep_system',
-            depth: 0,
         },
         summarizer: {
             messageDepth: 1,
@@ -302,6 +305,12 @@ function ensureSettings() {
         deepMergeDefaults(extensionSettings[MODULE_NAME], defaultSettings)
         const settings = extensionSettings[MODULE_NAME]
 
+        // Cleanup: Remove stale promptInjection data from older versions
+        if (settings.autoGeneration?.promptInjection) {
+            logger.debug('Removing stale promptInjection settings from user storage')
+            delete settings.autoGeneration.promptInjection
+        }
+
         // Migration: Clear old presets that contain circular references
         // Only delete presets that have actual circular references (preset.settings.presets === the preset itself)
         if (settings.presets && Object.keys(settings.presets).length > 0) {
@@ -378,21 +387,6 @@ function ensureSettings() {
             settings.autoGeneration.promptRewrite.modelId = ''
         }
 
-        if (!settings.autoGeneration.promptInjection) {
-            settings.autoGeneration.promptInjection = {
-                ...defaultSettings.autoGeneration.promptInjection,
-            }
-        }
-
-        const promptInjection = settings.autoGeneration.promptInjection
-        for (const [key, value] of Object.entries(
-            defaultSettings.autoGeneration.promptInjection,
-        )) {
-            if (typeof promptInjection[key] === 'undefined') {
-                promptInjection[key] = value
-            }
-        }
-
         if (!Array.isArray(settings.modelQueue)) {
             settings.modelQueue = []
         }
@@ -424,13 +418,6 @@ function ensureSettings() {
                     count: clampCount(settings.targetCount),
                 },
             ]
-        }
-
-        const oldRegex = '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g'
-        const newRegex = '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g'
-        if (settings.autoGeneration?.promptInjection?.regex === oldRegex) {
-            logger.debug('Migrating regex to robust version')
-            settings.autoGeneration.promptInjection.regex = newRegex
         }
 
         return settings
@@ -486,42 +473,6 @@ function applyQueueEnabledState(queueEnabled) {
 }
 
 const PER_CHARACTER_FIELDS = Object.freeze({
-    mainPrompt: {
-        label: 'Main prompt',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.mainPrompt || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.mainPrompt =
-                typeof value === 'string' ? value : ''
-        },
-    },
-    promptPositive: {
-        label: 'Image prompt instructions (positive)',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.instructionsPositive || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.instructionsPositive =
-                typeof value === 'string' ? value : ''
-        },
-    },
-    promptNegative: {
-        label: 'Image prompt instructions (negative)',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.instructionsNegative || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.instructionsNegative =
-                typeof value === 'string' ? value : ''
-        },
-    },
-    examplePrompt: {
-        label: 'Example prompt',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.examplePrompt || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.examplePrompt =
-                typeof value === 'string' ? value : ''
-        },
-    },
     modelQueue: {
         label: 'Model queue',
         get: (settings) => ({
@@ -550,38 +501,6 @@ const PER_CHARACTER_FIELDS = Object.freeze({
                     defaultSettings.modelQueueEnabled,
                 )
             }
-        },
-    },
-    imageCount: {
-        label: 'Image count rule + values',
-        get: (settings) => ({
-            picCountMode: settings.autoGeneration.promptInjection.picCountMode,
-            picCountExact:
-                settings.autoGeneration.promptInjection.picCountExact,
-            picCountMin: settings.autoGeneration.promptInjection.picCountMin,
-            picCountMax: settings.autoGeneration.promptInjection.picCountMax,
-        }),
-        set: (settings, value) => {
-            if (!value || typeof value !== 'object') {
-                return
-            }
-            if (value.picCountMode) {
-                settings.autoGeneration.promptInjection.picCountMode =
-                    value.picCountMode
-            }
-            settings.autoGeneration.promptInjection.picCountExact =
-                clampPicCount(value.picCountExact, 1)
-            settings.autoGeneration.promptInjection.picCountMin = clampPicCount(
-                value.picCountMin,
-                1,
-            )
-            settings.autoGeneration.promptInjection.picCountMax = clampPicCount(
-                value.picCountMax,
-                Math.max(
-                    settings.autoGeneration.promptInjection.picCountMin,
-                    1,
-                ),
-            )
         },
     },
 })
@@ -1061,50 +980,19 @@ function normalizeModelQueueEnabled(
 function clampDepth(value) {
     const numeric = Number(value)
     if (Number.isNaN(numeric)) {
-        return defaultSettings.autoGeneration.promptInjection.depth
+        return 0
     }
     return Math.max(0, Math.min(100, Math.round(numeric)))
 }
 
-function normalizeRegexString(value) {
-    if (typeof value !== 'string') {
-        return ''
-    }
-    return value.trim()
-}
-
-function parseRegexFromString(raw) {
-    const source = normalizeRegexString(raw)
-    if (!source) {
-        return null
-    }
-
-    if (source.startsWith('/') && source.lastIndexOf('/') > 0) {
-        const lastSlash = source.lastIndexOf('/')
-        const pattern = source.slice(1, lastSlash)
-        const flags = source.slice(lastSlash + 1) || 'g'
-        try {
-            return new RegExp(
-                pattern,
-                flags.includes('g') ? flags : `${flags}g`,
-            )
-        } catch (error) {
-            logger.warn('Invalid regex string', error)
-            return null
-        }
-    }
-
-    try {
-        return new RegExp(source, 'g')
-    } catch (error) {
-        logger.warn('Invalid regex string', error)
-        return null
-    }
-}
-
-function getPicPromptMatches(messageText, regex) {
+function getPicPromptMatches(messageText, regex = PIC_TAG_REGEX) {
     if (!messageText || !regex) {
         return []
+    }
+
+    // Reset regex lastIndex for global regexes (allows reuse)
+    if (regex.global) {
+        regex.lastIndex = 0
     }
 
     return regex.global
@@ -1372,105 +1260,6 @@ function finalizeUnifiedProgress() {
     }
 
     return false
-}
-
-function clampPicCount(value, fallback = 1) {
-    const numeric = Number(value)
-    if (Number.isNaN(numeric)) {
-        return fallback
-    }
-    return Math.max(1, Math.min(12, Math.round(numeric)))
-}
-
-function buildPicCountInstruction(injection) {
-    if (!injection) {
-        return ''
-    }
-
-    const mode = injection.picCountMode || 'exact'
-    const exact = clampPicCount(injection.picCountExact, 1)
-    const min = clampPicCount(injection.picCountMin, 1)
-    const max = clampPicCount(injection.picCountMax, Math.max(min, 1))
-
-    switch (mode) {
-        case 'range':
-            return `Insert between ${Math.min(min, max)} and ${Math.max(
-                min,
-                max,
-            )} <pic prompt="..."> tags per reply.`
-        case 'min':
-            return `Insert at least ${min} <pic prompt="..."> tag${
-                min === 1 ? '' : 's'
-            } per reply.`
-        case 'max':
-            return `Insert at most ${max} <pic prompt="..."> tag${
-                max === 1 ? '' : 's'
-            } per reply.`
-        case 'exact':
-        default:
-            return `Insert exactly ${exact} <pic prompt="..."> tag${
-                exact === 1 ? '' : 's'
-            } per reply.`
-    }
-}
-
-function updatePicCountFieldVisibility(container, mode) {
-    if (!container) {
-        return
-    }
-
-    const normalizedMode = mode || 'exact'
-    const fields = container.querySelectorAll('.auto-multi-count-field')
-    fields.forEach((field) => {
-        const modes = field.getAttribute('data-count-mode')?.split(/\s+/) || []
-        const shouldShow = modes.includes(normalizedMode)
-        field.classList.toggle('is-hidden', !shouldShow)
-    })
-}
-
-function composePromptInjection(injection) {
-    if (!injection) {
-        return ''
-    }
-
-    const chunks = []
-    chunks.push('IMAGE PROMPT INSTRUCTIONS')
-
-    const countInstruction = buildPicCountInstruction(injection)
-    if (countInstruction) {
-        chunks.push(countInstruction)
-    }
-
-    if (injection.mainPrompt?.trim()) {
-        chunks.push(injection.mainPrompt.trim())
-    }
-
-    if (injection.instructionsPositive?.trim()) {
-        chunks.push(injection.instructionsPositive.trim())
-    }
-
-    if (injection.instructionsNegative?.trim()) {
-        chunks.push('NEGATIVE PROMPT INSTRUCTIONS:')
-        chunks.push(injection.instructionsNegative.trim())
-    }
-
-    const limitValue = clampPromptLimit(injection.lengthLimit)
-    if (limitValue > 0 && injection.lengthLimitType !== 'none') {
-        const limitLabel =
-            injection.lengthLimitType === 'words' ? 'words' : 'characters'
-        chunks.push(`MAXIMUM ${limitValue} ${limitLabel} per prompt`)
-    }
-
-    if (injection.examplePrompt?.trim()) {
-        chunks.push('EXAMPLE STRUCTURE:')
-        chunks.push(injection.examplePrompt.trim())
-    }
-
-    if (!chunks.length) {
-        return ''
-    }
-
-    return `<image_generation>\n${chunks.join('\n')}\n</image_generation>`
 }
 
 function sanitizeModelQueue(
@@ -1893,53 +1682,11 @@ async function buildSettingsPanel() {
     const autoGenInsertSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_auto_gen_insert_type')
     )
-    const promptInjectionEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_injection_enabled')
-    )
-    const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_main')
-    )
-    const promptPositiveInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_positive')
-    )
-    const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_negative')
-    )
-    const promptExampleInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_example')
-    )
-    const promptLimitInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_limit')
-    )
-    const promptLimitTypeSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_prompt_limit_type')
-    )
-    const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_regex')
-    )
     const promptRewriteModelSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_prompt_rewrite_model')
     )
-    const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_prompt_position')
-    )
-    const promptDepthInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_depth')
-    )
     const debugModeInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_debug_mode')
-    )
-    const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_mode')
-    )
-    const picCountExactInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_exact')
-    )
-    const picCountMinInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_min')
-    )
-    const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_max')
     )
     const concurrencyInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_swipe_concurrency')
@@ -1969,21 +1716,7 @@ async function buildSettingsPanel() {
         !(
             autoGenEnabledInput &&
             autoGenInsertSelect &&
-            promptInjectionEnabledInput &&
-            promptMainInput &&
-            promptPositiveInput &&
-            promptNegativeInput &&
-            promptExampleInput &&
-            promptLimitInput &&
-            promptLimitTypeSelect &&
-            promptRegexInput &&
-            promptPositionSelect &&
-            promptDepthInput &&
             debugModeInput &&
-            picCountModeSelect &&
-            picCountExactInput &&
-            picCountMinInput &&
-            picCountMaxInput &&
             summarizerDepthInput &&
             summarizerSystemPromptInput
         )
@@ -2004,22 +1737,8 @@ async function buildSettingsPanel() {
         refreshModelsButton,
         autoGenEnabledInput,
         autoGenInsertSelect,
-        promptInjectionEnabledInput,
-        promptMainInput,
-        promptPositiveInput,
-        promptNegativeInput,
-        promptExampleInput,
-        promptLimitInput,
-        promptLimitTypeSelect,
-        promptRegexInput,
         promptRewriteModelSelect,
-        promptPositionSelect,
-        promptDepthInput,
         debugModeInput,
-        picCountModeSelect,
-        picCountExactInput,
-        picCountMinInput,
-        picCountMaxInput,
         summaryPanel,
         autoGenPanel,
         queuePanel,
@@ -2100,139 +1819,15 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-    promptInjectionEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.enabled =
-            promptInjectionEnabledInput.checked
-        saveSettings()
-    })
-
-    promptMainInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.mainPrompt =
-            promptMainInput.value
-        saveSettings()
-    })
-
-    promptPositiveInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsPositive =
-            promptPositiveInput.value
-        saveSettings()
-    })
-
-    promptNegativeInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsNegative =
-            promptNegativeInput.value
-        saveSettings()
-    })
-
-    promptExampleInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.examplePrompt =
-            promptExampleInput.value
-        saveSettings()
-    })
-
-    promptLimitInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.lengthLimit = clampPromptLimit(
-            promptLimitInput.value,
-        )
-        promptLimitInput.value = String(
-            current.autoGeneration.promptInjection.lengthLimit,
-        )
-        saveSettings()
-    })
-
-    promptLimitTypeSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.lengthLimitType =
-            promptLimitTypeSelect.value
-        saveSettings()
-    })
-
-    promptRegexInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.regex = promptRegexInput.value
-        saveSettings()
-    })
-
     promptRewriteModelSelect?.addEventListener('change', () => {
         const current = getSettings()
         current.autoGeneration.promptRewrite.modelId = promptRewriteModelSelect.value
         saveSettings()
     })
 
-    promptPositionSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.position =
-            promptPositionSelect.value
-        saveSettings()
-    })
-
-    promptDepthInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.depth = clampDepth(
-            promptDepthInput.value,
-        )
-        promptDepthInput.value = String(
-            current.autoGeneration.promptInjection.depth,
-        )
-        saveSettings()
-    })
-
     debugModeInput?.addEventListener('change', () => {
         const current = getSettings()
         current.debugMode = debugModeInput.checked
-        saveSettings()
-    })
-
-    picCountModeSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMode =
-            picCountModeSelect.value
-        updatePicCountFieldVisibility(
-            container,
-            current.autoGeneration.promptInjection.picCountMode,
-        )
-        saveSettings()
-    })
-
-    picCountExactInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountExact = clampPicCount(
-            picCountExactInput.value,
-            1,
-        )
-        picCountExactInput.value = String(
-            current.autoGeneration.promptInjection.picCountExact,
-        )
-        saveSettings()
-    })
-
-    picCountMinInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMin = clampPicCount(
-            picCountMinInput.value,
-            1,
-        )
-        picCountMinInput.value = String(
-            current.autoGeneration.promptInjection.picCountMin,
-        )
-        saveSettings()
-    })
-
-    picCountMaxInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMax = clampPicCount(
-            picCountMaxInput.value,
-            3,
-        )
-        picCountMaxInput.value = String(
-            current.autoGeneration.promptInjection.picCountMax,
-        )
         saveSettings()
     })
 
@@ -2713,53 +2308,9 @@ function syncUiFromSettings() {
         state.ui.autoGenInsertSelect.value =
             settings.autoGeneration.insertType || INSERT_TYPE.DISABLED
     }
-    if (state.ui.promptInjectionEnabledInput) {
-        state.ui.promptInjectionEnabledInput.checked =
-            settings.autoGeneration.promptInjection.enabled
-    }
-    if (state.ui.promptMainInput) {
-        state.ui.promptMainInput.value =
-            settings.autoGeneration.promptInjection.mainPrompt
-    }
-    if (state.ui.promptPositiveInput) {
-        state.ui.promptPositiveInput.value =
-            settings.autoGeneration.promptInjection.instructionsPositive
-    }
-    if (state.ui.promptNegativeInput) {
-        state.ui.promptNegativeInput.value =
-            settings.autoGeneration.promptInjection.instructionsNegative
-    }
-    if (state.ui.promptExampleInput) {
-        state.ui.promptExampleInput.value =
-            settings.autoGeneration.promptInjection.examplePrompt
-    }
-    if (state.ui.promptLimitInput) {
-        state.ui.promptLimitInput.value = String(
-            clampPromptLimit(
-                settings.autoGeneration.promptInjection.lengthLimit,
-            ),
-        )
-    }
-    if (state.ui.promptLimitTypeSelect) {
-        state.ui.promptLimitTypeSelect.value =
-            settings.autoGeneration.promptInjection.lengthLimitType
-    }
-    if (state.ui.promptRegexInput) {
-        state.ui.promptRegexInput.value =
-            settings.autoGeneration.promptInjection.regex
-    }
     if (state.ui.promptRewriteModelSelect) {
         state.ui.promptRewriteModelSelect.value =
             settings.autoGeneration.promptRewrite.modelId || ''
-    }
-    if (state.ui.promptPositionSelect) {
-        state.ui.promptPositionSelect.value =
-            settings.autoGeneration.promptInjection.position
-    }
-    if (state.ui.promptDepthInput) {
-        state.ui.promptDepthInput.value = String(
-            clampDepth(settings.autoGeneration.promptInjection.depth),
-        )
     }
     if (state.ui.debugModeInput) {
         state.ui.debugModeInput.checked = settings.debugMode
@@ -2771,34 +2322,6 @@ function syncUiFromSettings() {
     const canResetCharacter = settings.enabled && settings.perCharacter?.enabled
     if (state.ui.characterResetButton) {
         state.ui.characterResetButton.disabled = !canResetCharacter
-    }
-    if (state.ui.picCountModeSelect) {
-        state.ui.picCountModeSelect.value =
-            settings.autoGeneration.promptInjection.picCountMode
-    }
-    if (state.ui.picCountExactInput) {
-        state.ui.picCountExactInput.value = String(
-            clampPicCount(
-                settings.autoGeneration.promptInjection.picCountExact,
-                1,
-            ),
-        )
-    }
-    if (state.ui.picCountMinInput) {
-        state.ui.picCountMinInput.value = String(
-            clampPicCount(
-                settings.autoGeneration.promptInjection.picCountMin,
-                1,
-            ),
-        )
-    }
-    if (state.ui.picCountMaxInput) {
-        state.ui.picCountMaxInput.value = String(
-            clampPicCount(
-                settings.autoGeneration.promptInjection.picCountMax,
-                3,
-            ),
-        )
     }
 
     if (state.ui.summarizerDepthInput) {
@@ -2815,11 +2338,6 @@ function syncUiFromSettings() {
     if (state.ui.concurrencyInput) {
         state.ui.concurrencyInput.value = String(concurrencyValue)
     }
-
-    updatePicCountFieldVisibility(
-        state.ui.container,
-        settings.autoGeneration.promptInjection.picCountMode,
-    )
 
     const setPanelEnabled = (panel, enabled) => {
         if (!panel) {
@@ -2884,10 +2402,7 @@ function syncUiFromSettings() {
 
     if (settings.autoGeneration.enabled) {
         const insertLabel = settings.autoGeneration.insertType
-        const injectionLabel = settings.autoGeneration.promptInjection.enabled
-            ? 'prompt injection on'
-            : 'prompt injection off'
-        segments.push(`auto image gen (${insertLabel}, ${injectionLabel})`)
+        segments.push(`auto image gen (${insertLabel})`)
     }
 
     const baseStrategyBlurb = settings.delayMs <= 0
@@ -3064,59 +2579,6 @@ function resetPerChatState() {
     setTimeout(() => refreshReswipeButtons(), 0)
 }
 
-function getPromptRole(position) {
-    switch (position) {
-        case 'deep_user':
-            return 'user'
-        case 'deep_assistant':
-            return 'assistant'
-        case 'deep_system':
-        default:
-            return 'system'
-    }
-}
-
-function insertPromptAtDepth(chat, prompt, role, depth) {
-    if (!Array.isArray(chat)) {
-        return
-    }
-
-    const entry = { role, content: prompt }
-    if (!Number.isFinite(depth) || depth <= 0) {
-        chat.push(entry)
-        return
-    }
-
-    const insertIndex = Math.max(0, chat.length - depth)
-    chat.splice(insertIndex, 0, entry)
-}
-
-async function handlePromptInjection(eventData) {
-    if (state.isRewriting) {
-        return
-    }
-    const settings = getSettings()
-    const autoSettings = settings.autoGeneration
-    if (!autoSettings?.enabled) {
-        return
-    }
-
-    if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
-        return
-    }
-
-    const injection = autoSettings.promptInjection
-    const composedPrompt = composePromptInjection(injection)
-    if (!injection?.enabled || !composedPrompt.trim()) {
-        return
-    }
-
-    const role = getPromptRole(injection.position)
-    const depth = clampDepth(injection.depth)
-    insertPromptAtDepth(eventData?.chat, composedPrompt, role, depth)
-    log('Prompt injected', { role, depth })
-}
-
 async function resolveSlashCommandParser() {
     if (window?.SlashCommandParser?.commands) {
         return window.SlashCommandParser
@@ -3275,7 +2737,6 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
             log('Dialog requested rewrite', { prompt, sourceMessageId })
             return await callChatRewrite(
                 prompt,
-                settings.autoGeneration.promptInjection,
                 settings.autoGeneration.promptRewrite.modelId,
                 sourceMessageId,
             )
@@ -3300,7 +2761,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 .slice(Math.max(0, sourceMessageId - messageDepth + 1), sourceMessageId + 1)
                 .map((entry) => ({
                     role: entry?.is_user ? 'user' : 'assistant',
-                    content: typeof entry?.mes === 'string' ? entry.mes.trim() : '',
+                    content: stripPicTags(entry?.mes),
                 }))
                 .filter((entry) => entry.content)
 
@@ -3522,7 +2983,7 @@ function normalizeRewriteResponse(result) {
     }
 }
 
-function buildPromptRewriteSystem(injection) {
+function buildPromptRewriteSystem() {
     const chunks = [
         '# STABLE DIFFUSION PROMPT GENERATOR',
         'Your role: Expert technical prompt engineer for Stable Diffusion.',
@@ -3542,33 +3003,6 @@ function buildPromptRewriteSystem(injection) {
         'Output: <sd_prompt>sleek red sports car parked on a rainy city street at night, puddles reflecting neon lights, cinematic lighting, hyper-realistic, 8k, detailed water drops on polished metal</sd_prompt>',
     ]
 
-    if (injection?.mainPrompt?.trim()) {
-        chunks.push(`\nGlobal guidance: ${injection.mainPrompt.trim()}`)
-    }
-
-    if (injection?.instructionsPositive?.trim()) {
-        chunks.push(
-            `Positive constraints: ${injection.instructionsPositive.trim()}`,
-        )
-    }
-
-    if (injection?.instructionsNegative?.trim()) {
-        chunks.push(
-            `Negative constraints: ${injection.instructionsNegative.trim()}`,
-        )
-    }
-
-    if (injection?.examplePrompt?.trim()) {
-        chunks.push(`Example style: ${injection.examplePrompt.trim()}`)
-    }
-
-    const limitValue = clampPromptLimit(injection?.lengthLimit)
-    if (limitValue > 0 && injection?.lengthLimitType !== 'none') {
-        const limitLabel =
-            injection.lengthLimitType === 'words' ? 'words' : 'characters'
-        chunks.push(`Keep the prompt within ${limitValue} ${limitLabel}.`)
-    }
-
     return chunks.join('\n')
 }
 
@@ -3579,7 +3013,7 @@ function buildPromptRewriteUser(originalPrompt, contextText = '') {
     return `${contextPart}${promptPart}INSTRUCTION: Generate an expanded technical Stable Diffusion prompt based on the story context above. Wrap the result in <sd_prompt>...</sd_prompt> tags. Output ONLY English.`
 }
 
-async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
+async function callChatRewrite(originalPrompt, profileName = '', messageId = null) {
     log('callChatRewrite start', { originalPrompt, profileName, messageId })
     const ctx = getCtx()
     let originalProfile = null
@@ -3611,13 +3045,11 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
 
     let contextText = ''
     const chat = ctx.chat || []
-    const settings = getSettings()
-    const regex = parseRegexFromString(settings.autoGeneration.promptInjection.regex)
 
     const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
 
     if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
-        const cleanMes = chat[messageId].mes.replace(regex, '').trim()
+        const cleanMes = stripPicTags(chat[messageId].mes)
         if (cleanMes) {
             contextText = cleanMes
         }
@@ -3626,7 +3058,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
     if (!contextText) {
         for (let i = searchStart - 1; i >= 0; i--) {
             if (!chat[i].is_user && chat[i].mes) {
-                const cleanMes = chat[i].mes.replace(regex, '').trim()
+                const cleanMes = stripPicTags(chat[i].mes)
                 if (cleanMes) {
                     contextText = cleanMes
                     break
@@ -3644,7 +3076,7 @@ async function callChatRewrite(originalPrompt, injection, profileName = '', mess
 
     log('callChatRewrite context found', { contextText: contextText.substring(0, 100) + '...' })
 
-    const systemPrompt = buildPromptRewriteSystem(injection)
+    const systemPrompt = buildPromptRewriteSystem()
     const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
     const startLength = chat.length || 0
 
@@ -3774,11 +3206,12 @@ async function handleIncomingMessage(messageId) {
 
     // Normalize SillyTavern chat messages to {role, content} format
     // and extract a bounded window centered on the resolved message
+    // Strip <pic> tags so they don't influence the summarizer
     const normalizedMessages = (context.chat || [])
         .filter((m) => m && typeof m === 'object')
         .map((m) => ({
             role: m.is_user ? 'user' : 'assistant',
-            content: typeof m.mes === 'string' ? m.mes : '',
+            content: stripPicTags(m.mes),
         }))
 
     // Compute window slice: center on resolvedId (or last message if not found)
@@ -3870,9 +3303,8 @@ async function handleManualPromptRewrite(messageId) {
         return
     }
 
-    const regex = parseRegexFromString(autoSettings.promptInjection?.regex)
     const hasPrompts = (msg) =>
-        msg?.mes && getPicPromptMatches(msg.mes, regex).length > 0
+        msg?.mes && getPicPromptMatches(msg.mes).length > 0
 
     // If this message doesn't have prompts but has images, it might be a separate image message (New message mode).
     // Try to find the source message with prompts (usually the one before).
@@ -4442,15 +3874,10 @@ async function queueAutoFill(messageId, button) {
 
     let prompts = []
 
-    if (autoSettings?.promptInjection?.regex) {
-        const regex = parseRegexFromString(autoSettings.promptInjection.regex)
-        if (regex) {
-            const matches = getPicPromptMatches(message?.mes, regex)
-            prompts = matches
-                .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
-                .filter((p) => p.trim())
-        }
-    }
+    const matches = getPicPromptMatches(message?.mes)
+    prompts = matches
+        .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
+        .filter((p) => p.trim())
 
     if (!prompts.length) {
         logger.warn('No prompts found in message for auto-fill')
@@ -4489,11 +3916,8 @@ async function handleMessageRendered(messageId, origin) {
     const message = getCtx().chat?.[messageId]
     const hasMedia = getMediaCount(message) > 0
 
-    const regex = parseRegexFromString(
-        settings.autoGeneration?.promptInjection?.regex,
-    )
     const hasPicTags =
-        regex && getPicPromptMatches(message?.mes, regex).length > 0
+        message?.mes && getPicPromptMatches(message.mes).length > 0
 
     ensureReswipeButton(messageId, settings.enabled && (hasPicTags || !hasMedia))
     ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
@@ -4698,10 +4122,6 @@ function refreshReswipeButtons() {
     const chat = getCtx().chat || []
     const messageElements = document.querySelectorAll('.mes[mesid]')
 
-    const regex = parseRegexFromString(
-        settings.autoGeneration?.promptInjection?.regex,
-    )
-
     messageElements.forEach((element) => {
         try {
             const messageId = Number(element.getAttribute('mesid'))
@@ -4718,7 +4138,7 @@ function refreshReswipeButtons() {
 
             // Also check if message contains pic tags for reswipe trigger
             const hasPicTags =
-                regex && getPicPromptMatches(message?.mes, regex).length > 0
+                message?.mes && getPicPromptMatches(message.mes).length > 0
 
             // Show if it has tags OR if it has no images at all
             const shouldShow = settings.enabled && (hasPicTags || !hasMedia)
@@ -4834,12 +4254,6 @@ async function init() {
             )
         }
         eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
-        if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
-            eventSource.on(
-                eventTypes.CHAT_COMPLETION_PROMPT_READY,
-                handlePromptInjection,
-            )
-        }
         if (eventTypes.MESSAGE_RECEIVED) {
             eventSource.on(eventTypes.MESSAGE_RECEIVED, handleIncomingMessage)
         }
