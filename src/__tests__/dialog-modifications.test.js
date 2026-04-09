@@ -236,7 +236,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             expect(onResummarizeMock).toHaveBeenCalledWith("original prompt");
         });
 
-        it("should handle errors in _handlePromptRewrite gracefully", async () => {
+        it("should rethrow errors from _handlePromptRewrite for caller to handle", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("API rate limit exceeded")));
 
             const errorDialog = new ImageSelectionDialog({
@@ -263,19 +263,22 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             errorDialog._attachListeners();
 
+            let thrownError = null;
             if (mockRewriteBtn.listeners && mockRewriteBtn.listeners.click) {
                 try {
                     await mockRewriteBtn.listeners.click();
                 } catch (error) {
-                    // Expected to throw
+                    thrownError = error;
                 }
             }
 
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.isRewriting).toBe(false);
+            expect(thrownError).not.toBeNull();
+            expect(thrownError.message).toBe("API rate limit exceeded");
         });
 
-        it("should keep dialog open when rewrite fails", async () => {
+        it("should preserve editedPrompt and rethrow when rewrite fails", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
 
             const errorDialog = new ImageSelectionDialog({
@@ -312,6 +315,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.editedPrompt).toBe("original prompt");
+            expect(errorCaught).toBe(true);
         });
     });
 
@@ -353,7 +357,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
     });
 
     describe("Error handling for resummarize", () => {
-        it("should handle onResummarize errors gracefully", async () => {
+        it("should rethrow onResummarize errors for caller to handle", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("API rate limit exceeded")));
             
             const errorDialog = new ImageSelectionDialog({
@@ -379,20 +383,22 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             
             errorDialog._attachListeners();
             
-            let errorCaught = false;
+            let thrownError = null;
             try {
                 if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
                     await mockResummarizeBtn.listeners.click();
                 }
             } catch (error) {
-                errorCaught = true;
+                thrownError = error;
             }
             
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.editedPrompt).toBe("original prompt");
+            expect(thrownError).not.toBeNull();
+            expect(thrownError.message).toBe("API rate limit exceeded");
         });
 
-        it("should keep dialog open when resummarize fails", async () => {
+        it("should reset state and rethrow when resummarize fails", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
             
             const errorDialog = new ImageSelectionDialog({
@@ -419,15 +425,17 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             
             errorDialog._attachListeners();
             
-            if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
-                try {
+            let errorCaught = false;
+            try {
+                if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
                     await mockResummarizeBtn.listeners.click();
-                } catch (error) {
-                    // Expected to throw
                 }
+            } catch (error) {
+                errorCaught = true;
             }
             
             expect(errorDialog.isResummarizing).toBe(false);
+            expect(errorCaught).toBe(true);
         });
     });
 });

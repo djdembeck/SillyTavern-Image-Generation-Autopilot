@@ -288,11 +288,18 @@ function ensureSettings() {
             extensionSettings[MODULE_NAME] = { ...defaultSettings }
         }
 
-        for (const [key, value] of Object.entries(defaultSettings)) {
-            if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
-                extensionSettings[MODULE_NAME][key] = value
+        // Deep merge defaults - handles nested objects like autoGeneration.summarizer
+        const deepMergeDefaults = (target, defaults) => {
+            for (const [key, value] of Object.entries(defaults)) {
+                if (typeof target[key] === 'undefined') {
+                    target[key] = value
+                } else if (value && typeof value === 'object' && !Array.isArray(value) && target[key] && typeof target[key] === 'object') {
+                    // Recursively merge nested objects
+                    deepMergeDefaults(target[key], value)
+                }
             }
         }
+        deepMergeDefaults(extensionSettings[MODULE_NAME], defaultSettings)
         const settings = extensionSettings[MODULE_NAME]
 
         // Migration: Clear old presets that contain circular references
@@ -1628,6 +1635,8 @@ function loadPreset(id) {
             ...settingsWithoutPresets,
             ...newSettingsWithoutPresets,
         }
+        // Apply defaults for any missing nested properties (e.g., summarizer)
+        ensureSettings()
     }
 
     // Save and sync UI
@@ -3763,11 +3772,31 @@ async function handleIncomingMessage(messageId) {
     const charName = message.name || context.name2 || context.character_name || ''
     const userName = context.name1 || context.user_name || 'User'
 
+    // Normalize SillyTavern chat messages to {role, content} format
+    // and extract a bounded window centered on the resolved message
+    const normalizedMessages = (context.chat || [])
+        .filter((m) => m && typeof m === 'object')
+        .map((m) => ({
+            role: m.is_user ? 'user' : 'assistant',
+            content: typeof m.mes === 'string' ? m.mes : '',
+        }))
+
+    // Compute window slice: center on resolvedId (or last message if not found)
+    const targetIndex = Math.min(resolvedId, normalizedMessages.length - 1)
+    const halfDepth = Math.floor(messageDepth / 2)
+    let sliceStart = Math.max(0, targetIndex - halfDepth)
+    let sliceEnd = Math.min(normalizedMessages.length, sliceStart + messageDepth)
+    // Adjust start if we're at the end of the chat
+    if (sliceEnd - sliceStart < messageDepth) {
+        sliceStart = Math.max(0, sliceEnd - messageDepth)
+    }
+    const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
+
     let summarizedPrompt = ''
     try {
         summarizedPrompt = await summarizeWithAI({
-            messages: context.chat || [],
-            messageDepth,
+            messages: boundedMessages,
+            messageDepth: boundedMessages.length,
             settings: summarizerSettings,
             systemPromptTemplate: summarizerSettings.systemPromptTemplate,
             charName,
