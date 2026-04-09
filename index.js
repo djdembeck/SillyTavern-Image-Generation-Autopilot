@@ -3271,6 +3271,56 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 sourceMessageId,
             )
         },
+        onResummarize: async (prompt) => {
+            log('Dialog requested resummarize', { prompt, sourceMessageId })
+            const context = getCtx()
+            const autoSettings = settings.autoGeneration
+            const summarizerSettings = autoSettings?.summarizer || {}
+            
+            const messageDepth = Math.max(
+                1,
+                Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
+            )
+            
+            const chat = context.chat || []
+            const message = chat[sourceMessageId]
+            const charName = message?.name || context.name2 || context.character_name || ''
+            const userName = context.name1 || context.user_name || 'User'
+            
+            const summarizerMessages = chat
+                .slice(Math.max(0, sourceMessageId - messageDepth + 1), sourceMessageId + 1)
+                .map((entry) => ({
+                    role: entry?.is_user ? 'user' : 'assistant',
+                    content: typeof entry?.mes === 'string' ? entry.mes.trim() : '',
+                }))
+                .filter((entry) => entry.content)
+            
+            try {
+                const result = await summarizeWithAI({
+                    messages: summarizerMessages,
+                    messageDepth,
+                    settings: summarizerSettings,
+                    systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                    charName,
+                    userName,
+                })
+                
+                if (typeof result !== 'string' || !result.trim()) {
+                    throw new Error('AI returned an empty response')
+                }
+                
+                return result
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                logger.error('[ImageAutopilot] Resummarize failed:', errorMessage)
+                
+                if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+                    window.toastr.error(errorMessage, 'Resummarize Failed')
+                }
+                
+                throw error
+            }
+        },
     })
     
     const generatorOptions = {
@@ -3723,16 +3773,23 @@ async function handleIncomingMessage(messageId) {
             userName,
         })
     } catch (error) {
-        logger.warn('Auto-generation summarizer failed', error)
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        logger.error('[ImageAutopilot] Auto-generation summarizer failed:', errorMessage)
+        
+        if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+            window.toastr.error(errorMessage, 'Image Summarization Failed')
+        }
+        
         return
     }
 
     if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
-        return
-    }
-
-    if (summarizedPrompt.startsWith('Error:')) {
-        logger.warn('Auto-generation summarizer returned error', summarizedPrompt)
+        logger.error('[ImageAutopilot] Auto-generation failed: Empty summarizer response')
+        
+        if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+            window.toastr.error('AI returned an empty response', 'Image Summarization Failed')
+        }
+        
         return
     }
 

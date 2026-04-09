@@ -1214,15 +1214,15 @@ export class ImageSelectionDialog {
     }
 
     async _handlePromptRewrite() {
-        logger.info('Rewrite button clicked', {
-            hasOnRewrite: !!this.onRewrite,
+        logger.info('Rewrite button clicked - triggering resummarization', {
+            hasOnResummarize: !!this.onResummarize,
             isRewriting: this.isRewriting,
             prompt: this.editedPrompt
         });
-        
-        if (!this.onRewrite || this.isRewriting) {
+
+        if (!this.onResummarize || this.isRewriting) {
             logger.warn('Rewrite aborted', {
-                reason: !this.onRewrite ? 'No onRewrite callback' : 'Already rewriting'
+                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already rewriting'
             });
             return;
         }
@@ -1239,9 +1239,9 @@ export class ImageSelectionDialog {
             }
             btn.lastChild.textContent = ' Rewriting...';
 
-    const rewritten = await this.onRewrite(this.editedPrompt);
-    logger.debug('Rewrite result received:', rewritten);
-            
+            const rewritten = await this.onResummarize(this.editedPrompt);
+            logger.debug('Rewrite (resummarize) result received:', rewritten);
+
             if (rewritten && rewritten !== this.editedPrompt) {
                 this.editedPrompt = rewritten;
                 if (this.domElements.promptTextarea) {

@@ -50,6 +50,57 @@ function getSillyTavernContext() {
   return null;
 }
 
+/**
+ * Retrieves a character's description from SillyTavern character data.
+ * @param {string} charName - Character name to look up
+ * @returns {string} Character description or empty string if not found
+ */
+export function getCharacterDescription(charName) {
+  if (!charName || typeof charName !== 'string') {
+    return '';
+  }
+
+  const ctx = getSillyTavernContext();
+  if (!ctx?.characters) {
+    return '';
+  }
+
+  const needle = String(charName).trim().toLowerCase();
+
+  // Handle array format (newer SillyTavern versions)
+  if (Array.isArray(ctx.characters)) {
+    const char = ctx.characters.find((c) => {
+      const label = c?.data?.name || c?.name || c?.data?.displayName;
+      return label && String(label).trim().toLowerCase() === needle;
+    });
+
+    if (char) {
+      const description = char?.data?.description || char?.description || '';
+      return typeof description === 'string' ? description.trim() : '';
+    }
+
+    return '';
+  }
+
+  // Handle object format (older SillyTavern versions or keyed by name)
+  if (ctx.characters[charName]) {
+    const char = ctx.characters[charName];
+    const description = char?.data?.description || char?.description || '';
+    return typeof description === 'string' ? description.trim() : '';
+  }
+
+  // Try case-insensitive lookup on object keys
+  for (const key of Object.keys(ctx.characters)) {
+    if (key.toLowerCase() === needle) {
+      const char = ctx.characters[key];
+      const description = char?.data?.description || char?.description || '';
+      return typeof description === 'string' ? description.trim() : '';
+    }
+  }
+
+  return '';
+}
+
 function normalizeResponseContent(result) {
   const content = result?.choices?.[0]?.message?.content;
   if (typeof content === 'string' && content.trim()) {
@@ -133,23 +184,33 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
   };
 
   if (typeof callChatCompletion === 'function') {
-    return callChatCompletion(messages, options);
+    try {
+      return await callChatCompletion(messages, options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`AI completion failed: ${message}`);
+    }
   }
 
   const ctx = getSillyTavernContext();
   if (typeof ctx?.generate !== 'function') {
-    throw new Error('No AI generation API is available for summarization');
+    throw new Error('No AI generation API is available for summarization. Ensure SillyTavern is properly initialized.');
   }
 
-  return ctx.generate({
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...messages,
-    ],
-    quiet: true,
-    stream: false,
-    ...options,
-  });
+  try {
+    return await ctx.generate({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages,
+      ],
+      quiet: true,
+      stream: false,
+      ...options,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`SillyTavern generate() failed: ${message}`);
+  }
 }
 
 /**
@@ -162,7 +223,8 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
  */
 export async function summarizeWithAI(text, charName, userName, settings) {
   const config = buildInvocationConfig(text, charName, userName, settings);
-  const appearanceLines = '';
+  const characterDescription = getCharacterDescription(config.charName);
+  const appearanceLines = characterDescription || '';
   const systemPrompt = buildSystemPrompt(config.systemPromptTemplate, appearanceLines);
 
   logger.debug('Summarizing with AI', {
@@ -182,7 +244,7 @@ export async function summarizeWithAI(text, charName, userName, settings) {
     return content;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    logger.error('Summarization failed', error);
-    return `Error: Failed to summarize with AI - ${message}`;
+    logger.error('Summarization failed:', message);
+    throw new Error(`Image summarization failed: ${message}`);
   }
 }
