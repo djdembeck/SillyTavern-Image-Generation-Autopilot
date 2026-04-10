@@ -1130,8 +1130,12 @@ export class ImageSelectionDialog {
     _handleCancel() {
         if (this.isGenerating) {
             this.generator.abort();
-            if (typeof window.stopGeneration === 'function') {
-                window.stopGeneration();
+            // Stop SD generation via custom event
+            const ctx = typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function'
+                ? SillyTavern.getContext()
+                : null;
+            if (ctx?.eventSource && typeof ctx.eventSource.emit === 'function') {
+                ctx.eventSource.emit('sd_stop_generation');
             }
         }
         if (this.rejectPromise) {
