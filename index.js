@@ -2184,7 +2184,9 @@ function syncModelSelectOptions(showFeedback = false) {
 async function syncProfileSelectOptions(showFeedback = false) {
     const ctx = getCtx()
     let connectionProfiles = []
+    let completionPresets = []
 
+    // Fetch connection profiles
     try {
         const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
         const raw = result?.pipe || (typeof result === 'string' ? result : '')
@@ -2211,18 +2213,55 @@ async function syncProfileSelectOptions(showFeedback = false) {
         }
     }
 
+    // Fetch completion presets
+    try {
+        const result = await ctx.executeSlashCommandsWithOptions('/preset-list')
+        const raw = result?.pipe || (typeof result === 'string' ? result : '')
+        if (raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw)
+                if (Array.isArray(parsed)) {
+                    completionPresets = parsed
+                }
+            } catch {
+                completionPresets = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+            }
+        }
+    } catch (error) {
+        logger.warn('Failed to list presets via slash command:', error)
+    }
+
     const select = state.ui?.promptRewriteModelSelect
     if (!select) return
 
     const currentValue = select.value || ''
     select.innerHTML = '<option value="">Default (Active chat model)</option>'
 
-    connectionProfiles.sort().forEach((name) => {
-        const option = document.createElement('option')
-        option.value = 'profile:' + name
-        option.textContent = name
-        select.appendChild(option)
-    })
+    // Add connection profiles section
+    if (connectionProfiles.length > 0) {
+        const profileGroup = document.createElement('optgroup')
+        profileGroup.label = 'Connection Profiles'
+        connectionProfiles.sort().forEach((name) => {
+            const option = document.createElement('option')
+            option.value = 'profile:' + name
+            option.textContent = name
+            profileGroup.appendChild(option)
+        })
+        select.appendChild(profileGroup)
+    }
+
+    // Add completion presets section
+    if (completionPresets.length > 0) {
+        const presetGroup = document.createElement('optgroup')
+        presetGroup.label = 'Completion Presets'
+        completionPresets.sort().forEach((name) => {
+            const option = document.createElement('option')
+            option.value = 'preset:' + name
+            option.textContent = name
+            presetGroup.appendChild(option)
+        })
+        select.appendChild(presetGroup)
+    }
 
     if (currentValue) {
         const exists = Array.from(select.options).some(o => o.value === currentValue)
@@ -2238,8 +2277,9 @@ async function syncProfileSelectOptions(showFeedback = false) {
     }
 
     if (showFeedback) {
-        log('Profile list refreshed.', {
-            profiles: connectionProfiles.length
+        log('Profile and preset list refreshed.', {
+            profiles: connectionProfiles.length,
+            presets: completionPresets.length
         })
     }
 }
@@ -3021,7 +3061,14 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
 
     if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
         try {
+            const isPreset = profileName.startsWith('preset:')
+            const isProfile = profileName.startsWith('profile:')
             const realName = profileName.replace(/^(profile|preset):/, '')
+
+            if (!realName) {
+                log('Skipping profile switch - empty name after prefix removal', { profileName })
+                return
+            }
 
             const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
             originalProfile = profileResult?.pipe
@@ -3031,11 +3078,17 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
 
             log('Switching connection profile for rewrite', {
                 target: realName,
+                isPreset,
+                isProfile,
                 previousProfile: originalProfile,
                 previousPreset: originalPreset
             })
 
-            await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+            if (isPreset) {
+                await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
+            } else {
+                await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+            }
 
             await sleep(100)
         } catch (error) {

@@ -245,7 +245,6 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
         ],
         quiet: true,
         stream: false,
-        ...options,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -267,7 +266,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
 export async function summarizeWithAI(text, charName, userName, settings) {
   const config = buildInvocationConfig(text, charName, userName, settings);
   const characterDescription = getCharacterDescription(config.charName);
-  const appearanceLines = characterDescription || '';
+  const appearanceLines = characterDescription;
   const systemPrompt = buildSystemPrompt(config.systemPromptTemplate, appearanceLines);
 
   logger.debug('Summarizing with AI', {
