@@ -195,24 +195,65 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
   }
 
   const ctx = getSillyTavernContext();
-  if (typeof ctx?.generate !== 'function') {
-    throw new Error('No AI generation API is available for summarization. Ensure SillyTavern is properly initialized.');
+  if (!ctx) {
+    throw new Error('SillyTavern context not available for summarization.');
   }
 
-  try {
-    return await ctx.generate({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
-      quiet: true,
-      stream: false,
-      ...options,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`SillyTavern generate() failed: ${message}`);
+  // Build the user prompt from messages
+  const userPrompt = messages.map(m => m.content).join('\n\n');
+
+  // Try generateRaw first (quiet, no chat message created)
+  if (typeof ctx.generateRaw === 'function') {
+    try {
+      logger.debug('Using generateRaw for quiet summarization');
+      return await ctx.generateRaw({
+        prompt: userPrompt,
+        systemPrompt: systemPrompt,
+        temperature: options.temperature,
+        max_tokens: options.max_tokens,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn('generateRaw failed, trying generateText:', message);
+    }
   }
+
+  // Try generateText as fallback (quiet, returns text only)
+  if (typeof ctx.generateText === 'function') {
+    try {
+      logger.debug('Using generateText for quiet summarization');
+      return await ctx.generateText({
+        prompt: userPrompt,
+        systemPrompt: systemPrompt,
+        temperature: options.temperature,
+        max_tokens: options.max_tokens,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn('generateText failed, trying generate:', message);
+    }
+  }
+
+  // Last resort: generate() - but this may create a visible message
+  if (typeof ctx.generate === 'function') {
+    try {
+      logger.debug('Using generate for summarization (may create visible message)');
+      return await ctx.generate({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+        quiet: true,
+        stream: false,
+        ...options,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`SillyTavern generate() failed: ${message}`);
+    }
+  }
+
+  throw new Error('No AI generation API is available for summarization. Ensure SillyTavern is properly initialized.');
 }
 
 /**
