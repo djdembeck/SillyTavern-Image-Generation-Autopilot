@@ -1130,6 +1130,9 @@ export class ImageSelectionDialog {
     _handleCancel() {
         if (this.isGenerating) {
             this.generator.abort();
+            if (typeof window.stopGeneration === 'function') {
+                window.stopGeneration();
+            }
         }
         if (this.rejectPromise) {
             this.rejectPromise(new Error('Cancelled'));
