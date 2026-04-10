@@ -3159,6 +3159,74 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
     return rewritten || ''
 }
 
+async function generateSummarizedPrompt(messageId) {
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+    const summarizerSettings = autoSettings?.summarizer || {}
+    const messageDepth = Math.max(
+        1,
+        Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
+    )
+
+    const context = getCtx()
+    const message = context.chat?.[messageId]
+    if (!message) {
+        return null
+    }
+
+    const charName = message.name || context.name2 || context.character_name || ''
+    const userName = context.name1 || context.user_name || 'User'
+
+    // Normalize SillyTavern chat messages to {role, content} format
+    // and extract a bounded window centered on the resolved message
+    // Strip <pic> tags so they don't influence the summarizer
+    const rawChatSlice = (context.chat || []).slice(0, messageId + 1)
+    const normalizedMessages = rawChatSlice
+        .filter((m) => m && typeof m === 'object')
+        .map((m) => ({
+            role: m.is_user ? 'user' : 'assistant',
+            content: stripPicTags(m.mes),
+        }))
+
+    // Compute window slice: center on resolvedId (or last message if not found)
+    const targetIndex = normalizedMessages.length - 1
+    const halfDepth = Math.floor(messageDepth / 2)
+    let sliceStart = Math.max(0, targetIndex - halfDepth)
+    let sliceEnd = Math.min(normalizedMessages.length, sliceStart + messageDepth)
+    // Adjust start if we're at the end of the chat
+    if (sliceEnd - sliceStart < messageDepth) {
+        sliceStart = Math.max(0, sliceEnd - messageDepth)
+    }
+    const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
+
+    try {
+        const summarizedPrompt = await summarizeWithAI({
+            messages: boundedMessages,
+            messageDepth: boundedMessages.length,
+            settings: summarizerSettings,
+            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+            charName,
+            userName,
+        })
+
+        if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
+            logger.error('[ImageAutopilot] Summarizer returned empty response')
+            return null
+        }
+
+        return summarizedPrompt.trim()
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        logger.error('[ImageAutopilot] Summarizer failed:', errorMessage)
+
+        if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+            window.toastr.error(errorMessage, 'Image Summarization Failed')
+        }
+
+        return null
+    }
+}
+
 async function handleIncomingMessage(messageId) {
     if (state.isRewriting) {
         log('Ignoring incoming message (currently rewriting)')
@@ -3195,64 +3263,8 @@ async function handleIncomingMessage(messageId) {
                 : message.mes,
     })
 
-    const summarizerSettings = autoSettings.summarizer || {}
-    const messageDepth = Math.max(
-        1,
-        Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
-    )
-
-    const charName = message.name || context.name2 || context.character_name || ''
-    const userName = context.name1 || context.user_name || 'User'
-
-    // Normalize SillyTavern chat messages to {role, content} format
-    // and extract a bounded window centered on the resolved message
-    // Strip <pic> tags so they don't influence the summarizer
-    const normalizedMessages = (context.chat || [])
-        .filter((m) => m && typeof m === 'object')
-        .map((m) => ({
-            role: m.is_user ? 'user' : 'assistant',
-            content: stripPicTags(m.mes),
-        }))
-
-    // Compute window slice: center on resolvedId (or last message if not found)
-    const targetIndex = Math.min(resolvedId, normalizedMessages.length - 1)
-    const halfDepth = Math.floor(messageDepth / 2)
-    let sliceStart = Math.max(0, targetIndex - halfDepth)
-    let sliceEnd = Math.min(normalizedMessages.length, sliceStart + messageDepth)
-    // Adjust start if we're at the end of the chat
-    if (sliceEnd - sliceStart < messageDepth) {
-        sliceStart = Math.max(0, sliceEnd - messageDepth)
-    }
-    const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
-
-    let summarizedPrompt = ''
-    try {
-        summarizedPrompt = await summarizeWithAI({
-            messages: boundedMessages,
-            messageDepth: boundedMessages.length,
-            settings: summarizerSettings,
-            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
-            charName,
-            userName,
-        })
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        logger.error('[ImageAutopilot] Auto-generation summarizer failed:', errorMessage)
-
-        if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
-            window.toastr.error(errorMessage, 'Image Summarization Failed')
-        }
-
-        return
-    }
-
-    if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
-        logger.error('[ImageAutopilot] Auto-generation failed: Empty summarizer response')
-
-        if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
-            window.toastr.error('AI returned an empty response', 'Image Summarization Failed')
-        }
-
+    const summarizedPrompt = await generateSummarizedPrompt(resolvedId)
+    if (!summarizedPrompt) {
         return
     }
 
@@ -3303,25 +3315,29 @@ async function handleManualPromptRewrite(messageId) {
         return
     }
 
-    const hasPrompts = (msg) =>
-        msg?.mes && getPicPromptMatches(msg.mes).length > 0
+    const minContentLength = 20
 
-    // If this message doesn't have prompts but has images, it might be a separate image message (New message mode).
-    // Try to find the source message with prompts (usually the one before).
-    if (!hasPrompts(message) && hasGeneratedMedia(message) && resolvedId > 0) {
+    // In "New message" mode, images go to a separate message. Find the source message.
+    if (hasGeneratedMedia(message) && resolvedId > 0) {
         const prevId = resolvedId - 1
         const prevMsg = chat[prevId]
-        if (prevMsg && !prevMsg.is_user && hasPrompts(prevMsg)) {
-            log('Targeting previous message for prompts', { prevId })
+        const prevContentLength = stripPicTags(prevMsg?.mes || '').trim().length
+        if (prevMsg && !prevMsg.is_user && prevContentLength >= minContentLength) {
+            log('Targeting previous message as source', { prevId })
             resolvedId = prevId
             message = prevMsg
         }
     }
 
-    if (!hasPrompts(message)) {
-        log('Rewrite ignored (no prompts found)', {
+    const contentLength = stripPicTags(message?.mes || '').trim().length
+    if (contentLength < minContentLength) {
+        log('Rewrite ignored (message too short for summarization)', {
             resolvedId,
+            contentLength,
         })
+        if (typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
+            window.toastr.warning('Message is too short to generate an image prompt', 'Cannot Rewrite')
+        }
         return
     }
 
@@ -3872,24 +3888,25 @@ async function queueAutoFill(messageId, button) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
 
-    let prompts = []
+    if (!autoSettings?.enabled) {
+        logger.warn('Auto-fill ignored (auto generation disabled)')
+        return
+    }
 
-    const matches = getPicPromptMatches(message?.mes)
-    prompts = matches
-        .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
-        .filter((p) => p.trim())
-
-    if (!prompts.length) {
-        logger.warn('No prompts found in message for auto-fill')
+    const summarizedPrompt = await generateSummarizedPrompt(messageId)
+    if (!summarizedPrompt) {
+        logger.warn('Auto-fill failed: could not generate prompt')
         return
     }
 
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
-    for (let prompt of prompts) {
-        for (let i = 0; i < swipesPerImage; i += 1) {
-            expandedPrompts.push(prompt)
-        }
+    for (let i = 0; i < swipesPerImage; i += 1) {
+        expandedPrompts.push(summarizedPrompt)
+    }
+
+    if (!expandedPrompts.length) {
+        return
     }
 
     state.runningMessages.set(messageId, true)
@@ -3916,10 +3933,7 @@ async function handleMessageRendered(messageId, origin) {
     const message = getCtx().chat?.[messageId]
     const hasMedia = getMediaCount(message) > 0
 
-    const hasPicTags =
-        message?.mes && getPicPromptMatches(message.mes).length > 0
-
-    ensureReswipeButton(messageId, settings.enabled && (hasPicTags || !hasMedia))
+    ensureReswipeButton(messageId, settings.enabled && !hasMedia)
     ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
 
     if (!shouldAutoFill(message)) {
@@ -4136,12 +4150,7 @@ function refreshReswipeButtons() {
 
             const hasMedia = getMediaCount(message) > 0
 
-            // Also check if message contains pic tags for reswipe trigger
-            const hasPicTags =
-                message?.mes && getPicPromptMatches(message.mes).length > 0
-
-            // Show if it has tags OR if it has no images at all
-            const shouldShow = settings.enabled && (hasPicTags || !hasMedia)
+            const shouldShow = settings.enabled && !hasMedia
             ensureReswipeButton(messageId, shouldShow)
 
             const shouldShowRewrite = shouldShowPromptRewriteButton(message)

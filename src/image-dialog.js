@@ -1213,11 +1213,18 @@ export class ImageSelectionDialog {
     }
 
     async _handlePromptRewrite() {
-        logger.info('Rewrite button clicked - triggering resummarization', {
-            hasOnResummarize: !!this.onResummarize,
-            isRewriting: this.isRewriting,
-            prompt: this.editedPrompt
-        });
+        if (isDebugMode()) {
+            logger.debug('Rewrite button clicked - triggering resummarization', {
+                hasOnResummarize: !!this.onResummarize,
+                isRewriting: this.isRewriting,
+                prompt: this.editedPrompt
+            });
+        } else {
+            logger.info('Rewrite button clicked - triggering resummarization', {
+                hasOnResummarize: !!this.onResummarize,
+                isRewriting: this.isRewriting
+            });
+        }
 
         if (!this.onResummarize || this.isRewriting) {
             logger.warn('Rewrite aborted', {
@@ -1270,12 +1277,20 @@ export class ImageSelectionDialog {
     async _handlePromptResummarize() {
         const RESUMMARIZE_DEBOUNCE_MS = 1000;
         
-        logger.info('Resummarize button clicked', {
-            hasOnResummarize: !!this.onResummarize,
-            isResummarizing: this.isResummarizing,
-            prompt: this.editedPrompt,
-            timeSinceLastCall: Date.now() - this.lastResummarizeTime
-        });
+        if (isDebugMode()) {
+            logger.debug('Resummarize button clicked', {
+                hasOnResummarize: !!this.onResummarize,
+                isResummarizing: this.isResummarizing,
+                prompt: this.editedPrompt,
+                timeSinceLastCall: Date.now() - this.lastResummarizeTime
+            });
+        } else {
+            logger.info('Resummarize button clicked', {
+                hasOnResummarize: !!this.onResummarize,
+                isResummarizing: this.isResummarizing,
+                timeSinceLastCall: Date.now() - this.lastResummarizeTime
+            });
+        }
         
         const now = Date.now();
         if (now - this.lastResummarizeTime < RESUMMARIZE_DEBOUNCE_MS) {
