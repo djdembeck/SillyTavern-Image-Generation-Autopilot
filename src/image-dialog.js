@@ -625,14 +625,14 @@ export class ImageSelectionDialog {
         }
 
         if (this.domElements.promptRewriteBtn) {
-            this.domElements.promptRewriteBtn.addEventListener('click', () => {
-                this._handlePromptRewrite();
+            this.domElements.promptRewriteBtn.addEventListener('click', async () => {
+                await this._handlePromptRewrite();
             });
         }
 
         if (this.domElements.promptResummarizeBtn) {
-            this.domElements.promptResummarizeBtn.addEventListener('click', () => {
-                this._handlePromptResummarize();
+            this.domElements.promptResummarizeBtn.addEventListener('click', async () => {
+                await this._handlePromptResummarize();
             });
         }
 

@@ -117,6 +117,10 @@ const handleDialogResultSource = extractFunctionSource(
     'handleDialogResult',
     'normalizeRewriteResponse',
 )
+const generateSummarizedPromptSource = extractFunctionSource(
+    'generateSummarizedPrompt',
+    'handleIncomingMessage',
+)
 
 describe('full flow integration', () => {
     beforeEach(() => {
@@ -197,6 +201,24 @@ describe('full flow integration', () => {
             },
         )
 
+        const generateSummarizedPrompt = buildIndexFunction(
+            generateSummarizedPromptSource,
+            'generateSummarizedPrompt',
+            {
+                getSettings,
+                getCtx,
+                summarizeWithAI,
+                logger: {
+                    error: mock(),
+                    warn: mock(),
+                },
+                stripPicTags: (content) => {
+                    if (typeof content !== 'string') return content
+                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+                },
+            },
+        )
+
         const handleIncomingMessage = buildIndexFunction(
             handleIncomingMessageSource,
             'handleIncomingMessage',
@@ -214,6 +236,7 @@ describe('full flow integration', () => {
                 },
                 getCtx,
                 summarizeWithAI,
+                generateSummarizedPrompt,
                 getSwipeTotal: mock(() => 2),
                 openImageSelectionDialog,
                 handleDialogResult,
@@ -397,6 +420,24 @@ describe('full flow integration', () => {
             throw new Error('Summarizer offline')
         })
 
+        const generateSummarizedPrompt = buildIndexFunction(
+            generateSummarizedPromptSource,
+            'generateSummarizedPrompt',
+            {
+                getSettings,
+                getCtx,
+                summarizeWithAI,
+                logger: {
+                    error: mock(),
+                    warn: mock(),
+                },
+                stripPicTags: (content) => {
+                    if (typeof content !== 'string') return content
+                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+                },
+            },
+        )
+
         const handleIncomingMessage = buildIndexFunction(
             handleIncomingMessageSource,
             'handleIncomingMessage',
@@ -414,6 +455,7 @@ describe('full flow integration', () => {
                 },
                 getCtx,
                 summarizeWithAI,
+                generateSummarizedPrompt,
                 getSwipeTotal: mock(() => 1),
                 openImageSelectionDialog,
                 handleDialogResult,
