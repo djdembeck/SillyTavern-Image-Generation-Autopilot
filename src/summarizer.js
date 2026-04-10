@@ -162,6 +162,7 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
       characterDescriptions: inputOrText.characterDescriptions || {},
       charName: inputOrText.charName || '',
       userName: inputOrText.userName || '',
+      maxTokens: inputOrText.maxTokens || inputOrText.settings?.summarizer?.maxTokens || 0,
     };
   }
 
@@ -175,14 +176,16 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
     characterDescriptions: {},
     charName: charName || '',
     userName: userName || '',
+    maxTokens: summarizerSettings.maxTokens || 0,
   };
 }
 
-async function callSummarizer(messages, systemPrompt, callChatCompletion) {
+async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTokens = 0) {
   logger.debug('callSummarizer invoked', {
     messageCount: messages.length,
     systemPromptLength: systemPrompt?.length,
-    hasCallChatCompletion: typeof callChatCompletion === 'function'
+    hasCallChatCompletion: typeof callChatCompletion === 'function',
+    maxTokens
   });
 
   if (typeof callChatCompletion === 'function') {
@@ -190,7 +193,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
       logger.debug('Using provided callChatCompletion');
       const options = {
         temperature: 0.3,
-        max_tokens: 2500,
+        max_tokens: maxTokens > 0 ? maxTokens : 2500,
         systemPrompt,
       };
       return await callChatCompletion(messages, options);
@@ -212,13 +215,19 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
 
   logger.debug('Built prompt with instructions', { promptLength: promptWithInstructions.length });
 
+  const genOptions = {
+    prompt: promptWithInstructions,
+    temperature: 0.3,
+  };
+
+  if (maxTokens > 0) {
+    genOptions.max_tokens = maxTokens;
+  }
+
   if (typeof ctx.generateRaw === 'function') {
     try {
       logger.debug('Using generateRaw (profile settings preserved)');
-      return await ctx.generateRaw({
-        prompt: promptWithInstructions,
-        temperature: 0.3,
-      });
+      return await ctx.generateRaw(genOptions);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.warn('generateRaw failed, trying generateText:', message);
@@ -228,10 +237,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
   if (typeof ctx.generateText === 'function') {
     try {
       logger.debug('Using generateText (profile settings preserved)');
-      return await ctx.generateText({
-        prompt: promptWithInstructions,
-        temperature: 0.3,
-      });
+      return await ctx.generateText(genOptions);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.warn('generateText failed, trying generate:', message);
@@ -247,6 +253,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
         ],
         quiet: true,
         stream: false,
+        ...genOptions,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -275,10 +282,11 @@ export async function summarizeWithAI(text, charName, userName, settings) {
     messageCount: config.messages.length,
     charName: config.charName,
     userName: config.userName,
+    maxTokens: config.maxTokens,
   });
 
   try {
-    const result = await callSummarizer(config.messages, systemPrompt, config.callChatCompletion);
+    const result = await callSummarizer(config.messages, systemPrompt, config.callChatCompletion, config.maxTokens);
     const content = normalizeResponseContent(result);
 
     if (!content) {

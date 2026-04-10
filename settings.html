@@ -133,6 +133,17 @@
                                 class="text_pole"
                             />
                         </label>
+                        <label title="Maximum tokens for the generated image prompt. Set to 0 for no limit.">
+                            <span>Max output tokens</span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="4000"
+                                step="50"
+                                id="summarizer-max-tokens"
+                                class="text_pole"
+                            />
+                        </label>
                     </div>
                     <label title="System prompt template used to generate image descriptions. Use {{APPEARANCE_LINES}} as a placeholder for character appearance data.">
                         <span>Summarizer system prompt template</span>
@@ -143,6 +154,121 @@
                             placeholder="You are an expert at creating detailed image generation prompts..."
                         ></textarea>
                     </label>
+                </div>
+                <div class="auto-multi-stack">
+                    <label class="checkbox_label auto-multi-inline" title="Inject prompt guidance into the chat completion prompt.">
+                        <input
+                            type="checkbox"
+                            id="auto_multi_prompt_injection_enabled"
+                        />
+                        <span>Enable prompt injection</span>
+                    </label>
+                    <label title="High-level system prompt for image generation behavior.">
+                        <span>Main prompt</span>
+                        <textarea
+                            id="auto_multi_prompt_main"
+                            class="text_pole auto-multi-textarea"
+                            rows="3"
+                            placeholder="Re-state hair style, outfit, and body every single time."
+                        ></textarea>
+                    </label>
+                    <div class="auto-multi-grid">
+                        <label title="Positive constraints or style rules for image prompts.">
+                            <span>Positive instructions</span>
+                            <textarea
+                                id="auto_multi_prompt_positive"
+                                class="text_pole auto-multi-textarea"
+                                rows="2"
+                                placeholder="Required style or composition details..."
+                            ></textarea>
+                        </label>
+                        <label title="Negative constraints or forbidden elements for image prompts.">
+                            <span>Negative instructions</span>
+                            <textarea
+                                id="auto_multi_prompt_negative"
+                                class="text_pole auto-multi-textarea"
+                                rows="2"
+                                placeholder="Forbidden elements or words..."
+                            ></textarea>
+                        </label>
+                    </div>
+                    <div class="auto-multi-grid">
+                        <label title="Where to inject the prompt guidance into the chat completion prompt.">
+                            <span>Injection position</span>
+                            <select id="auto_multi_prompt_position" class="text_pole">
+                                <option value="deep_system">@D ⚙️ System</option>
+                                <option value="deep_user">@D 👤 User</option>
+                                <option value="deep_assistant">@D 🤖 Assistant</option>
+                            </select>
+                        </label>
+                        <label title="How far from the end to inject prompt guidance (0 = end of prompt).">
+                            <span>Injection depth</span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="1"
+                                id="auto_multi_prompt_depth"
+                                class="text_pole"
+                            />
+                        </label>
+                    </div>
+                    <div class="auto-multi-count-group" title="How many <pic> prompts the assistant should output per reply.">
+                        <label>
+                            <span>Image count rule</span>
+                            <select id="auto_multi_pic_count_mode" class="text_pole">
+                                <option value="exact">Exactly</option>
+                                <option value="range">Between (range)</option>
+                                <option value="min">At least</option>
+                                <option value="max">At most</option>
+                            </select>
+                        </label>
+                        <label
+                            class="auto-multi-count-field"
+                            data-count-mode="exact"
+                            title="Exact number of <pic> prompts to request when using the Exact rule."
+                        >
+                            <span>Exact</span>
+                            <input
+                                type="number"
+                                min="1"
+                                max="12"
+                                step="1"
+                                id="auto_multi_pic_count_exact"
+                                class="text_pole"
+                            />
+                        </label>
+                        <label
+                            class="auto-multi-count-field"
+                            data-count-mode="min range"
+                            title="Minimum number of <pic> prompts when using At least or Between."
+                        >
+                            <span>Min</span>
+                            <input
+                                type="number"
+                                min="1"
+                                max="12"
+                                step="1"
+                                id="auto_multi_pic_count_min"
+                                class="text_pole"
+                            />
+                        </label>
+                        <label
+                            class="auto-multi-count-field"
+                            data-count-mode="max range"
+                            title="Maximum number of <pic> prompts when using At most or Between."
+                        >
+                            <span>Max</span>
+                            <input
+                                type="number"
+                                min="1"
+                                max="12"
+                                step="1"
+                                id="auto_multi_pic_count_max"
+                                class="text_pole"
+                            />
+                        </label>
+                    </div>
                 </div>
 
             </section>

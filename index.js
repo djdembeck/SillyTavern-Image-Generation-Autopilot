@@ -49,8 +49,26 @@ const defaultSettings = Object.freeze({
             enabled: false,
             modelId: '',
         },
+        promptInjection: {
+            enabled: true,
+            mainPrompt:
+                'Insert <pic prompt="detailed scene description"> tags at the end of each reply.',
+            instructionsPositive: '',
+            instructionsNegative: '',
+            examplePrompt: '',
+            lengthLimit: 0,
+            lengthLimitType: 'none',
+            picCountMode: 'exact',
+            picCountExact: 1,
+            picCountMin: 1,
+            picCountMax: 3,
+            regex: '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
+            position: 'deep_system',
+            depth: 0,
+        },
         summarizer: {
             messageDepth: 1,
+            maxTokens: 500,
             systemPromptTemplate: `You are an expert at creating detailed image generation prompts from roleplay scenarios.
 
 Character Appearance:
@@ -134,6 +152,20 @@ const logger = {
     info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
     warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
     error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
+}
+
+function updatePicCountFieldVisibility(container, mode) {
+    if (!container) {
+        return
+    }
+    const normalizedMode = mode || 'exact'
+    const fields = container.querySelectorAll('.auto-multi-count-field')
+    fields.forEach((field) => {
+        const fieldMode = field.dataset.countMode || ''
+        const modes = fieldMode.split(' ')
+        const visible = modes.includes(normalizedMode)
+        field.classList.toggle('is-hidden', !visible)
+    })
 }
 
 function resolveTemplateRoot() {
@@ -1698,6 +1730,39 @@ async function buildSettingsPanel() {
     const summarizerSystemPromptInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#summarizer-system-prompt')
     )
+    const summarizerMaxTokensInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#summarizer-max-tokens')
+    )
+    const promptInjectionEnabledInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_injection_enabled')
+    )
+    const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_main')
+    )
+    const promptPositiveInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_positive')
+    )
+    const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_negative')
+    )
+    const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_position')
+    )
+    const promptDepthInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_depth')
+    )
+    const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_mode')
+    )
+    const picCountExactInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_exact')
+    )
+    const picCountMinInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_min')
+    )
+    const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_pic_count_max')
+    )
     if (
         !(
             enabledInput &&
@@ -1750,6 +1815,17 @@ async function buildSettingsPanel() {
         concurrencyInput,
         summarizerDepthInput,
         summarizerSystemPromptInput,
+        summarizerMaxTokensInput,
+        promptInjectionEnabledInput,
+        promptMainInput,
+        promptPositiveInput,
+        promptNegativeInput,
+        promptPositionSelect,
+        promptDepthInput,
+        picCountModeSelect,
+        picCountExactInput,
+        picCountMinInput,
+        picCountMaxInput,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -1843,6 +1919,83 @@ async function buildSettingsPanel() {
     summarizerSystemPromptInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.summarizer.systemPromptTemplate = summarizerSystemPromptInput.value
+        saveSettings()
+    })
+
+    summarizerMaxTokensInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(0, Math.min(4000, parseInt(summarizerMaxTokensInput.value, 10) || 0))
+        current.autoGeneration.summarizer.maxTokens = value
+        summarizerMaxTokensInput.value = String(value)
+        saveSettings()
+    })
+
+    promptInjectionEnabledInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.enabled = promptInjectionEnabledInput.checked
+        saveSettings()
+    })
+
+    promptMainInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.mainPrompt = promptMainInput.value
+        saveSettings()
+    })
+
+    promptPositiveInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsPositive = promptPositiveInput.value
+        saveSettings()
+    })
+
+    promptNegativeInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
+        saveSettings()
+    })
+
+    promptPositionSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.position = promptPositionSelect.value
+        saveSettings()
+    })
+
+    promptDepthInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(0, Math.min(100, parseInt(promptDepthInput.value, 10) || 0))
+        current.autoGeneration.promptInjection.depth = value
+        promptDepthInput.value = String(value)
+        saveSettings()
+    })
+
+    picCountModeSelect?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.picCountMode = picCountModeSelect.value
+        saveSettings()
+        updatePicCountFieldVisibility(container, picCountModeSelect.value)
+    })
+
+    picCountExactInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(1, Math.min(12, parseInt(picCountExactInput.value, 10) || 1))
+        current.autoGeneration.promptInjection.picCountExact = value
+        picCountExactInput.value = String(value)
+        saveSettings()
+    })
+
+    picCountMinInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(1, Math.min(12, parseInt(picCountMinInput.value, 10) || 1))
+        current.autoGeneration.promptInjection.picCountMin = value
+        picCountMinInput.value = String(value)
+        saveSettings()
+    })
+
+    picCountMaxInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(1, Math.min(12, parseInt(picCountMaxInput.value, 10) || 3))
+        current.autoGeneration.promptInjection.picCountMax = value
+        picCountMaxInput.value = String(value)
         saveSettings()
     })
 
@@ -2371,6 +2524,61 @@ function syncUiFromSettings() {
         state.ui.summarizerSystemPromptInput.value =
             settings.autoGeneration.summarizer.systemPromptTemplate || ''
     }
+
+    if (state.ui.summarizerMaxTokensInput) {
+        const maxTokens = Math.max(0, Math.min(4000, settings.autoGeneration.summarizer.maxTokens || 0))
+        state.ui.summarizerMaxTokensInput.value = String(maxTokens)
+    }
+
+    if (state.ui.promptInjectionEnabledInput) {
+        state.ui.promptInjectionEnabledInput.checked =
+            settings.autoGeneration.promptInjection.enabled
+    }
+    if (state.ui.promptMainInput) {
+        state.ui.promptMainInput.value =
+            settings.autoGeneration.promptInjection.mainPrompt
+    }
+    if (state.ui.promptPositiveInput) {
+        state.ui.promptPositiveInput.value =
+            settings.autoGeneration.promptInjection.instructionsPositive
+    }
+    if (state.ui.promptNegativeInput) {
+        state.ui.promptNegativeInput.value =
+            settings.autoGeneration.promptInjection.instructionsNegative
+    }
+    if (state.ui.promptPositionSelect) {
+        state.ui.promptPositionSelect.value =
+            settings.autoGeneration.promptInjection.position
+    }
+    if (state.ui.promptDepthInput) {
+        state.ui.promptDepthInput.value = String(
+            Math.max(0, Math.min(100, settings.autoGeneration.promptInjection.depth)),
+        )
+    }
+    if (state.ui.picCountModeSelect) {
+        state.ui.picCountModeSelect.value =
+            settings.autoGeneration.promptInjection.picCountMode
+    }
+    if (state.ui.picCountExactInput) {
+        state.ui.picCountExactInput.value = String(
+            Math.max(1, Math.min(12, settings.autoGeneration.promptInjection.picCountExact)),
+        )
+    }
+    if (state.ui.picCountMinInput) {
+        state.ui.picCountMinInput.value = String(
+            Math.max(1, Math.min(12, settings.autoGeneration.promptInjection.picCountMin)),
+        )
+    }
+    if (state.ui.picCountMaxInput) {
+        state.ui.picCountMaxInput.value = String(
+            Math.max(1, Math.min(12, settings.autoGeneration.promptInjection.picCountMax)),
+        )
+    }
+
+    updatePicCountFieldVisibility(
+        state.ui.container,
+        settings.autoGeneration.promptInjection.picCountMode,
+    )
 
     const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
     if (state.ui.concurrencyInput) {
