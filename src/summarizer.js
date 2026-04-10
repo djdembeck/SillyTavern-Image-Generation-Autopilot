@@ -18,24 +18,25 @@ const logger = {
   error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
 };
 
-const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `You are an expert at creating detailed image generation prompts from roleplay scenarios.
+const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `Create image generation prompts from roleplay scenarios.
 
 Character Appearance:
 {{APPEARANCE_LINES}}
 
-Your task is to analyze the recent conversation and create a comprehensive image generation prompt that captures:
-1. The characters present and their current state
-2. The scene setting, atmosphere, and mood
-3. Visual details that would make a compelling image
+Rules:
+- Use only literal visual descriptions
+- No metaphors, emotions, or abstract concepts
+- Only include what can be seen: colors, shapes, positions, lighting, textures
+- Be concise - omit unnecessary words
 
 Output Format:
 {{OUTPUT_FORMAT_LINES}}`;
 
 const OUTPUT_FORMAT_LINES = [
   'Characters:',
-  '- [Character Name]: [Brief description of appearance, pose, expression, clothing]',
+  '- [Name]: [pose, expression, clothing, visible features]',
   '',
-  'Scene: [Detailed description of the environment, lighting, camera angle, style]',
+  'Scene: [environment, lighting, camera angle]',
 ].join('\n');
 
 function getSillyTavernContext() {
