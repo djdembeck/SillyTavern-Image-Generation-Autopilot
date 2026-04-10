@@ -163,6 +163,8 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
       charName: inputOrText.charName || '',
       userName: inputOrText.userName || '',
       maxTokens: inputOrText.maxTokens || inputOrText.settings?.summarizer?.maxTokens || 0,
+      characterPercent: inputOrText.characterPercent || inputOrText.settings?.summarizer?.characterPercent || 30,
+      scenePercent: inputOrText.scenePercent || inputOrText.settings?.summarizer?.scenePercent || 70,
     };
   }
 
@@ -177,15 +179,19 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
     charName: charName || '',
     userName: userName || '',
     maxTokens: summarizerSettings.maxTokens || 0,
+    characterPercent: summarizerSettings.characterPercent || 30,
+    scenePercent: summarizerSettings.scenePercent || 70,
   };
 }
 
-async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTokens = 0) {
+async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTokens = 0, characterPercent = 30, scenePercent = 70) {
   logger.debug('callSummarizer invoked', {
     messageCount: messages.length,
     systemPromptLength: systemPrompt?.length,
     hasCallChatCompletion: typeof callChatCompletion === 'function',
-    maxTokens
+    maxTokens,
+    characterPercent,
+    scenePercent
   });
 
   if (typeof callChatCompletion === 'function') {
@@ -211,8 +217,18 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
   const conversationText = messages.map(m => m.content).join('\n\n');
   
   let finalSystemPrompt = systemPrompt;
-  if (systemPrompt && maxTokens > 0) {
-    finalSystemPrompt = `${systemPrompt}\n\nKeep your response under ${Math.floor(maxTokens * 0.75)} words.`;
+  const instructions = [];
+  
+  if (characterPercent > 0 || scenePercent > 0) {
+    instructions.push(`Allocate approximately ${characterPercent}% of your response to character description and ${scenePercent}% to scene description.`);
+  }
+  
+  if (maxTokens > 0) {
+    instructions.push(`Keep your response under ${Math.floor(maxTokens * 0.75)} words.`);
+  }
+  
+  if (instructions.length > 0 && systemPrompt) {
+    finalSystemPrompt = `${systemPrompt}\n\n${instructions.join(' ')}`;
   }
   
   const promptWithInstructions = finalSystemPrompt
@@ -289,10 +305,19 @@ export async function summarizeWithAI(text, charName, userName, settings) {
     charName: config.charName,
     userName: config.userName,
     maxTokens: config.maxTokens,
+    characterPercent: config.characterPercent,
+    scenePercent: config.scenePercent,
   });
 
   try {
-    const result = await callSummarizer(config.messages, systemPrompt, config.callChatCompletion, config.maxTokens);
+    const result = await callSummarizer(
+      config.messages, 
+      systemPrompt, 
+      config.callChatCompletion, 
+      config.maxTokens,
+      config.characterPercent,
+      config.scenePercent
+    );
     const content = normalizeResponseContent(result);
 
     if (!content) {

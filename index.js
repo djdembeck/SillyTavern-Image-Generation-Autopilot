@@ -69,6 +69,8 @@ const defaultSettings = Object.freeze({
         summarizer: {
             messageDepth: 1,
             maxTokens: 500,
+            characterPercent: 30,
+            scenePercent: 70,
             systemPromptTemplate: `You are an expert at creating detailed image generation prompts from roleplay scenarios.
 
 Character Appearance:
@@ -1727,6 +1729,12 @@ async function buildSettingsPanel() {
     const summarizerMaxTokensInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#summarizer-max-tokens')
     )
+    const summarizerCharacterPercentInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#summarizer-character-percent')
+    )
+    const summarizerScenePercentInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#summarizer-scene-percent')
+    )
     const promptInjectionEnabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_prompt_injection_enabled')
     )
@@ -1810,6 +1818,8 @@ async function buildSettingsPanel() {
         summarizerDepthInput,
         summarizerSystemPromptInput,
         summarizerMaxTokensInput,
+        summarizerCharacterPercentInput,
+        summarizerScenePercentInput,
         promptInjectionEnabledInput,
         promptMainInput,
         promptPositiveInput,
@@ -1921,6 +1931,22 @@ async function buildSettingsPanel() {
         const value = Math.max(0, Math.min(4000, parseInt(summarizerMaxTokensInput.value, 10) || 0))
         current.autoGeneration.summarizer.maxTokens = value
         summarizerMaxTokensInput.value = String(value)
+        saveSettings()
+    })
+
+    summarizerCharacterPercentInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(0, Math.min(100, parseInt(summarizerCharacterPercentInput.value, 10) || 30))
+        current.autoGeneration.summarizer.characterPercent = value
+        summarizerCharacterPercentInput.value = String(value)
+        saveSettings()
+    })
+
+    summarizerScenePercentInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(0, Math.min(100, parseInt(summarizerScenePercentInput.value, 10) || 70))
+        current.autoGeneration.summarizer.scenePercent = value
+        summarizerScenePercentInput.value = String(value)
         saveSettings()
     })
 
@@ -2522,6 +2548,16 @@ function syncUiFromSettings() {
     if (state.ui.summarizerMaxTokensInput) {
         const maxTokens = Math.max(0, Math.min(4000, settings.autoGeneration.summarizer.maxTokens || 0))
         state.ui.summarizerMaxTokensInput.value = String(maxTokens)
+    }
+
+    if (state.ui.summarizerCharacterPercentInput) {
+        const charPercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.characterPercent || 30))
+        state.ui.summarizerCharacterPercentInput.value = String(charPercent)
+    }
+
+    if (state.ui.summarizerScenePercentInput) {
+        const scenePercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.scenePercent || 70))
+        state.ui.summarizerScenePercentInput.value = String(scenePercent)
     }
 
     if (state.ui.promptInjectionEnabledInput) {

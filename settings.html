@@ -145,6 +145,30 @@
                             />
                         </label>
                     </div>
+                    <div class="auto-multi-grid">
+                        <label title="Percentage of output dedicated to character description (1-100).">
+                            <span>Character %</span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="5"
+                                id="summarizer-character-percent"
+                                class="text_pole"
+                            />
+                        </label>
+                        <label title="Percentage of output dedicated to scene description (1-100).">
+                            <span>Scene %</span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="5"
+                                id="summarizer-scene-percent"
+                                class="text_pole"
+                            />
+                        </label>
+                    </div>
                     <label title="System prompt template used to generate image descriptions. Use {{APPEARANCE_LINES}} as a placeholder for character appearance data.">
                         <span>Summarizer system prompt template</span>
                         <textarea
