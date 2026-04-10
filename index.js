@@ -338,12 +338,6 @@ function ensureSettings() {
         deepMergeDefaults(extensionSettings[MODULE_NAME], defaultSettings)
         const settings = extensionSettings[MODULE_NAME]
 
-        // Cleanup: Remove stale promptInjection data from older versions
-        if (settings.autoGeneration?.promptInjection) {
-            logger.debug('Removing stale promptInjection settings from user storage')
-            delete settings.autoGeneration.promptInjection
-        }
-
         // Migration: Clear old presets that contain circular references
         // Only delete presets that have actual circular references (preset.settings.presets === the preset itself)
         if (settings.presets && Object.keys(settings.presets).length > 0) {
