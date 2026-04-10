@@ -209,8 +209,14 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
   }
 
   const conversationText = messages.map(m => m.content).join('\n\n');
-  const promptWithInstructions = systemPrompt
-    ? `${systemPrompt}\n\n---\n\nConversation to analyze:\n${conversationText}`
+  
+  let finalSystemPrompt = systemPrompt;
+  if (systemPrompt && maxTokens > 0) {
+    finalSystemPrompt = `${systemPrompt}\n\nKeep your response under ${Math.floor(maxTokens * 0.75)} words.`;
+  }
+  
+  const promptWithInstructions = finalSystemPrompt
+    ? `${finalSystemPrompt}\n\n---\n\nConversation to analyze:\n${conversationText}`
     : conversationText;
 
   logger.debug('Built prompt with instructions', { promptLength: promptWithInstructions.length });
