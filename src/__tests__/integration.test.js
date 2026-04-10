@@ -208,6 +208,7 @@ describe('full flow integration', () => {
                 getSettings,
                 getCtx,
                 summarizeWithAI,
+                log: mock(),
                 logger: {
                     error: mock(),
                     warn: mock(),
@@ -427,6 +428,7 @@ describe('full flow integration', () => {
                 getSettings,
                 getCtx,
                 summarizeWithAI,
+                log: mock(),
                 logger: {
                     error: mock(),
                     warn: mock(),
