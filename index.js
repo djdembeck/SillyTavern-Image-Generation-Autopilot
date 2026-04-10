@@ -1,4 +1,5 @@
 import { summarizeWithAI } from './src/summarizer.js'
+import { getPresetManager } from '../../../preset-manager.js'
 
 const MODULE_NAME = 'Image-Generation-Autopilot'
 const INSERT_TYPE = Object.freeze({
@@ -2213,22 +2214,19 @@ async function syncProfileSelectOptions(showFeedback = false) {
         }
     }
 
-    // Fetch completion presets
+    // Fetch completion presets using preset-manager API
     try {
-        const result = await ctx.executeSlashCommandsWithOptions('/preset-list')
-        const raw = result?.pipe || (typeof result === 'string' ? result : '')
-        if (raw.trim()) {
-            try {
-                const parsed = JSON.parse(raw)
-                if (Array.isArray(parsed)) {
-                    completionPresets = parsed
-                }
-            } catch {
-                completionPresets = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
-            }
+        const { presets, preset_names } = getPresetManager().getPresetList()
+        if (Array.isArray(preset_names)) {
+            completionPresets = preset_names
+        } else if (preset_names && typeof preset_names === 'object') {
+            completionPresets = Object.keys(preset_names)
+        } else if (Array.isArray(presets)) {
+            // Fallback: extract names from presets array
+            completionPresets = presets.map(p => p?.name).filter(Boolean)
         }
     } catch (error) {
-        logger.warn('Failed to list presets via slash command:', error)
+        logger.warn('Failed to list presets via preset-manager:', error)
     }
 
     const select = state.ui?.promptRewriteModelSelect
