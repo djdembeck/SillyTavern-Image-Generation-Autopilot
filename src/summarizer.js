@@ -179,6 +179,12 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
 }
 
 async function callSummarizer(messages, systemPrompt, callChatCompletion) {
+  logger.info('callSummarizer invoked', {
+    messageCount: messages.length,
+    systemPromptLength: systemPrompt?.length,
+    hasCallChatCompletion: typeof callChatCompletion === 'function'
+  });
+
   const options = {
     temperature: 0.3,
     max_tokens: 2500,
@@ -187,6 +193,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
 
   if (typeof callChatCompletion === 'function') {
     try {
+      logger.info('Using provided callChatCompletion');
       return await callChatCompletion(messages, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -199,46 +206,47 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
     throw new Error('SillyTavern context not available for summarization.');
   }
 
-  // Build the user prompt from messages
   const userPrompt = messages.map(m => m.content).join('\n\n');
+  logger.info('Built user prompt', { promptLength: userPrompt.length });
 
-  // Try generateRaw first (quiet, no chat message created)
   if (typeof ctx.generateRaw === 'function') {
     try {
-      logger.debug('Using generateRaw for quiet summarization');
-      return await ctx.generateRaw({
+      logger.info('Using generateRaw for quiet summarization');
+      const result = await ctx.generateRaw({
         prompt: userPrompt,
         systemPrompt: systemPrompt,
         temperature: options.temperature,
         max_tokens: options.max_tokens,
       });
+      logger.info('generateRaw returned', { resultType: typeof result });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.warn('generateRaw failed, trying generateText:', message);
     }
   }
 
-  // Try generateText as fallback (quiet, returns text only)
   if (typeof ctx.generateText === 'function') {
     try {
-      logger.debug('Using generateText for quiet summarization');
-      return await ctx.generateText({
+      logger.info('Using generateText for quiet summarization');
+      const result = await ctx.generateText({
         prompt: userPrompt,
         systemPrompt: systemPrompt,
         temperature: options.temperature,
         max_tokens: options.max_tokens,
       });
+      logger.info('generateText returned', { resultType: typeof result });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.warn('generateText failed, trying generate:', message);
     }
   }
 
-  // Last resort: generate() - but this may create a visible message
   if (typeof ctx.generate === 'function') {
     try {
-      logger.debug('Using generate for summarization (may create visible message)');
-      return await ctx.generate({
+      logger.info('Using generate for summarization');
+      const result = await ctx.generate({
         messages: [
           { role: 'system', content: systemPrompt },
           ...messages,
@@ -246,6 +254,8 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
         quiet: true,
         stream: false,
       });
+      logger.info('generate returned', { resultType: typeof result });
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`SillyTavern generate() failed: ${message}`);

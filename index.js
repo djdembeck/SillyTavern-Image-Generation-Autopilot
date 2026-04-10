@@ -3292,6 +3292,14 @@ async function generateSummarizedPrompt(messageId) {
     }
     const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
 
+    log('Summarization context prepared', {
+        messageCount: boundedMessages.length,
+        charName,
+        userName,
+        messageDepth,
+        profileName
+    })
+
     try {
         const summarizedPrompt = await summarizeWithAI({
             messages: boundedMessages,
@@ -3300,6 +3308,12 @@ async function generateSummarizedPrompt(messageId) {
             systemPromptTemplate: summarizerSettings.systemPromptTemplate,
             charName,
             userName,
+        })
+
+        log('Summarizer returned result', {
+            resultType: typeof summarizedPrompt,
+            resultLength: summarizedPrompt?.length,
+            preview: typeof summarizedPrompt === 'string' ? summarizedPrompt.substring(0, 100) + '...' : null
         })
 
         if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
@@ -4003,6 +4017,11 @@ async function queueAutoFill(messageId, button) {
         logger.warn('Auto-fill failed: could not generate prompt')
         return
     }
+
+    log('Generated summarized prompt', {
+        promptLength: summarizedPrompt.length,
+        preview: summarizedPrompt.substring(0, 100) + '...'
+    })
 
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
