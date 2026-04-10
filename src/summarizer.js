@@ -217,39 +217,40 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
 
   const conversationText = messages.map(m => m.content).join('\n\n');
   
-  let finalSystemPrompt = systemPrompt;
-  const instructions = [];
+  // Build task instructions to embed in user prompt
+  // The connection profile's system prompt is used automatically by generateRaw
+  const taskInstructions = [];
+  
+  if (systemPrompt) {
+    taskInstructions.push(systemPrompt);
+  }
   
   if (characterPercent > 0 || scenePercent > 0) {
-    instructions.push(`Allocate approximately ${characterPercent}% of your response to character description and ${scenePercent}% to scene description.`);
+    taskInstructions.push(`Allocate approximately ${characterPercent}% of your response to character description and ${scenePercent}% to scene description.`);
   }
   
   if (maxTokens > 0) {
-    instructions.push(`Keep your response under ${Math.floor(maxTokens * 0.75)} words.`);
+    taskInstructions.push(`Keep your response under ${Math.floor(maxTokens * 0.75)} words.`);
   }
   
-  if (instructions.length > 0 && systemPrompt) {
-    finalSystemPrompt = `${systemPrompt}\n\n${instructions.join(' ')}`;
-  }
-  
-  const promptWithInstructions = finalSystemPrompt
-    ? `${finalSystemPrompt}\n\n---\n\nConversation to analyze:\n${conversationText}`
-    : conversationText;
+  const taskSection = taskInstructions.join('\n\n');
+  const userPrompt = `${taskSection}\n\n---\n\nConversation to analyze:\n${conversationText}`;
 
-  logger.debug('Built prompt with instructions', { promptLength: promptWithInstructions.length });
+  logger.debug('Built user prompt', { promptLength: userPrompt.length });
 
   const genOptions = {
-    prompt: promptWithInstructions,
+    prompt: userPrompt,
     temperature: 0.3,
   };
 
   if (maxTokens > 0) {
     genOptions.max_tokens = maxTokens;
   }
+  // Note: NOT passing systemPrompt - let the connection profile handle that
 
   if (typeof ctx.generateRaw === 'function') {
     try {
-      logger.debug('Using generateRaw (profile settings preserved)');
+      logger.debug('Using generateRaw (profile system prompt + our task in user prompt)');
       return await ctx.generateRaw(genOptions);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -259,7 +260,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
 
   if (typeof ctx.generateText === 'function') {
     try {
-      logger.debug('Using generateText (profile settings preserved)');
+      logger.debug('Using generateText (profile system prompt + our task in user prompt)');
       return await ctx.generateText(genOptions);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
