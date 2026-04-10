@@ -3230,6 +3230,46 @@ async function generateSummarizedPrompt(messageId) {
     const charName = message.name || context.name2 || context.character_name || ''
     const userName = context.name1 || context.user_name || 'User'
 
+    // Switch to selected connection profile for summarization
+    const profileName = autoSettings?.promptRewrite?.modelId
+    let originalProfile = null
+    let originalPreset = null
+    const ctx = getCtx()
+
+    if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
+        try {
+            const isPreset = profileName.startsWith('preset:')
+            const isProfile = profileName.startsWith('profile:')
+            const realName = profileName.replace(/^(profile|preset):/, '')
+
+            if (realName) {
+                const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
+                originalProfile = profileResult?.pipe
+
+                const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
+                originalPreset = presetResult?.pipe
+
+                log('Switching connection profile for summarization', {
+                    target: realName,
+                    isPreset,
+                    isProfile,
+                    previousProfile: originalProfile,
+                    previousPreset: originalPreset
+                })
+
+                if (isPreset) {
+                    await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
+                } else {
+                    await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+                }
+
+                await sleep(100)
+            }
+        } catch (error) {
+            logger.warn('Failed to switch profile for summarization:', error)
+        }
+    }
+
     // Normalize SillyTavern chat messages to {role, content} format
     // and extract a bounded window centered on the resolved message
     // Strip <pic> tags so they don't influence the summarizer
@@ -3277,6 +3317,18 @@ async function generateSummarizedPrompt(messageId) {
         }
 
         return null
+    } finally {
+        // Restore original connection profile
+        if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
+            if (originalProfile) {
+                log('Restoring connection profile after summarization', { originalProfile })
+                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+            }
+            if (originalPreset) {
+                log('Restoring completion preset after summarization', { originalPreset })
+                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+            }
+        }
     }
 }
 
