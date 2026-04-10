@@ -179,7 +179,7 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
 }
 
 async function callSummarizer(messages, systemPrompt, callChatCompletion) {
-  logger.info('callSummarizer invoked', {
+  logger.debug('callSummarizer invoked', {
     messageCount: messages.length,
     systemPromptLength: systemPrompt?.length,
     hasCallChatCompletion: typeof callChatCompletion === 'function'
@@ -193,7 +193,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
 
   if (typeof callChatCompletion === 'function') {
     try {
-      logger.info('Using provided callChatCompletion');
+      logger.debug('Using provided callChatCompletion');
       return await callChatCompletion(messages, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -207,18 +207,18 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
   }
 
   const userPrompt = messages.map(m => m.content).join('\n\n');
-  logger.info('Built user prompt', { promptLength: userPrompt.length });
+  logger.debug('Built user prompt', { promptLength: userPrompt.length });
 
   if (typeof ctx.generateRaw === 'function') {
     try {
-      logger.info('Using generateRaw for quiet summarization');
+      logger.debug('Using generateRaw for quiet summarization');
       const result = await ctx.generateRaw({
         prompt: userPrompt,
         systemPrompt: systemPrompt,
         temperature: options.temperature,
         max_tokens: options.max_tokens,
       });
-      logger.info('generateRaw returned', { resultType: typeof result });
+      logger.debug('generateRaw returned', { resultType: typeof result });
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -228,14 +228,14 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
 
   if (typeof ctx.generateText === 'function') {
     try {
-      logger.info('Using generateText for quiet summarization');
+      logger.debug('Using generateText for quiet summarization');
       const result = await ctx.generateText({
         prompt: userPrompt,
         systemPrompt: systemPrompt,
         temperature: options.temperature,
         max_tokens: options.max_tokens,
       });
-      logger.info('generateText returned', { resultType: typeof result });
+      logger.debug('generateText returned', { resultType: typeof result });
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -245,7 +245,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
 
   if (typeof ctx.generate === 'function') {
     try {
-      logger.info('Using generate for summarization');
+      logger.debug('Using generate for summarization');
       const result = await ctx.generate({
         messages: [
           { role: 'system', content: systemPrompt },
@@ -254,7 +254,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion) {
         quiet: true,
         stream: false,
       });
-      logger.info('generate returned', { resultType: typeof result });
+      logger.debug('generate returned', { resultType: typeof result });
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
