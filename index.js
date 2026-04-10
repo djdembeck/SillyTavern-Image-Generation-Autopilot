@@ -2773,16 +2773,18 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         modelOptions,
         onRewrite: async (prompt) => {
             log('Dialog requested rewrite', { prompt, sourceMessageId })
+            const freshSettings = getSettings()
             return await callChatRewrite(
                 prompt,
-                settings.autoGeneration.promptRewrite.modelId,
+                freshSettings.autoGeneration.promptRewrite.modelId,
                 sourceMessageId,
             )
         },
         onResummarize: async (prompt) => {
             log('Dialog requested resummarize', { prompt, sourceMessageId })
             const context = getCtx()
-            const autoSettings = settings.autoGeneration
+            const freshSettings = getSettings()
+            const autoSettings = freshSettings.autoGeneration
             const summarizerSettings = autoSettings?.summarizer || {}
 
             const messageDepth = Math.max(
