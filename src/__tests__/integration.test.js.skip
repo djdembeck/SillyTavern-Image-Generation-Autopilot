@@ -219,6 +219,7 @@ describe('full flow integration', () => {
                 getCtx,
                 summarizeWithAI,
                 log: mock(),
+                withConnectionProfile: mock(),
                 logger: {
                     error: mock(),
                     warn: mock(),
@@ -400,6 +401,7 @@ describe('full flow integration', () => {
                 getCtx,
                 summarizeWithAI,
                 log: mock(),
+                withConnectionProfile: mock(),
                 logger: {
                     error: mock(),
                     warn: mock(),
@@ -532,6 +534,7 @@ describe('full flow integration', () => {
                 getCtx,
                 summarizeWithAI,
                 log: mock(),
+                withConnectionProfile: mock(),
                 logger: {
                     error: mock(),
                     warn: mock(),

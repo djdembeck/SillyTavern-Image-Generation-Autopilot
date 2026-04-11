@@ -2083,7 +2083,7 @@ async function buildSettingsPanel() {
             summarizerScenePercentInput.value = String(scenePercent)
         }
 
-        if (adjusted && typeof window.toastr?.info === 'function') {
+        if (adjusted && typeof window !== "undefined" && window.toastr && typeof window.toastr.info === "function") {
             window.toastr.info(message, 'Settings Adjusted')
         }
 
@@ -2109,7 +2109,7 @@ async function buildSettingsPanel() {
         }
         summarizerScenePercentInput.value = String(scenePercent)
 
-        if (adjusted && typeof window.toastr?.info === 'function') {
+        if (adjusted && typeof window !== "undefined" && window.toastr && typeof window.toastr.info === "function") {
             window.toastr.info(message, 'Settings Adjusted')
         }
 
@@ -3226,17 +3226,21 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
             const promptInjectionSettings = autoSettings?.promptInjection || {}
 
             try {
-                const result = await summarizeWithAI({
-                    messages: summarizerMessages,
-                    messageDepth,
-                    maxTokens: summarizerSettings.maxTokens,
-                    characterPercent: summarizerSettings.characterPercent,
-                    scenePercent: summarizerSettings.scenePercent,
-                    systemPromptTemplate: summarizerSettings.systemPromptTemplate,
-                    promptInjection: promptInjectionSettings,
-                    charName,
-                    userName,
-                })
+                const result = await withConnectionProfile(
+                    autoSettings.promptRewrite?.modelId || '',
+                    async () =>
+                        summarizeWithAI({
+                            messages: summarizerMessages,
+                            messageDepth,
+                            maxTokens: summarizerSettings.maxTokens,
+                            characterPercent: summarizerSettings.characterPercent,
+                            scenePercent: summarizerSettings.scenePercent,
+                            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                            promptInjection: promptInjectionSettings,
+                            charName,
+                            userName,
+                        }),
+                )
 
                 if (typeof result !== 'string' || !result.trim()) {
                     throw new Error('AI returned an empty response')

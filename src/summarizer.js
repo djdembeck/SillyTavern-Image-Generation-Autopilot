@@ -73,8 +73,8 @@ export function getCharacterDescription(charName) {
   // Handle array format (newer SillyTavern versions)
   if (Array.isArray(ctx.characters)) {
     const char = ctx.characters.find((c) => {
-      const label = c?.data?.name || c?.name || c?.data?.displayName;
-      return label && String(label).trim().toLowerCase() === needle;
+      const labels = [c?.data?.name, c?.name, c?.data?.displayName];
+      return labels.some((label) => label && String(label).trim().toLowerCase() === needle);
     });
 
     if (char) {
@@ -206,14 +206,14 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
     }
 
     if (promptInjection?.enabled) {
-      if (promptInjection?.mainPrompt) {
+      if (promptInjection?.mainPrompt && !promptInjection.mainPrompt.includes('<pic')) {
         taskInstructions.push(promptInjection.mainPrompt);
       }
 
-      if (promptInjection?.instructionsPositive) {
+      if (promptInjection?.instructionsPositive && !promptInjection.instructionsPositive.includes('<pic')) {
         taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
       }
-      if (promptInjection?.instructionsNegative) {
+      if (promptInjection?.instructionsNegative && !promptInjection.instructionsNegative.includes('<pic')) {
         taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
       }
 
@@ -252,12 +252,17 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
         return `${role}: ${m.content}`;
       }).join('\n\n');
       const userPrompt = `${taskSection}\n\n---\n\nConversation to analyze:\n${conversationText}`;
+      const modifiedMessages = [
+        { role: 'system', content: `${systemPrompt ? systemPrompt + '\n\n' : ''}${taskSection}` },
+        { role: 'user', content: userPrompt },
+        ...messages
+      ];
       const options = {
         temperature: 0.3,
         max_tokens: maxTokens > 0 ? maxTokens : 2500,
         systemPrompt,
       };
-      return await callChatCompletion(messages, options);
+      return await callChatCompletion(modifiedMessages, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`AI completion failed: ${message}`);
