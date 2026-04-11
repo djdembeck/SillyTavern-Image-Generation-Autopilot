@@ -228,9 +228,11 @@ describe('summarizeWithAI', () => {
         it('includes character description in system prompt when character exists', async () => {
             const { summarizeWithAI } = await import('../summarizer.js')
             
-            let systemPromptUsed = ''
+            let systemMessageContent = ''
             const captureCompletion = async (messages, options) => {
-                systemPromptUsed = options.systemPrompt
+                // Capture the system message content instead of options.systemPrompt
+                const systemMessage = messages.find(m => m.role === 'system')
+                systemMessageContent = systemMessage?.content || ''
                 return mockChatCompletion(messages, options)
             }
             
@@ -255,7 +257,7 @@ describe('summarizeWithAI', () => {
                 charName: 'Alice'
             })
             
-            expect(systemPromptUsed).toContain('A brave adventurer with red hair and green eyes')
+            expect(systemMessageContent).toContain('A brave adventurer with red hair and green eyes')
             
             delete globalThis.SillyTavern
         })

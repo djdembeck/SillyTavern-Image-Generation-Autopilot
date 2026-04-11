@@ -220,8 +220,28 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
     }
 
     if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
-      // Clamp to exactly 1 prompt for single-output summarization path
-      taskInstructions.push('Generate exactly 1 image prompt.');
+      const mode = promptInjection.picCountMode;
+      const exact = promptInjection.picCountExact ?? 1;
+      const min = promptInjection.picCountMin ?? 1;
+      const max = promptInjection.picCountMax ?? 3;
+      
+      switch (mode) {
+        case 'exact':
+          taskInstructions.push(`Generate exactly ${exact} image prompt${exact !== 1 ? 's' : ''}.`);
+          break;
+        case 'range':
+          taskInstructions.push(`Generate between ${min} and ${max} image prompts.`);
+          break;
+        case 'min':
+          taskInstructions.push(`Generate at least ${min} image prompt${min !== 1 ? 's' : ''}.`);
+          break;
+        case 'max':
+          taskInstructions.push(`Generate at most ${max} image prompt${max !== 1 ? 's' : ''}.`);
+          break;
+        default:
+          // Default to exact count of 1 for unknown modes
+          taskInstructions.push('Generate exactly 1 image prompt.');
+      }
     }
     
     if (characterPercent > 0 || scenePercent > 0) {
@@ -245,13 +265,12 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
       }).join('\n\n');
       const userPrompt = `Conversation to analyze:\n${conversationText}`;
       const modifiedMessages = [
-        { role: 'system', content: `${systemPrompt ? systemPrompt + '\n\n' : ''}${taskSection}` },
+        { role: 'system', content: taskSection },
         { role: 'user', content: userPrompt },
         ...messages
       ];
       const options = {
         temperature: 0.3,
-        systemPrompt,
       };
       if (maxTokens > 0) {
         options.max_tokens = maxTokens;
@@ -330,11 +349,31 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
 
 /**
  * Summarizes message text using AI for use as image prompts.
- * @param {string} text - Message text to summarize
- * @param {string} charName - Character name
- * @param {string} userName - User name
- * @param {Object} settings - Extension settings
+ * @param {string|Object} text - Message text to summarize, or config object with {messages, messageDepth, callChatCompletion, etc.}
+ * @param {string} [charName] - Character name (ignored if text is a config object)
+ * @param {string} [userName] - User name (ignored if text is a config object)
+ * @param {Object} [settings] - Extension settings (ignored if text is a config object)
  * @returns {Promise<string>} Summarized prompt
+ * 
+ * Config object properties when text is an object:
+ * @param {Array<{role: string, content: string}>} config.messages - Messages to summarize
+ * @param {number} [config.messageDepth=1] - Number of recent messages to include
+ * @param {Function} [config.callChatCompletion] - Optional function to call AI completion
+ * @param {string} [config.systemPromptTemplate] - Template for system prompt
+ * @param {Object} [config.characterDescriptions] - Character descriptions by name
+ * @param {string} [config.charName] - Character name
+ * @param {string} [config.userName] - User name
+ * @param {number} [config.maxTokens=0] - Maximum tokens for response (0 = no limit)
+ * @param {number} [config.characterPercent=30] - Percentage for character description
+ * @param {number} [config.scenePercent=70] - Percentage for scene description
+ * @param {Object} [config.promptInjection] - Prompt injection settings
+ * @param {string} [config.promptInjection.mainPrompt] - Main prompt guidance
+ * @param {string} [config.promptInjection.instructionsPositive] - Positive constraints
+ * @param {string} [config.promptInjection.instructionsNegative] - Negative constraints
+ * @param {string} [config.promptInjection.picCountMode='exact'] - Image count mode: 'exact'|'range'|'min'|'max'
+ * @param {number} [config.promptInjection.picCountExact=1] - Exact count when mode is 'exact'
+ * @param {number} [config.promptInjection.picCountMin=1] - Minimum count when mode is 'min' or 'range'
+ * @param {number} [config.promptInjection.picCountMax=3] - Maximum count when mode is 'max' or 'range'
  */
 export async function summarizeWithAI(text, charName, userName, settings) {
   const config = buildInvocationConfig(text, charName, userName, settings);

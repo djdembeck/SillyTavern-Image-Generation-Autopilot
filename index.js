@@ -1749,6 +1749,8 @@ async function buildSettingsPanel() {
         return
     }
 
+    // Debounce timer for system prompt saves
+    let summarizerSystemPromptDebounceTimer = null
     root.appendChild(container)
 
     const enabledInput = /** @type {HTMLInputElement | null} */ (
@@ -2002,8 +2004,16 @@ async function buildSettingsPanel() {
     summarizerSystemPromptInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.summarizer.systemPromptTemplate = summarizerSystemPromptInput.value
-        saveSettings()
+        // Debounce saveSettings to avoid expensive UI syncs on every keystroke
+        if (summarizerSystemPromptDebounceTimer) {
+            clearTimeout(summarizerSystemPromptDebounceTimer)
+        }
+        summarizerSystemPromptDebounceTimer = setTimeout(() => {
+            saveSettings()
+            summarizerSystemPromptDebounceTimer = null
+        }, 500)
     })
+
 
     summarizerMaxTokensInput?.addEventListener('change', () => {
         const current = getSettings()
