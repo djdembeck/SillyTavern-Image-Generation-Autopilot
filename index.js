@@ -329,9 +329,10 @@ function ensureSettings() {
 
         // Deep merge defaults - handles nested objects like autoGeneration.summarizer
         const deepMergeDefaults = (target, defaults) => {
+            const hasStructuredClone = typeof globalThis.structuredClone === 'function'
             for (const [key, value] of Object.entries(defaults)) {
                 if (typeof target[key] === 'undefined') {
-                    target[key] = structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value))
+                    target[key] = hasStructuredClone ? globalThis.structuredClone(value) : JSON.parse(JSON.stringify(value))
                 } else if (value && typeof value === 'object' && !Array.isArray(value) && target[key] && typeof target[key] === 'object') {
                     // Recursively merge nested objects
                     deepMergeDefaults(target[key], value)
@@ -1981,8 +1982,9 @@ async function buildSettingsPanel() {
 
     summarizerCharacterPercentInput?.addEventListener('change', () => {
         const current = getSettings()
-        const rawValue = parseInt(summarizerCharacterPercentInput.value, 10) || 30
-        const currentScene = current.autoGeneration.summarizer.scenePercent || 70
+        const parsed = parseInt(summarizerCharacterPercentInput.value, 10)
+        const rawValue = Number.isNaN(parsed) ? 30 : parsed
+        const currentScene = current.autoGeneration.summarizer.scenePercent ?? 70
 
         const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
             rawValue,
@@ -2006,8 +2008,9 @@ async function buildSettingsPanel() {
 
     summarizerScenePercentInput?.addEventListener('change', () => {
         const current = getSettings()
-        const rawValue = parseInt(summarizerScenePercentInput.value, 10) || 70
-        const currentChar = current.autoGeneration.summarizer.characterPercent || 30
+        const parsed = parseInt(summarizerScenePercentInput.value, 10)
+        const rawValue = Number.isNaN(parsed) ? 70 : parsed
+        const currentChar = current.autoGeneration.summarizer.characterPercent ?? 30
 
         const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
             currentChar,
@@ -2485,7 +2488,7 @@ async function syncProfileSelectOptions(showFeedback = false) {
     if (!select) return
 
     // Use settings-backed value instead of DOM value (which is empty after innerHTML clear)
-    const currentValue = settings.autoGeneration?.promptRewrite?.modelId || ''
+    const currentValue = getSettings()?.autoGeneration?.promptRewrite?.modelId ?? ''
     select.innerHTML = '<option value="">Default (Active chat model)</option>'
 
     // Add connection profiles section
