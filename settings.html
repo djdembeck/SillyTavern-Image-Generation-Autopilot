@@ -180,14 +180,7 @@
                     </label>
                 </div>
                 <div class="auto-multi-stack">
-                    <label class="checkbox_label auto-multi-inline" title="Inject prompt guidance into the chat completion prompt.">
-                        <input
-                            type="checkbox"
-                            id="auto_multi_prompt_injection_enabled"
-                        />
-                        <span>Enable prompt injection</span>
-                    </label>
-                    <label title="High-level system prompt for image generation behavior.">
+                    <label title="High-level guidance for image generation behavior used by the summarizer.">
                         <span>Main prompt</span>
                         <textarea
                             id="auto_multi_prompt_main"
@@ -214,27 +207,6 @@
                                 rows="2"
                                 placeholder="Forbidden elements or words..."
                             ></textarea>
-                        </label>
-                    </div>
-                    <div class="auto-multi-grid">
-                        <label title="Where to inject the prompt guidance into the chat completion prompt.">
-                            <span>Injection position</span>
-                            <select id="auto_multi_prompt_position" class="text_pole">
-                                <option value="deep_system">@D ⚙️ System</option>
-                                <option value="deep_user">@D 👤 User</option>
-                                <option value="deep_assistant">@D 🤖 Assistant</option>
-                            </select>
-                        </label>
-                        <label title="How far from the end to inject prompt guidance (0 = end of prompt).">
-                            <span>Injection depth</span>
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                step="1"
-                                id="auto_multi_prompt_depth"
-                                class="text_pole"
-                            />
                         </label>
                     </div>
                     <div class="auto-multi-count-group" title="How many <pic> prompts the assistant should output per reply.">

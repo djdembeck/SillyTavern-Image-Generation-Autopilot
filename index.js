@@ -50,9 +50,8 @@ const defaultSettings = Object.freeze({
             modelId: '',
         },
         promptInjection: {
-            enabled: true,
             mainPrompt:
-                'Insert <pic prompt="detailed scene description"> tags at the end of each reply.',
+                'Create detailed, vivid image descriptions from roleplay scenes.',
             instructionsPositive: '',
             instructionsNegative: '',
             examplePrompt: '',
@@ -62,9 +61,7 @@ const defaultSettings = Object.freeze({
             picCountExact: 1,
             picCountMin: 1,
             picCountMax: 3,
-            regex: '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
-            position: 'deep_system',
-            depth: 0,
+            regex: '/<pic[^>]*\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
         },
         summarizer: {
             messageDepth: 1,
@@ -500,6 +497,14 @@ function ensureSettings() {
 
         if (typeof settings.autoGeneration.promptRewrite.modelId !== 'string') {
             settings.autoGeneration.promptRewrite.modelId = ''
+        }
+
+        // Migration: Remove obsolete promptInjection fields that are no longer used
+        // (enabled, position, depth were for chat injection which no longer exists)
+        if (settings.autoGeneration?.promptInjection) {
+            delete settings.autoGeneration.promptInjection.enabled
+            delete settings.autoGeneration.promptInjection.position
+            delete settings.autoGeneration.promptInjection.depth
         }
 
         if (!Array.isArray(settings.modelQueue)) {
@@ -1821,9 +1826,6 @@ async function buildSettingsPanel() {
     const summarizerScenePercentInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#summarizer-scene-percent')
     )
-    const promptInjectionEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_injection_enabled')
-    )
     const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_main')
     )
@@ -1832,12 +1834,6 @@ async function buildSettingsPanel() {
     )
     const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_negative')
-    )
-    const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_prompt_position')
-    )
-    const promptDepthInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_depth')
     )
     const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_pic_count_mode')
@@ -1906,12 +1902,9 @@ async function buildSettingsPanel() {
         summarizerMaxTokensInput,
         summarizerCharacterPercentInput,
         summarizerScenePercentInput,
-        promptInjectionEnabledInput,
         promptMainInput,
         promptPositiveInput,
         promptNegativeInput,
-        promptPositionSelect,
-        promptDepthInput,
         picCountModeSelect,
         picCountExactInput,
         picCountMinInput,
@@ -2116,11 +2109,6 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-    promptInjectionEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.enabled = promptInjectionEnabledInput.checked
-        saveSettings()
-    })
 
     promptMainInput?.addEventListener('input', () => {
         const current = getSettings()
@@ -2140,19 +2128,6 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-    promptPositionSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.position = promptPositionSelect.value
-        saveSettings()
-    })
-
-    promptDepthInput?.addEventListener('change', () => {
-        const current = getSettings()
-        const value = Math.max(0, Math.min(100, parseInt(promptDepthInput.value, 10) || 0))
-        current.autoGeneration.promptInjection.depth = value
-        promptDepthInput.value = String(value)
-        saveSettings()
-    })
 
     picCountModeSelect?.addEventListener('change', () => {
         const current = getSettings()
@@ -2732,10 +2707,6 @@ function syncUiFromSettings() {
         state.ui.summarizerScenePercentInput.value = String(scenePercent)
     }
 
-    if (state.ui.promptInjectionEnabledInput) {
-        state.ui.promptInjectionEnabledInput.checked =
-            settings.autoGeneration.promptInjection.enabled
-    }
     if (state.ui.promptMainInput) {
         state.ui.promptMainInput.value =
             settings.autoGeneration.promptInjection.mainPrompt
@@ -2747,15 +2718,6 @@ function syncUiFromSettings() {
     if (state.ui.promptNegativeInput) {
         state.ui.promptNegativeInput.value =
             settings.autoGeneration.promptInjection.instructionsNegative
-    }
-    if (state.ui.promptPositionSelect) {
-        state.ui.promptPositionSelect.value =
-            settings.autoGeneration.promptInjection.position
-    }
-    if (state.ui.promptDepthInput) {
-        state.ui.promptDepthInput.value = String(
-            Math.max(0, Math.min(100, settings.autoGeneration.promptInjection.depth)),
-        )
     }
     if (state.ui.picCountModeSelect) {
         state.ui.picCountModeSelect.value =

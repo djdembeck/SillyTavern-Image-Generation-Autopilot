@@ -195,7 +195,9 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
     maxTokens,
     characterPercent,
     scenePercent,
-    hasPromptInjection: Object.keys(promptInjection).length > 0
+    hasMainPrompt: Boolean(promptInjection?.mainPrompt && !promptInjection.mainPrompt.includes('<pic')),
+    hasPositiveInstructions: Boolean(promptInjection?.instructionsPositive && !promptInjection.instructionsPositive.includes('<pic')),
+    hasNegativeInstructions: Boolean(promptInjection?.instructionsNegative && !promptInjection.instructionsNegative.includes('<pic')),
   });
 
   function buildTaskInstructions() {
@@ -205,26 +207,21 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
       taskInstructions.push(systemPrompt);
     }
 
-    if (promptInjection?.enabled) {
-      if (promptInjection?.mainPrompt && !promptInjection.mainPrompt.includes('<pic')) {
-        taskInstructions.push(promptInjection.mainPrompt);
-      }
+    // Include main prompt, positive, and negative instructions when present
+    if (promptInjection?.mainPrompt && !promptInjection.mainPrompt.includes('<pic')) {
+      taskInstructions.push(promptInjection.mainPrompt);
+    }
 
-      if (promptInjection?.instructionsPositive && !promptInjection.instructionsPositive.includes('<pic')) {
-        taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
-      }
-      if (promptInjection?.instructionsNegative && !promptInjection.instructionsNegative.includes('<pic')) {
-        taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
-      }
+    if (promptInjection?.instructionsPositive && !promptInjection.instructionsPositive.includes('<pic')) {
+      taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
+    }
+    if (promptInjection?.instructionsNegative && !promptInjection.instructionsNegative.includes('<pic')) {
+      taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
+    }
 
-      if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
-        let picCountInstruction = '';
-        // Clamp to exactly 1 prompt for single-output summarization path
-        picCountInstruction = 'Generate exactly 1 image prompt.';
-        if (picCountInstruction) {
-          taskInstructions.push(picCountInstruction);
-        }
-      }
+    if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
+      // Clamp to exactly 1 prompt for single-output summarization path
+      taskInstructions.push('Generate exactly 1 image prompt.');
     }
     
     if (characterPercent > 0 || scenePercent > 0) {
