@@ -331,7 +331,7 @@ function ensureSettings() {
         const deepMergeDefaults = (target, defaults) => {
             for (const [key, value] of Object.entries(defaults)) {
                 if (typeof target[key] === 'undefined') {
-                    target[key] = value
+                    target[key] = structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value))
                 } else if (value && typeof value === 'object' && !Array.isArray(value) && target[key] && typeof target[key] === 'object') {
                     // Recursively merge nested objects
                     deepMergeDefaults(target[key], value)
@@ -1935,19 +1935,97 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
+    /**
+     * Validates and normalizes character/scene percentages.
+     * - Both must be 0-100
+     * - Both cannot be 0
+     * - Sum should equal 100 (auto-balances if not)
+     * @param {number} charPercent - Character percentage
+     * @param {number} scenePercent - Scene percentage
+     * @param {'character' | 'scene'} lastEdited - Which field was just edited
+     * @returns {{charPercent: number, scenePercent: number, adjusted: boolean, message?: string}}
+     */
+    function validateAndNormalizePercents(charPercent, scenePercent, lastEdited) {
+        // Clamp to 0-100
+        let char = Math.max(0, Math.min(100, charPercent))
+        let scene = Math.max(0, Math.min(100, scenePercent))
+        let adjusted = false
+        let message = ''
+
+        // Prevent both from being 0
+        if (char === 0 && scene === 0) {
+            if (lastEdited === 'character') {
+                char = 30
+                message = 'Character % cannot be 0 when Scene % is 0. Set to 30%.'
+            } else {
+                scene = 30
+                message = 'Scene % cannot be 0 when Character % is 0. Set to 30%.'
+            }
+            adjusted = true
+        }
+
+        // Normalize sum to 100 by adjusting the field NOT just edited
+        const sum = char + scene
+        if (sum !== 100) {
+            if (lastEdited === 'character') {
+                scene = Math.max(0, Math.min(100, 100 - char))
+            } else {
+                char = Math.max(0, Math.min(100, 100 - scene))
+            }
+            adjusted = true
+            message = message || `Percentages auto-balanced to ${char}% / ${scene}% (sum must be 100%)`
+        }
+
+        return { charPercent: char, scenePercent: scene, adjusted, message }
+    }
+
     summarizerCharacterPercentInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(0, Math.min(100, parseInt(summarizerCharacterPercentInput.value, 10) || 30))
-        current.autoGeneration.summarizer.characterPercent = value
-        summarizerCharacterPercentInput.value = String(value)
+        const rawValue = parseInt(summarizerCharacterPercentInput.value, 10) || 30
+        const currentScene = current.autoGeneration.summarizer.scenePercent || 70
+
+        const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
+            rawValue,
+            currentScene,
+            'character'
+        )
+
+        current.autoGeneration.summarizer.characterPercent = charPercent
+        current.autoGeneration.summarizer.scenePercent = scenePercent
+        summarizerCharacterPercentInput.value = String(charPercent)
+        if (summarizerScenePercentInput) {
+            summarizerScenePercentInput.value = String(scenePercent)
+        }
+
+        if (adjusted && typeof window.toastr?.info === 'function') {
+            window.toastr.info(message, 'Settings Adjusted')
+        }
+
         saveSettings()
     })
 
     summarizerScenePercentInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(0, Math.min(100, parseInt(summarizerScenePercentInput.value, 10) || 70))
-        current.autoGeneration.summarizer.scenePercent = value
-        summarizerScenePercentInput.value = String(value)
+        const rawValue = parseInt(summarizerScenePercentInput.value, 10) || 70
+        const currentChar = current.autoGeneration.summarizer.characterPercent || 30
+
+        const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
+            currentChar,
+            rawValue,
+            'scene'
+        )
+
+        current.autoGeneration.summarizer.characterPercent = charPercent
+        current.autoGeneration.summarizer.scenePercent = scenePercent
+        if (summarizerCharacterPercentInput) {
+            summarizerCharacterPercentInput.value = String(charPercent)
+        }
+        summarizerScenePercentInput.value = String(scenePercent)
+
+        if (adjusted && typeof window.toastr?.info === 'function') {
+            window.toastr.info(message, 'Settings Adjusted')
+        }
+
         saveSettings()
     })
 
@@ -2406,7 +2484,8 @@ async function syncProfileSelectOptions(showFeedback = false) {
     const select = state.ui?.promptRewriteModelSelect
     if (!select) return
 
-    const currentValue = select.value || ''
+    // Use settings-backed value instead of DOM value (which is empty after innerHTML clear)
+    const currentValue = settings.autoGeneration?.promptRewrite?.modelId || ''
     select.innerHTML = '<option value="">Default (Active chat model)</option>'
 
     // Add connection profiles section
@@ -3056,8 +3135,9 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 const result = await summarizeWithAI({
                     messages: summarizerMessages,
                     messageDepth,
-                    settings: summarizerSettings,
-                    systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                    maxTokens: summarizerSettings.maxTokens,
+                    characterPercent: summarizerSettings.characterPercent,
+                    scenePercent: summarizerSettings.scenePercent,
                     charName,
                     userName,
                 })
@@ -3414,6 +3494,7 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
     }
 
     state.isRewriting = true
+    const rewriteRegex = PIC_TAG_REGEX
     let rewritten = null
     try {
         for (const attempt of attempts) {
@@ -3422,7 +3503,7 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
                 const result = await attempt.fn()
                 log(`Rewrite attempt (${attempt.name}) raw result:`, result)
                 const rewrittenRaw = normalizeRewriteResponse(result)
-                const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
+                const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, rewriteRegex)
                 if (candidate) {
                     log(`Rewrite attempt (${attempt.name}) success:`, candidate)
                     rewritten = candidate
@@ -3543,8 +3624,9 @@ async function generateSummarizedPrompt(messageId) {
         const summarizedPrompt = await summarizeWithAI({
             messages: boundedMessages,
             messageDepth: boundedMessages.length,
-            settings: summarizerSettings,
-            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+            maxTokens: summarizerSettings.maxTokens,
+            characterPercent: summarizerSettings.characterPercent,
+            scenePercent: summarizerSettings.scenePercent,
             charName,
             userName,
         })

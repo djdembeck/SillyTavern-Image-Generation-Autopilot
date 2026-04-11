@@ -163,9 +163,9 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
       characterDescriptions: inputOrText.characterDescriptions || {},
       charName: inputOrText.charName || '',
       userName: inputOrText.userName || '',
-      maxTokens: inputOrText.maxTokens || inputOrText.settings?.summarizer?.maxTokens || 0,
-      characterPercent: inputOrText.characterPercent || inputOrText.settings?.summarizer?.characterPercent || 30,
-      scenePercent: inputOrText.scenePercent || inputOrText.settings?.summarizer?.scenePercent || 70,
+      maxTokens: inputOrText.maxTokens ?? inputOrText.settings?.maxTokens ?? inputOrText.settings?.summarizer?.maxTokens ?? 0,
+      characterPercent: inputOrText.characterPercent ?? inputOrText.settings?.characterPercent ?? inputOrText.settings?.summarizer?.characterPercent ?? 30,
+      scenePercent: inputOrText.scenePercent ?? inputOrText.settings?.scenePercent ?? inputOrText.settings?.summarizer?.scenePercent ?? 70,
     };
   }
 
@@ -179,9 +179,9 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
     characterDescriptions: {},
     charName: charName || '',
     userName: userName || '',
-    maxTokens: summarizerSettings.maxTokens || 0,
-    characterPercent: summarizerSettings.characterPercent || 30,
-    scenePercent: summarizerSettings.scenePercent || 70,
+    maxTokens: summarizerSettings.maxTokens ?? 0,
+    characterPercent: summarizerSettings.characterPercent ?? 30,
+    scenePercent: summarizerSettings.scenePercent ?? 70,
   };
 }
 
@@ -215,7 +215,10 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
     throw new Error('SillyTavern context not available for summarization.');
   }
 
-  const conversationText = messages.map(m => m.content).join('\n\n');
+  const conversationText = messages.map(m => {
+    const role = m.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${m.content}`;
+  }).join('\n\n');
   
   // Build task instructions to embed in user prompt
   // The connection profile's system prompt is used automatically by generateRaw
@@ -272,12 +275,11 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
     try {
       logger.debug('Using generate');
       return await ctx.generate({
-        messages: [
-          { role: 'user', content: promptWithInstructions },
-        ],
+        messages: [{ role: 'user', content: userPrompt }],
         quiet: true,
         stream: false,
-        ...genOptions,
+        temperature: genOptions.temperature,
+        ...(genOptions.max_tokens && { max_tokens: genOptions.max_tokens }),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

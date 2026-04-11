@@ -352,6 +352,99 @@ describe('full flow integration', () => {
         expect(onResummarize).not.toHaveBeenCalled()
     })
 
+    it('excludes future messages from summarization context', async () => {
+        const messages = [
+            { is_user: false, mes: 'First message from Alice.', name: 'Alice' },
+            { is_user: true, mes: 'User response here.', name: 'User' },
+            { is_user: false, mes: 'Second message from Alice.', name: 'Alice' },
+        ]
+        const context = {
+            chat: messages,
+            name1: 'User',
+            saveChat: mock(async () => {}),
+            reloadCurrentChat: mock(async () => {}),
+        }
+        const settings = {
+            concurrency: 2,
+            autoGeneration: {
+                enabled: true,
+                insertType: 'inline',
+                summarizer: {
+                    messageDepth: 3,
+                    systemPromptTemplate: 'template',
+                },
+            },
+        }
+
+        const getCtx = mock(() => context)
+        const getSettings = mock(() => settings)
+        const summarizeWithAI = mock(async () => 'Characters:\n- Alice\n\nScene: Forest')
+        const openImageSelectionDialog = mock(async () => null)
+        const handleDialogResult = mock(async () => {})
+
+        const generateSummarizedPrompt = buildIndexFunction(
+            generateSummarizedPromptSource,
+            'generateSummarizedPrompt',
+            {
+                getSettings,
+                getCtx,
+                summarizeWithAI,
+                log: mock(),
+                logger: {
+                    error: mock(),
+                    warn: mock(),
+                },
+                stripPicTags: (content) => {
+                    if (typeof content !== 'string') return content
+                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+                },
+            },
+        )
+
+        const handleIncomingMessage = buildIndexFunction(
+            handleIncomingMessageSource,
+            'handleIncomingMessage',
+            {
+                state: {
+                    isRewriting: false,
+                    chatToken: 1,
+                    autoGenMessages: new Set(),
+                },
+                log: mock(),
+                getSettings,
+                sleep: mock(async () => {}),
+                INSERT_TYPE: {
+                    DISABLED: 'disabled',
+                },
+                getCtx,
+                summarizeWithAI,
+                generateSummarizedPrompt,
+                getSwipeTotal: mock(() => 2),
+                openImageSelectionDialog,
+                handleDialogResult,
+                logger: {
+                    error: mock(),
+                    warn: mock(),
+                },
+                window: globalThis.window,
+                stripPicTags: (content) => {
+                    if (typeof content !== 'string') return content
+                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+                },
+            },
+        )
+
+        await handleIncomingMessage(0)
+
+        expect(summarizeWithAI).toHaveBeenCalledTimes(1)
+        const callArgs = summarizeWithAI.mock.calls[0][0]
+        const calledMessages = callArgs.messages
+
+        expect(calledMessages.some(m => m.content.includes('First message'))).toBe(true)
+        expect(calledMessages.some(m => m.content.includes('User response'))).toBe(false)
+        expect(calledMessages.some(m => m.content.includes('Second message'))).toBe(false)
+    })
+
     it('rewrites the prompt by triggering a fresh summarization', async () => {
         const onResummarize = mock(async () => 'Characters:\n- Alice\n\nScene: Rewritten prompt')
         const dialog = new ImageSelectionDialog({

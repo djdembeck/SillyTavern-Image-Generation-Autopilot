@@ -1127,15 +1127,22 @@ export class ImageSelectionDialog {
         this._removeManualOverlay();
     }
 
+    _emitStopGeneration() {
+        if (typeof window === 'undefined') return;
+        const ctx = (typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function')
+            ? SillyTavern.getContext()
+            : (window.SillyTavern && typeof window.SillyTavern.getContext === 'function')
+                ? window.SillyTavern.getContext()
+                : null;
+        if (ctx?.eventSource && typeof ctx.eventSource.emit === 'function') {
+            ctx.eventSource.emit('sd_stop_generation');
+        }
+    }
+
     _handleCancel() {
         if (this.isGenerating) {
             this.generator.abort();
-            const ctx = typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function'
-                ? SillyTavern.getContext()
-                : null;
-            if (ctx?.eventSource && typeof ctx.eventSource.emit === 'function') {
-                ctx.eventSource.emit('sd_stop_generation');
-            }
+            this._emitStopGeneration();
         }
         if (this.rejectPromise) {
             this.rejectPromise(new Error('Cancelled'));
@@ -1159,6 +1166,7 @@ export class ImageSelectionDialog {
                 return;
             }
             this.generator.abort();
+            this._emitStopGeneration();
         }
 
         if (this.rejectPromise) {
@@ -1222,19 +1230,19 @@ export class ImageSelectionDialog {
         if (isDebugMode()) {
             logger.debug('Rewrite button clicked - triggering resummarization', {
                 hasOnResummarize: !!this.onResummarize,
-                isRewriting: this.isRewriting,
+                isResummarizing: this.isResummarizing,
                 prompt: this.editedPrompt
             });
         } else {
             logger.info('Rewrite button clicked - triggering resummarization', {
                 hasOnResummarize: !!this.onResummarize,
-                isRewriting: this.isRewriting
+                isResummarizing: this.isResummarizing
             });
         }
 
-        if (!this.onResummarize || this.isRewriting) {
+        if (!this.onResummarize || this.isResummarizing) {
             logger.warn('Rewrite aborted', {
-                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already rewriting'
+                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already resummarizing'
             });
             return;
         }
@@ -1244,7 +1252,7 @@ export class ImageSelectionDialog {
         const originalText = btn.lastChild.textContent;
 
         try {
-            this.isRewriting = true;
+            this.isResummarizing = true;
             btn.disabled = true;
             if (icon) {
                 icon.className = 'fa-solid fa-circle-notch fa-spin';
@@ -1271,7 +1279,7 @@ export class ImageSelectionDialog {
             logger.error('Rewrite failed:', error);
             throw error;
         } finally {
-            this.isRewriting = false;
+            this.isResummarizing = false;
             btn.disabled = false;
             if (icon) {
                 icon.className = 'fa-solid fa-wand-magic-sparkles';
