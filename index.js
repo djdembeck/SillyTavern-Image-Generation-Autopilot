@@ -3128,7 +3128,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
 
             if (summarizerMessages.length === 0) {
                 logger.warn('[ImageAutopilot] No messages to resummarize - all filtered out')
-                if (typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
+                if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
                     window.toastr.warning('No valid message content found to resummarize', 'Resummarize Failed')
                 }
                 throw new Error('No messages to resummarize')
@@ -3158,7 +3158,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 const errorMessage = error instanceof Error ? error.message : String(error)
                 logger.error('[ImageAutopilot] Resummarize failed:', errorMessage)
 
-                if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+                if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
                     window.toastr.error(errorMessage, 'Resummarize Failed')
                 }
 
@@ -3527,11 +3527,19 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
         if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
             if (originalProfile) {
                 log('Restoring connection profile', { originalProfile })
-                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+                try {
+                    await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+                } catch (error) {
+                    logger.warn('Failed to restore connection profile:', error)
+                }
             }
             if (originalPreset) {
                 log('Restoring completion preset', { originalPreset })
-                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+                try {
+                    await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+                } catch (error) {
+                    logger.warn('Failed to restore completion preset:', error)
+                }
             }
         }
     }
@@ -3607,6 +3615,7 @@ async function generateSummarizedPrompt(messageId) {
             role: m.is_user ? 'user' : 'assistant',
             content: stripPicTags(m.mes),
         }))
+        .filter((m) => m.content)
 
     // Compute window slice: center on resolvedId (or last message if not found)
     const targetIndex = normalizedMessages.length - 1
@@ -3618,6 +3627,11 @@ async function generateSummarizedPrompt(messageId) {
         sliceStart = Math.max(0, sliceEnd - messageDepth)
     }
     const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
+
+    if (boundedMessages.length === 0) {
+        logger.warn('[ImageAutopilot] No messages to summarize - all filtered out')
+        return null
+    }
 
     log('Summarization context prepared', {
         messageCount: boundedMessages.length,
@@ -3658,7 +3672,7 @@ async function generateSummarizedPrompt(messageId) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         logger.error('[ImageAutopilot] Summarizer failed:', errorMessage)
 
-        if (typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+        if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
             window.toastr.error(errorMessage, 'Image Summarization Failed')
         }
 
@@ -3668,11 +3682,19 @@ async function generateSummarizedPrompt(messageId) {
         if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
             if (originalProfile) {
                 log('Restoring connection profile after summarization', { originalProfile })
-                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+                try {
+                    await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+                } catch (error) {
+                    logger.warn('Failed to restore connection profile after summarization:', error)
+                }
             }
             if (originalPreset) {
                 log('Restoring completion preset after summarization', { originalPreset })
-                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+                try {
+                    await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+                } catch (error) {
+                    logger.warn('Failed to restore completion preset after summarization:', error)
+                }
             }
         }
     }
@@ -3786,7 +3808,7 @@ async function handleManualPromptRewrite(messageId) {
             resolvedId,
             contentLength,
         })
-        if (typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
+        if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
             window.toastr.warning('Message is too short to generate an image prompt', 'Cannot Rewrite')
         }
         return
@@ -4344,30 +4366,33 @@ async function queueAutoFill(messageId, button, options = {}) {
         return
     }
 
-    const summarizedPrompt = await generateSummarizedPrompt(messageId)
-    if (!summarizedPrompt) {
-        logger.warn('Auto-fill failed: could not generate prompt')
+    if (state.runningMessages.has(messageId)) {
         return
     }
-
-    log('Generated summarized prompt', {
-        promptLength: summarizedPrompt.length,
-        preview: summarizedPrompt.substring(0, 100) + '...'
-    })
-
-    const swipesPerImage = getSwipeTotal(settings)
-    const expandedPrompts = []
-    for (let i = 0; i < swipesPerImage; i += 1) {
-        expandedPrompts.push(summarizedPrompt)
-    }
-
-    if (!expandedPrompts.length) {
-        return
-    }
-
     state.runningMessages.set(messageId, true)
 
     try {
+        const summarizedPrompt = await generateSummarizedPrompt(messageId)
+        if (!summarizedPrompt) {
+            logger.warn('Auto-fill failed: could not generate prompt')
+            return
+        }
+
+        log('Generated summarized prompt', {
+            promptLength: summarizedPrompt.length,
+            preview: summarizedPrompt.substring(0, 100) + '...'
+        })
+
+        const swipesPerImage = getSwipeTotal(settings)
+        const expandedPrompts = []
+        for (let i = 0; i < swipesPerImage; i += 1) {
+            expandedPrompts.push(summarizedPrompt)
+        }
+
+        if (!expandedPrompts.length) {
+            return
+        }
+
         const result = await openImageSelectionDialog(
             expandedPrompts,
             messageId,
@@ -4389,7 +4414,7 @@ async function handleMessageRendered(messageId, origin) {
     const message = getCtx().chat?.[messageId]
     const hasMedia = getMediaCount(message) > 0
 
-    ensureReswipeButton(messageId, settings.enabled && !hasMedia)
+    ensureReswipeButton(messageId, settings.enabled && !hasMedia && !message?.is_user)
     ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
 
     if (!shouldAutoFill(message)) {
@@ -4606,7 +4631,7 @@ function refreshReswipeButtons() {
 
             const hasMedia = getMediaCount(message) > 0
 
-            const shouldShow = settings.enabled && !hasMedia
+            const shouldShow = settings.enabled && !hasMedia && !message?.is_user
             ensureReswipeButton(messageId, shouldShow)
 
             const shouldShowRewrite = shouldShowPromptRewriteButton(message)

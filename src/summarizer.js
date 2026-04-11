@@ -198,13 +198,65 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
     hasPromptInjection: Object.keys(promptInjection).length > 0
   });
 
+  function buildTaskInstructions() {
+    const taskInstructions = [];
+    
+    if (systemPrompt) {
+      taskInstructions.push(systemPrompt);
+    }
+
+    if (promptInjection?.enabled) {
+      if (promptInjection?.mainPrompt) {
+        taskInstructions.push(promptInjection.mainPrompt);
+      }
+
+      if (promptInjection?.instructionsPositive) {
+        taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
+      }
+      if (promptInjection?.instructionsNegative) {
+        taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
+      }
+
+      if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
+        let picCountInstruction = '';
+        if (promptInjection.picCountMode === 'exact' && promptInjection.picCountExact > 0) {
+          picCountInstruction = `Generate exactly ${promptInjection.picCountExact} image prompt(s).`;
+        } else if (promptInjection.picCountMode === 'range') {
+          const min = promptInjection.picCountMin ?? 1;
+          const max = promptInjection.picCountMax ?? 3;
+          picCountInstruction = `Generate between ${min} and ${max} image prompts.`;
+        }
+        if (picCountInstruction) {
+          taskInstructions.push(picCountInstruction);
+        }
+      }
+    }
+    
+    if (characterPercent > 0 || scenePercent > 0) {
+      taskInstructions.push(`Allocate approximately ${characterPercent}% of your response to character description and ${scenePercent}% to scene description.`);
+    }
+    
+    if (maxTokens > 0) {
+      taskInstructions.push(`Keep your response under ${Math.floor(maxTokens * 0.75)} words.`);
+    }
+
+    return taskInstructions.join('\n\n');
+  }
+
   if (typeof callChatCompletion === 'function') {
     try {
       logger.debug('Using provided callChatCompletion');
+      const taskSection = buildTaskInstructions();
+      const conversationText = messages.map(m => {
+        const role = m.role === 'assistant' ? 'Assistant' : 'User';
+        return `${role}: ${m.content}`;
+      }).join('\n\n');
+      const userPrompt = `${taskSection}\n\n---\n\nConversation to analyze:\n${conversationText}`;
       const options = {
         temperature: 0.3,
         max_tokens: maxTokens > 0 ? maxTokens : 2500,
         systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
       };
       return await callChatCompletion(messages, options);
     } catch (error) {
@@ -224,50 +276,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
   }).join('\n\n');
   
   // Build task instructions to embed in user prompt
-  // The connection profile's system prompt is used automatically by generateRaw
-  const taskInstructions = [];
-  
-  if (systemPrompt) {
-    taskInstructions.push(systemPrompt);
-  }
-
-  // Apply prompt injection main instructions if provided
-  if (promptInjection?.mainPrompt) {
-    taskInstructions.push(promptInjection.mainPrompt);
-  }
-
-  // Apply positive/negative instructions if provided
-  if (promptInjection?.instructionsPositive) {
-    taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
-  }
-  if (promptInjection?.instructionsNegative) {
-    taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
-  }
-  
-  if (characterPercent > 0 || scenePercent > 0) {
-    taskInstructions.push(`Allocate approximately ${characterPercent}% of your response to character description and ${scenePercent}% to scene description.`);
-  }
-  
-  if (maxTokens > 0) {
-    taskInstructions.push(`Keep your response under ${Math.floor(maxTokens * 0.75)} words.`);
-  }
-
-  // Apply picture count settings from prompt injection
-  if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
-    let picCountInstruction = '';
-    if (promptInjection.picCountMode === 'exact' && promptInjection.picCountExact > 0) {
-      picCountInstruction = `Generate exactly ${promptInjection.picCountExact} image prompt(s).`;
-    } else if (promptInjection.picCountMode === 'range') {
-      const min = promptInjection.picCountMin ?? 1;
-      const max = promptInjection.picCountMax ?? 3;
-      picCountInstruction = `Generate between ${min} and ${max} image prompts.`;
-    }
-    if (picCountInstruction) {
-      taskInstructions.push(picCountInstruction);
-    }
-  }
-  
-  const taskSection = taskInstructions.join('\n\n');
+  const taskSection = buildTaskInstructions();
   const userPrompt = `${taskSection}\n\n---\n\nConversation to analyze:\n${conversationText}`;
 
   logger.debug('Built user prompt', { promptLength: userPrompt.length });
