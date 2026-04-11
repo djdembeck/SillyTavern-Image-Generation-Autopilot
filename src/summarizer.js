@@ -166,6 +166,7 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
       maxTokens: inputOrText.maxTokens ?? inputOrText.settings?.maxTokens ?? inputOrText.settings?.summarizer?.maxTokens ?? 0,
       characterPercent: inputOrText.characterPercent ?? inputOrText.settings?.characterPercent ?? inputOrText.settings?.summarizer?.characterPercent ?? 30,
       scenePercent: inputOrText.scenePercent ?? inputOrText.settings?.scenePercent ?? inputOrText.settings?.summarizer?.scenePercent ?? 70,
+      promptInjection: inputOrText.promptInjection || {},
     };
   }
 
@@ -182,17 +183,19 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
     maxTokens: summarizerSettings.maxTokens ?? 0,
     characterPercent: summarizerSettings.characterPercent ?? 30,
     scenePercent: summarizerSettings.scenePercent ?? 70,
+    promptInjection: {},
   };
 }
 
-async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTokens = 0, characterPercent = 30, scenePercent = 70) {
+async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTokens = 0, characterPercent = 30, scenePercent = 70, promptInjection = {}) {
   logger.debug('callSummarizer invoked', {
     messageCount: messages.length,
     systemPromptLength: systemPrompt?.length,
     hasCallChatCompletion: typeof callChatCompletion === 'function',
     maxTokens,
     characterPercent,
-    scenePercent
+    scenePercent,
+    hasPromptInjection: Object.keys(promptInjection).length > 0
   });
 
   if (typeof callChatCompletion === 'function') {
@@ -227,6 +230,19 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
   if (systemPrompt) {
     taskInstructions.push(systemPrompt);
   }
+
+  // Apply prompt injection main instructions if provided
+  if (promptInjection?.mainPrompt) {
+    taskInstructions.push(promptInjection.mainPrompt);
+  }
+
+  // Apply positive/negative instructions if provided
+  if (promptInjection?.instructionsPositive) {
+    taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
+  }
+  if (promptInjection?.instructionsNegative) {
+    taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
+  }
   
   if (characterPercent > 0 || scenePercent > 0) {
     taskInstructions.push(`Allocate approximately ${characterPercent}% of your response to character description and ${scenePercent}% to scene description.`);
@@ -234,6 +250,21 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
   
   if (maxTokens > 0) {
     taskInstructions.push(`Keep your response under ${Math.floor(maxTokens * 0.75)} words.`);
+  }
+
+  // Apply picture count settings from prompt injection
+  if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
+    let picCountInstruction = '';
+    if (promptInjection.picCountMode === 'exact' && promptInjection.picCountExact > 0) {
+      picCountInstruction = `Generate exactly ${promptInjection.picCountExact} image prompt(s).`;
+    } else if (promptInjection.picCountMode === 'range') {
+      const min = promptInjection.picCountMin ?? 1;
+      const max = promptInjection.picCountMax ?? 3;
+      picCountInstruction = `Generate between ${min} and ${max} image prompts.`;
+    }
+    if (picCountInstruction) {
+      taskInstructions.push(picCountInstruction);
+    }
   }
   
   const taskSection = taskInstructions.join('\n\n');
@@ -320,7 +351,8 @@ export async function summarizeWithAI(text, charName, userName, settings) {
       config.callChatCompletion, 
       config.maxTokens,
       config.characterPercent,
-      config.scenePercent
+      config.scenePercent,
+      config.promptInjection
     );
     const content = normalizeResponseContent(result);
 

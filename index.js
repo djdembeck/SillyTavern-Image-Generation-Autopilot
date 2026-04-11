@@ -2634,12 +2634,12 @@ function syncUiFromSettings() {
     }
 
     if (state.ui.summarizerCharacterPercentInput) {
-        const charPercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.characterPercent || 30))
+        const charPercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.characterPercent ?? 30))
         state.ui.summarizerCharacterPercentInput.value = String(charPercent)
     }
 
     if (state.ui.summarizerScenePercentInput) {
-        const scenePercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.scenePercent || 70))
+        const scenePercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.scenePercent ?? 70))
         state.ui.summarizerScenePercentInput.value = String(scenePercent)
     }
 
@@ -3134,6 +3134,8 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 throw new Error('No messages to resummarize')
             }
 
+            const promptInjectionSettings = autoSettings?.promptInjection || {}
+
             try {
                 const result = await summarizeWithAI({
                     messages: summarizerMessages,
@@ -3141,6 +3143,8 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                     maxTokens: summarizerSettings.maxTokens,
                     characterPercent: summarizerSettings.characterPercent,
                     scenePercent: summarizerSettings.scenePercent,
+                    systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                    promptInjection: promptInjectionSettings,
                     charName,
                     userName,
                 })
@@ -3624,12 +3628,16 @@ async function generateSummarizedPrompt(messageId) {
     })
 
     try {
+        const promptInjectionSettings = autoSettings?.promptInjection || {}
+
         const summarizedPrompt = await summarizeWithAI({
             messages: boundedMessages,
             messageDepth: boundedMessages.length,
             maxTokens: summarizerSettings.maxTokens,
             characterPercent: summarizerSettings.characterPercent,
             scenePercent: summarizerSettings.scenePercent,
+            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+            promptInjection: promptInjectionSettings,
             charName,
             userName,
         })
@@ -4317,7 +4325,7 @@ function getMediaCount(message) {
     return Array.isArray(mediaList) ? mediaList.length : 0
 }
 
-async function queueAutoFill(messageId, button) {
+async function queueAutoFill(messageId, button, options = {}) {
     if (state.runningMessages.has(messageId)) {
         return
     }
@@ -4331,7 +4339,7 @@ async function queueAutoFill(messageId, button) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
 
-    if (!autoSettings?.enabled) {
+    if (!autoSettings?.enabled && !options?.isManual) {
         logger.warn('Auto-fill ignored (auto generation disabled)')
         return
     }
@@ -4682,7 +4690,7 @@ async function init() {
                     return
                 }
 
-                queueAutoFill(messageId, paintbrush)
+                queueAutoFill(messageId, paintbrush, { isManual: true })
             },
             true,
         )
