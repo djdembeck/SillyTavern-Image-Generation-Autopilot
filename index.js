@@ -3674,7 +3674,9 @@ async function generateSummarizedPrompt(messageId) {
 
             return null
         }
-    })
+        })
+    }
+}
 
 async function handleIncomingMessage(messageId) {
     if (state.isRewriting) {

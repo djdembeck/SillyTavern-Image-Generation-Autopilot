@@ -3,6 +3,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ImageSelectionDialog } from '../image-dialog.js'
 
+const stripPicTags = (content) => {
+    if (typeof content !== 'string') return content
+    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+}
+
 const indexSource = readFileSync(resolve(import.meta.dir, '../../index.js'), 'utf8')
 
 function extractFunctionSource(functionName, nextFunctionName) {
@@ -224,10 +229,7 @@ describe('full flow integration', () => {
                     error: mock(),
                     warn: mock(),
                 },
-                stripPicTags: (content) => {
-                    if (typeof content !== 'string') return content
-                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
-                },
+                stripPicTags,
             },
         )
 
@@ -257,10 +259,7 @@ describe('full flow integration', () => {
                     warn: mock(),
                 },
                 window: globalThis.window,
-                stripPicTags: (content) => {
-                    if (typeof content !== 'string') return content
-                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
-                },
+                stripPicTags,
             },
         )
 
@@ -406,10 +405,7 @@ describe('full flow integration', () => {
                     error: mock(),
                     warn: mock(),
                 },
-                stripPicTags: (content) => {
-                    if (typeof content !== 'string') return content
-                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
-                },
+                stripPicTags,
             },
         )
 
@@ -439,10 +435,7 @@ describe('full flow integration', () => {
                     warn: mock(),
                 },
                 window: globalThis.window,
-                stripPicTags: (content) => {
-                    if (typeof content !== 'string') return content
-                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
-                },
+                stripPicTags,
             },
         )
 
@@ -539,10 +532,7 @@ describe('full flow integration', () => {
                     error: mock(),
                     warn: mock(),
                 },
-                stripPicTags: (content) => {
-                    if (typeof content !== 'string') return content
-                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
-                },
+                stripPicTags,
             },
         )
 
@@ -572,10 +562,7 @@ describe('full flow integration', () => {
                     warn: mock(),
                 },
                 window: globalThis.window,
-                stripPicTags: (content) => {
-                    if (typeof content !== 'string') return content
-                    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
-                },
+                stripPicTags,
             },
         )
 

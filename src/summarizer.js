@@ -254,9 +254,11 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
       ];
       const options = {
         temperature: 0.3,
-        max_tokens: maxTokens > 0 ? maxTokens : 2500,
         systemPrompt,
       };
+      if (maxTokens > 0) {
+        options.max_tokens = maxTokens;
+      }
       return await callChatCompletion(modifiedMessages, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

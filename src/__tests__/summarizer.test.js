@@ -191,7 +191,7 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(optionsUsed.max_tokens).toBe(2500)
+            expect(optionsUsed.max_tokens).toBeUndefined()
         })
     })
 
