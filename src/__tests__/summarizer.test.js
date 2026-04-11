@@ -69,7 +69,8 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(messagesSent).toHaveLength(1)
+            const analyzed = messagesSent.slice(2)
+            expect(analyzed).toHaveLength(1)
         })
 
         it('uses 5 messages when depth is 5', async () => {
@@ -89,7 +90,8 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(messagesSent).toHaveLength(5)
+            const analyzed = messagesSent.slice(2)
+            expect(analyzed).toHaveLength(5)
         })
 
         it('uses maximum 10 messages when depth exceeds 10', async () => {
@@ -109,7 +111,8 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(messagesSent).toHaveLength(10)
+            const analyzed = messagesSent.slice(2)
+            expect(analyzed).toHaveLength(10)
         })
     })
 

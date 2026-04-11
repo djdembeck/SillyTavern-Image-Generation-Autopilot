@@ -246,7 +246,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
         const role = m.role === 'assistant' ? 'Assistant' : 'User';
         return `${role}: ${m.content}`;
       }).join('\n\n');
-      const userPrompt = `${taskSection}\n\n---\n\nConversation to analyze:\n${conversationText}`;
+      const userPrompt = `Conversation to analyze:\n${conversationText}`;
       const modifiedMessages = [
         { role: 'system', content: `${systemPrompt ? systemPrompt + '\n\n' : ''}${taskSection}` },
         { role: 'user', content: userPrompt },
