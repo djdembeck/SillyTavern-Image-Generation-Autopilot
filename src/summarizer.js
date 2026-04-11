@@ -73,7 +73,7 @@ export function getCharacterDescription(charName) {
   // Handle array format (newer SillyTavern versions)
   if (Array.isArray(ctx.characters)) {
     const char = ctx.characters.find((c) => {
-      const labels = [c?.data?.name, c?.name, c?.data?.displayName];
+      const labels = [c?.data?.name, c?.name, c?.data?.displayName, c?.displayName];
       return labels.some((label) => label && String(label).trim().toLowerCase() === needle);
     });
 
@@ -219,13 +219,8 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
 
       if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
         let picCountInstruction = '';
-        if (promptInjection.picCountMode === 'exact' && promptInjection.picCountExact > 0) {
-          picCountInstruction = `Generate exactly ${promptInjection.picCountExact} image prompt(s).`;
-        } else if (promptInjection.picCountMode === 'range') {
-          const min = promptInjection.picCountMin ?? 1;
-          const max = promptInjection.picCountMax ?? 3;
-          picCountInstruction = `Generate between ${min} and ${max} image prompts.`;
-        }
+        // Clamp to exactly 1 prompt for single-output summarization path
+        picCountInstruction = 'Generate exactly 1 image prompt.';
         if (picCountInstruction) {
           taskInstructions.push(picCountInstruction);
         }

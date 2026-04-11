@@ -3767,14 +3767,16 @@ async function handleManualPromptRewrite(messageId) {
     const minContentLength = 20
 
     // In "New message" mode, images go to a separate message. Find the source message.
-    if (hasGeneratedMedia(message) && resolvedId > 0) {
-        const prevId = resolvedId - 1
-        const prevMsg = chat[prevId]
-        const prevContentLength = stripPicTags(prevMsg?.mes || '').trim().length
-        if (prevMsg && !prevMsg.is_user && prevContentLength >= minContentLength) {
-            log('Targeting previous message as source', { prevId })
-            resolvedId = prevId
-            message = prevMsg
+    if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
+        if (hasGeneratedMedia(message) && resolvedId > 0) {
+            const prevId = resolvedId - 1
+            const prevMsg = chat[prevId]
+            const prevContentLength = stripPicTags(prevMsg?.mes || '').trim().length
+            if (prevMsg && !prevMsg.is_user && prevContentLength >= minContentLength) {
+                log('Targeting previous message as source', { prevId })
+                resolvedId = prevId
+                message = prevMsg
+            }
         }
     }
 
