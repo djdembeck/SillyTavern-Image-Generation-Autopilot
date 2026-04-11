@@ -6,17 +6,27 @@ import { ImageSelectionDialog } from '../image-dialog.js'
 const indexSource = readFileSync(resolve(import.meta.dir, '../../index.js'), 'utf8')
 
 function extractFunctionSource(functionName, nextFunctionName) {
-    const pattern = new RegExp(
-        `async function ${functionName}\\([^)]*\\) {([\\s\\S]*?)}\\s*${nextFunctionName ? `(?:async )?function ${nextFunctionName}\\(` : ''}`,
-    )
-    const match = indexSource.match(pattern)
-    if (!match) {
+    const startPattern = new RegExp(`(async function|function) ${functionName}\\([^)]*\\) \\{`)
+    const startMatch = indexSource.match(startPattern)
+    if (!startMatch) {
         throw new Error(`Could not locate ${functionName}() in index.js`)
     }
 
-    return nextFunctionName
-        ? match[0].replace(new RegExp(`\\s*(?:async )?function ${nextFunctionName}\\($`), '')
-        : match[0]
+    const startIndex = startMatch.index
+    let braceCount = 1
+    let endIndex = startIndex + startMatch[0].length
+
+    while (braceCount > 0 && endIndex < indexSource.length) {
+        if (indexSource[endIndex] === '{') braceCount++
+        else if (indexSource[endIndex] === '}') braceCount--
+        endIndex++
+    }
+
+    if (braceCount !== 0) {
+        throw new Error(`Could not find matching braces for ${functionName}()`)
+    }
+
+    return indexSource.slice(startIndex, endIndex)
 }
 
 function buildIndexFunction(source, functionName, dependencies) {

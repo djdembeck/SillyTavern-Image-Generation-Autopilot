@@ -259,6 +259,90 @@ function logPerCharacter(action, payload) {
     logger.debug('[PerCharacter]', action, payload)
 }
 
+/**
+ * Helper to switch to a connection profile/preset, execute a callback, and restore the original profile.
+ * @param {string} profileName - The target profile name (with optional 'profile:' or 'preset:' prefix)
+ * @param {Function} asyncFn - Async function to execute with the switched profile
+ * @returns {Promise<*>} The result of the async function
+ */
+async function withConnectionProfile(profileName, asyncFn) {
+    const ctx = getCtx()
+
+    if (typeof ctx.executeSlashCommandsWithOptions !== 'function') {
+        return asyncFn()
+    }
+
+    const isPreset = profileName.startsWith('preset:')
+    const isProfile = profileName.startsWith('profile:')
+    const realName = profileName.replace(/^(profile|preset):/, '')
+
+    if (!realName) {
+        log('Skipping profile switch - empty name after prefix removal', { profileName })
+        return asyncFn()
+    }
+
+    let originalProfile = null
+    let originalPreset = null
+
+    try {
+        // Save original profile and preset
+        try {
+            const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
+            originalProfile = profileResult?.pipe
+        } catch (error) {
+            logger.warn('Failed to get current profile:', error)
+        }
+
+        try {
+            const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
+            originalPreset = presetResult?.pipe
+        } catch (error) {
+            logger.warn('Failed to get current preset:', error)
+        }
+
+        log('Switching connection profile', {
+            target: realName,
+            isPreset,
+            isProfile,
+            previousProfile: originalProfile,
+            previousPreset: originalPreset
+        })
+
+        // Switch to target profile/preset
+        if (isPreset) {
+            await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
+        } else {
+            await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+        }
+
+        await sleep(100)
+    } catch (error) {
+        logger.warn('Failed to switch profile:', error)
+    }
+
+    try {
+        return await asyncFn()
+    } finally {
+        // Always restore original profile/preset
+        if (originalProfile) {
+            log('Restoring connection profile', { originalProfile })
+            try {
+                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+            } catch (error) {
+                logger.warn('Failed to restore connection profile:', error)
+            }
+        }
+        if (originalPreset) {
+            log('Restoring completion preset', { originalPreset })
+            try {
+                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+            } catch (error) {
+                logger.warn('Failed to restore completion preset:', error)
+            }
+        }
+    }
+}
+
 function patchToastrForDebug() {
     if (state.toastPatched || !getSettings().debugMode) {
         return
@@ -2471,14 +2555,19 @@ async function syncProfileSelectOptions(showFeedback = false) {
 
     // Fetch completion presets using preset-manager API
     try {
-        const { presets, preset_names } = getPresetManager().getPresetList()
-        if (Array.isArray(preset_names)) {
-            completionPresets = preset_names
-        } else if (preset_names && typeof preset_names === 'object') {
-            completionPresets = Object.keys(preset_names)
-        } else if (Array.isArray(presets)) {
-            // Fallback: extract names from presets array
-            completionPresets = presets.map(p => p?.name).filter(Boolean)
+        const manager = getPresetManager()
+        if (!manager) {
+            logger.warn('Preset manager not available')
+        } else {
+            const { presets, preset_names } = manager.getPresetList()
+            if (Array.isArray(preset_names)) {
+                completionPresets = preset_names
+            } else if (preset_names && typeof preset_names === 'object') {
+                completionPresets = Object.keys(preset_names)
+            } else if (Array.isArray(presets)) {
+                // Fallback: extract names from presets array
+                completionPresets = presets.map(p => p?.name).filter(Boolean)
+            }
         }
     } catch (error) {
         logger.warn('Failed to list presets via preset-manager:', error)
@@ -3381,171 +3470,114 @@ function buildPromptRewriteUser(originalPrompt, contextText = '') {
 
 async function callChatRewrite(originalPrompt, profileName = '', messageId = null) {
     log('callChatRewrite start', { originalPrompt, profileName, messageId })
-    const ctx = getCtx()
-    let originalProfile = null
-    let originalPreset = null
 
-    if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
+    return withConnectionProfile(profileName, async () => {
+        const ctx = getCtx()
+        let contextText = ''
+        const chat = ctx.chat || []
+
+        const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
+
+        if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
+            const cleanMes = stripPicTags(chat[messageId].mes)
+            if (cleanMes) {
+                contextText = cleanMes
+            }
+        }
+
+        if (!contextText) {
+            for (let i = searchStart - 1; i >= 0; i--) {
+                if (!chat[i].is_user && chat[i].mes) {
+                    const cleanMes = stripPicTags(chat[i].mes)
+                    if (cleanMes) {
+                        contextText = cleanMes
+                        break
+                    }
+                }
+            }
+        }
+
+        if (!contextText && typeof messageId === 'number' && messageId > 0) {
+            const prevMsg = chat[messageId - 1]
+            if (prevMsg?.is_user && prevMsg.mes) {
+                contextText = prevMsg.mes.trim()
+            }
+        }
+
+        log('callChatRewrite context found', { contextText: contextText.substring(0, 100) + '...' })
+
+        const systemPrompt = buildPromptRewriteSystem()
+        const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
+        const startLength = chat.length || 0
+
+        log('callChatRewrite prompts', {
+            systemPrompt: systemPrompt.substring(0, 100) + '...',
+            userPrompt: userPrompt.substring(0, 200) + '...',
+        })
+
+        const attempts = []
+
+        if (typeof ctx.generateRaw === 'function') {
+            attempts.push({
+                name: 'generateRaw',
+                fn: async () => ctx.generateRaw({
+                    prompt: userPrompt,
+                    systemPrompt: systemPrompt,
+                })
+            })
+        }
+
+        if (typeof ctx.generateText === 'function') {
+            attempts.push({
+                name: 'generateText',
+                fn: async () => ctx.generateText({
+                    prompt: userPrompt,
+                    systemPrompt: systemPrompt,
+                })
+            })
+        }
+
+        if (typeof ctx.generate === 'function') {
+            attempts.push({
+                name: 'generate',
+                fn: async () => ctx.generate({
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userPrompt },
+                    ],
+                    quiet: true,
+                    stream: false,
+                })
+            })
+        }
+
+        state.isRewriting = true
+        const rewriteRegex = PIC_TAG_REGEX
+        let rewritten = null
         try {
-            const isPreset = profileName.startsWith('preset:')
-            const isProfile = profileName.startsWith('profile:')
-            const realName = profileName.replace(/^(profile|preset):/, '')
-
-            if (!realName) {
-                log('Skipping profile switch - empty name after prefix removal', { profileName })
-                return
-            }
-
-            const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
-            originalProfile = profileResult?.pipe
-
-            const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
-            originalPreset = presetResult?.pipe
-
-            log('Switching connection profile for rewrite', {
-                target: realName,
-                isPreset,
-                isProfile,
-                previousProfile: originalProfile,
-                previousPreset: originalPreset
-            })
-
-            if (isPreset) {
-                await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
-            } else {
-                await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
-            }
-
-            await sleep(100)
-        } catch (error) {
-            logger.warn('Failed to switch profile:', error)
-        }
-    }
-
-    let contextText = ''
-    const chat = ctx.chat || []
-
-    const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
-
-    if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
-        const cleanMes = stripPicTags(chat[messageId].mes)
-        if (cleanMes) {
-            contextText = cleanMes
-        }
-    }
-
-    if (!contextText) {
-        for (let i = searchStart - 1; i >= 0; i--) {
-            if (!chat[i].is_user && chat[i].mes) {
-                const cleanMes = stripPicTags(chat[i].mes)
-                if (cleanMes) {
-                    contextText = cleanMes
-                    break
+            for (const attempt of attempts) {
+                try {
+                    log(`Rewrite attempt starting (${attempt.name})...`)
+                    const result = await attempt.fn()
+                    log(`Rewrite attempt (${attempt.name}) raw result:`, result)
+                    const rewrittenRaw = normalizeRewriteResponse(result)
+                    const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, rewriteRegex)
+                    if (candidate) {
+                        log(`Rewrite attempt (${attempt.name}) success:`, candidate)
+                        rewritten = candidate
+                        break
+                    }
+                } catch (error) {
+                    logger.warn(`Prompt rewrite attempt (${attempt.name}) failed`, error)
                 }
             }
+        } finally {
+            state.isRewriting = false
+            await cleanupRewriteMessages(startLength)
         }
-    }
 
-    if (!contextText && typeof messageId === 'number' && messageId > 0) {
-        const prevMsg = chat[messageId - 1]
-        if (prevMsg?.is_user && prevMsg.mes) {
-            contextText = prevMsg.mes.trim()
-        }
-    }
-
-    log('callChatRewrite context found', { contextText: contextText.substring(0, 100) + '...' })
-
-    const systemPrompt = buildPromptRewriteSystem()
-    const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
-    const startLength = chat.length || 0
-
-    log('callChatRewrite prompts', {
-        systemPrompt: systemPrompt.substring(0, 100) + '...',
-        userPrompt: userPrompt.substring(0, 200) + '...',
+        return rewritten || ''
     })
-
-    const attempts = []
-
-    if (typeof ctx.generateRaw === 'function') {
-        attempts.push({
-            name: 'generateRaw',
-            fn: async () => ctx.generateRaw({
-                prompt: userPrompt,
-                systemPrompt: systemPrompt,
-            })
-        })
-    }
-
-    if (typeof ctx.generateText === 'function') {
-        attempts.push({
-            name: 'generateText',
-            fn: async () => ctx.generateText({
-                prompt: userPrompt,
-                systemPrompt: systemPrompt,
-            })
-        })
-    }
-
-    if (typeof ctx.generate === 'function') {
-        attempts.push({
-            name: 'generate',
-            fn: async () => ctx.generate({
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                ],
-                quiet: true,
-                stream: false,
-            })
-        })
-    }
-
-    state.isRewriting = true
-    const rewriteRegex = PIC_TAG_REGEX
-    let rewritten = null
-    try {
-        for (const attempt of attempts) {
-            try {
-                log(`Rewrite attempt starting (${attempt.name})...`)
-                const result = await attempt.fn()
-                log(`Rewrite attempt (${attempt.name}) raw result:`, result)
-                const rewrittenRaw = normalizeRewriteResponse(result)
-                const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, rewriteRegex)
-                if (candidate) {
-                    log(`Rewrite attempt (${attempt.name}) success:`, candidate)
-                    rewritten = candidate
-                    break
-                }
-            } catch (error) {
-                logger.warn(`Prompt rewrite attempt (${attempt.name}) failed`, error)
-            }
-        }
-    } finally {
-        state.isRewriting = false
-        await cleanupRewriteMessages(startLength)
-
-        if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
-            if (originalProfile) {
-                log('Restoring connection profile', { originalProfile })
-                try {
-                    await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
-                } catch (error) {
-                    logger.warn('Failed to restore connection profile:', error)
-                }
-            }
-            if (originalPreset) {
-                log('Restoring completion preset', { originalPreset })
-                try {
-                    await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
-                } catch (error) {
-                    logger.warn('Failed to restore completion preset:', error)
-                }
-            }
-        }
-    }
-
-    return rewritten || ''
-}
 
 async function generateSummarizedPrompt(messageId) {
     const settings = getSettings()
@@ -3565,140 +3597,80 @@ async function generateSummarizedPrompt(messageId) {
     const charName = message.name || context.name2 || context.character_name || ''
     const userName = context.name1 || context.user_name || 'User'
 
-    // Switch to selected connection profile for summarization
     const profileName = autoSettings?.promptRewrite?.modelId
-    let originalProfile = null
-    let originalPreset = null
-    const ctx = getCtx()
 
-    if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
-        try {
-            const isPreset = profileName.startsWith('preset:')
-            const isProfile = profileName.startsWith('profile:')
-            const realName = profileName.replace(/^(profile|preset):/, '')
+    return withConnectionProfile(profileName, async () => {
+        const rawChatSlice = (context.chat || []).slice(0, messageId + 1)
+        const normalizedMessages = rawChatSlice
+            .filter((m) => m && typeof m === 'object')
+            .map((m) => ({
+                role: m.is_user ? 'user' : 'assistant',
+                content: stripPicTags(m.mes),
+            }))
+            .filter((m) => m.content)
 
-            if (realName) {
-                const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
-                originalProfile = profileResult?.pipe
-
-                const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
-                originalPreset = presetResult?.pipe
-
-                log('Switching connection profile for summarization', {
-                    target: realName,
-                    isPreset,
-                    isProfile,
-                    previousProfile: originalProfile,
-                    previousPreset: originalPreset
-                })
-
-                if (isPreset) {
-                    await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
-                } else {
-                    await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
-                }
-
-                await sleep(100)
-            }
-        } catch (error) {
-            logger.warn('Failed to switch profile for summarization:', error)
+        // Compute window slice: center on resolvedId (or last message if not found)
+        const targetIndex = normalizedMessages.length - 1
+        const halfDepth = Math.floor(messageDepth / 2)
+        let sliceStart = Math.max(0, targetIndex - halfDepth)
+        let sliceEnd = Math.min(normalizedMessages.length, sliceStart + messageDepth)
+        // Adjust start if we're at the end of the chat
+        if (sliceEnd - sliceStart < messageDepth) {
+            sliceStart = Math.max(0, sliceEnd - messageDepth)
         }
-    }
+        const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
 
-    // Normalize SillyTavern chat messages to {role, content} format
-    // and extract a bounded window centered on the resolved message
-    // Strip <pic> tags so they don't influence the summarizer
-    const rawChatSlice = (context.chat || []).slice(0, messageId + 1)
-    const normalizedMessages = rawChatSlice
-        .filter((m) => m && typeof m === 'object')
-        .map((m) => ({
-            role: m.is_user ? 'user' : 'assistant',
-            content: stripPicTags(m.mes),
-        }))
-        .filter((m) => m.content)
-
-    // Compute window slice: center on resolvedId (or last message if not found)
-    const targetIndex = normalizedMessages.length - 1
-    const halfDepth = Math.floor(messageDepth / 2)
-    let sliceStart = Math.max(0, targetIndex - halfDepth)
-    let sliceEnd = Math.min(normalizedMessages.length, sliceStart + messageDepth)
-    // Adjust start if we're at the end of the chat
-    if (sliceEnd - sliceStart < messageDepth) {
-        sliceStart = Math.max(0, sliceEnd - messageDepth)
-    }
-    const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
-
-    if (boundedMessages.length === 0) {
-        logger.warn('[ImageAutopilot] No messages to summarize - all filtered out')
-        return null
-    }
-
-    log('Summarization context prepared', {
-        messageCount: boundedMessages.length,
-        charName,
-        userName,
-        messageDepth,
-        profileName
-    })
-
-    try {
-        const promptInjectionSettings = autoSettings?.promptInjection || {}
-
-        const summarizedPrompt = await summarizeWithAI({
-            messages: boundedMessages,
-            messageDepth: boundedMessages.length,
-            maxTokens: summarizerSettings.maxTokens,
-            characterPercent: summarizerSettings.characterPercent,
-            scenePercent: summarizerSettings.scenePercent,
-            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
-            promptInjection: promptInjectionSettings,
-            charName,
-            userName,
-        })
-
-        log('Summarizer returned result', {
-            resultType: typeof summarizedPrompt,
-            resultLength: summarizedPrompt?.length,
-            preview: typeof summarizedPrompt === 'string' ? summarizedPrompt.substring(0, 100) + '...' : null
-        })
-
-        if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
-            logger.error('[ImageAutopilot] Summarizer returned empty response')
+        if (boundedMessages.length === 0) {
+            logger.warn('[ImageAutopilot] No messages to summarize - all filtered out')
             return null
         }
 
-        return summarizedPrompt.trim()
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        logger.error('[ImageAutopilot] Summarizer failed:', errorMessage)
+        log('Summarization context prepared', {
+            messageCount: boundedMessages.length,
+            charName,
+            userName,
+            messageDepth,
+            profileName
+        })
 
-        if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
-            window.toastr.error(errorMessage, 'Image Summarization Failed')
-        }
+        try {
+            const promptInjectionSettings = autoSettings?.promptInjection || {}
 
-        return null
-    } finally {
-        // Restore original connection profile
-        if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
-            if (originalProfile) {
-                log('Restoring connection profile after summarization', { originalProfile })
-                try {
-                    await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
-                } catch (error) {
-                    logger.warn('Failed to restore connection profile after summarization:', error)
-                }
+            const summarizedPrompt = await summarizeWithAI({
+                messages: boundedMessages,
+                messageDepth: boundedMessages.length,
+                maxTokens: summarizerSettings.maxTokens,
+                characterPercent: summarizerSettings.characterPercent,
+                scenePercent: summarizerSettings.scenePercent,
+                systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                promptInjection: promptInjectionSettings,
+                charName,
+                userName,
+            })
+
+            log('Summarizer returned result', {
+                resultType: typeof summarizedPrompt,
+                resultLength: summarizedPrompt?.length,
+                preview: typeof summarizedPrompt === 'string' ? summarizedPrompt.substring(0, 100) + '...' : null
+            })
+
+            if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
+                logger.error('[ImageAutopilot] Summarizer returned empty response')
+                return null
             }
-            if (originalPreset) {
-                log('Restoring completion preset after summarization', { originalPreset })
-                try {
-                    await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
-                } catch (error) {
-                    logger.warn('Failed to restore completion preset after summarization:', error)
-                }
+
+            return summarizedPrompt.trim()
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            logger.error('[ImageAutopilot] Summarizer failed:', errorMessage)
+
+            if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
+                window.toastr.error(errorMessage, 'Image Summarization Failed')
             }
+
+            return null
         }
-    }
-}
+    })
 
 async function handleIncomingMessage(messageId) {
     if (state.isRewriting) {

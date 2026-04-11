@@ -256,7 +256,6 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
         temperature: 0.3,
         max_tokens: maxTokens > 0 ? maxTokens : 2500,
         systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
       };
       return await callChatCompletion(messages, options);
     } catch (error) {
