@@ -3555,6 +3555,7 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
         return rewritten || ''
     })
 
+
 async function generateSummarizedPrompt(messageId) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
