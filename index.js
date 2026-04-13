@@ -3554,6 +3554,7 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
 
         return rewritten || ''
     })
+}
 
 
 async function generateSummarizedPrompt(messageId) {
@@ -3648,7 +3649,6 @@ async function generateSummarizedPrompt(messageId) {
             return null
         }
         })
-    }
 }
 
 async function handleIncomingMessage(messageId) {
