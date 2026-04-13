@@ -238,41 +238,23 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
       taskInstructions.push(systemPrompt);
     }
 
-    // Include main prompt, positive, and negative instructions when present
-    if (promptInjection?.mainPrompt && !promptInjection.mainPrompt.includes('<pic')) {
-      taskInstructions.push(promptInjection.mainPrompt);
-    }
-
-    if (promptInjection?.instructionsPositive && !promptInjection.instructionsPositive.includes('<pic')) {
-      taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
-    }
-    if (promptInjection?.instructionsNegative && !promptInjection.instructionsNegative.includes('<pic')) {
-      taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
-    }
-
-    if (promptInjection?.picCountMode && promptInjection.picCountMode !== 'none') {
-      const mode = promptInjection.picCountMode;
-      const exact = promptInjection.picCountExact ?? 1;
-      const min = promptInjection.picCountMin ?? 1;
-      const max = promptInjection.picCountMax ?? 3;
-      
-      switch (mode) {
-        case 'exact':
-          taskInstructions.push(`Generate exactly ${exact} image prompt${exact !== 1 ? 's' : ''}.`);
-          break;
-        case 'range':
-          taskInstructions.push(`Generate between ${min} and ${max} image prompts.`);
-          break;
-        case 'min':
-          taskInstructions.push(`Generate at least ${min} image prompt${min !== 1 ? 's' : ''}.`);
-          break;
-        case 'max':
-          taskInstructions.push(`Generate at most ${max} image prompt${max !== 1 ? 's' : ''}.`);
-          break;
-        default:
-          // Default to exact count of 1 for unknown modes
-          taskInstructions.push('Generate exactly 1 image prompt.');
+    // Include main prompt, positive, and negative instructions when present and enabled
+    if (promptInjection?.enabled) {
+      if (promptInjection.mainPrompt && !promptInjection.mainPrompt.includes('<pic')) {
+        taskInstructions.push(promptInjection.mainPrompt);
       }
+
+      if (promptInjection.instructionsPositive && !promptInjection.instructionsPositive.includes('<pic')) {
+        taskInstructions.push(`Additional instructions: ${promptInjection.instructionsPositive}`);
+      }
+      if (promptInjection.instructionsNegative && !promptInjection.instructionsNegative.includes('<pic')) {
+        taskInstructions.push(`Avoid: ${promptInjection.instructionsNegative}`);
+      }
+    }
+
+    if (promptInjection?.enabled && promptInjection.picCountMode && promptInjection.picCountMode !== 'none') {
+      // Always clamp to single prompt - downstream code expects a single string
+      taskInstructions.push('Generate exactly 1 image prompt.');
     }
     
     if (maxTokens > 0) {
@@ -413,7 +395,9 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
  */
 export async function summarizeWithAI(text, charName, userName, settings) {
   const config = buildInvocationConfig(text, charName, userName, settings);
-  const characterDescription = getCharacterDescription(config.charName);
+  const characterDescriptions = config.characterDescriptions || {};
+  const passedDescription = characterDescriptions[config.charName];
+  const characterDescription = (passedDescription && passedDescription.trim()) ? passedDescription.trim() : getCharacterDescription(config.charName);
   const appearanceLines = characterDescription;
   const systemPrompt = buildSystemPrompt(config.systemPromptTemplate, appearanceLines);
 
