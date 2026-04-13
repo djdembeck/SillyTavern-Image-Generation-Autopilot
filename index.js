@@ -60,7 +60,6 @@ const defaultSettings = Object.freeze({
             picCountExact: 1,
             picCountMin: 1,
             picCountMax: 3,
-            regex: '/<pic[^>]*\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
         },
         summarizer: {
             messageDepth: 1,
