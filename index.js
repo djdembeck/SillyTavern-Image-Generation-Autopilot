@@ -1739,7 +1739,8 @@ async function buildSettingsPanel() {
 
     // Debounce timer for system prompt saves
     let summarizerSystemPromptDebounceTimer = null
-    root.appendChild(container)
+    // Debounce timer for prompt injection input saves
+    let promptInjectionDebounceTimer = null
 
     const enabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_image_enabled')
@@ -2092,24 +2093,35 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-
-    promptMainInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.mainPrompt = promptMainInput.value
+promptMainInput?.addEventListener('input', () => {
+    const current = getSettings()
+    current.autoGeneration.promptInjection.mainPrompt = promptMainInput.value
+    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+    promptInjectionDebounceTimer = setTimeout(() => {
         saveSettings()
-    })
+        promptInjectionDebounceTimer = null
+    }, 500)
+})
 
-    promptPositiveInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsPositive = promptPositiveInput.value
+promptPositiveInput?.addEventListener('input', () => {
+    const current = getSettings()
+    current.autoGeneration.promptInjection.instructionsPositive = promptPositiveInput.value
+    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+    promptInjectionDebounceTimer = setTimeout(() => {
         saveSettings()
-    })
+        promptInjectionDebounceTimer = null
+    }, 500)
+})
 
-    promptNegativeInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
+promptNegativeInput?.addEventListener('input', () => {
+    const current = getSettings()
+    current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
+    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+    promptInjectionDebounceTimer = setTimeout(() => {
         saveSettings()
-    })
+        promptInjectionDebounceTimer = null
+    }, 500)
+})
 
     addModelButton?.addEventListener('click', (event) => {
         event.preventDefault()
@@ -3086,13 +3098,16 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
             const message = chat[sourceMessageId]
             const charName = message?.name || context.name2 || context.character_name || ''
             const userName = context.name1 || context.user_name || 'User'
-
-            const summarizerMessages = chat
-                .slice(Math.max(0, sourceMessageId - messageDepth + 1), sourceMessageId + 1)
-                .map((entry) => ({
-                    role: entry?.is_user ? 'user' : 'assistant',
-                    content: stripPicTags(entry?.mes),
-                }))
+            // Prepend edited prompt to summarizer messages
+            const summarizerMessages = [{ role: 'user', content: prompt }]
+                .concat(
+                    chat
+                        .slice(Math.max(0, sourceMessageId - messageDepth + 1), sourceMessageId + 1)
+                        .map((entry) => ({
+                            role: entry?.is_user ? 'user' : 'assistant',
+                            content: stripPicTags(entry?.mes),
+                        }))
+                )
                 .filter((entry) => entry.content)
 
             if (summarizerMessages.length === 0) {

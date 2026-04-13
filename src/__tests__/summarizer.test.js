@@ -98,8 +98,20 @@ describe('summarizeWithAI', () => {
             expect(messagesSent).toHaveLength(2)  // system + user prompt
             expect(messagesSent[0].role).toBe('system')
             expect(messagesSent[1].role).toBe('user')
-            // Verify conversation text is in user prompt content
+            // Verify the last message (msg9) is in user prompt content
             expect(messagesSent[1].content).toContain('msg9')  // last of 5 messages (indices 5,6,7,8,9)
+            // Verify all 5 messages (indices 5-9) are present
+            // Verify all 5 messages (indices 5-9) are present - use newline to avoid substring matches
+            expect(messagesSent[1].content).toContain('msg5\n')
+            expect(messagesSent[1].content).toContain('msg6\n')
+            expect(messagesSent[1].content).toContain('msg7\n')
+            expect(messagesSent[1].content).toContain('msg8\n')
+            // Verify older messages (indices 0-4) are NOT present
+            expect(messagesSent[1].content).not.toContain('msg0\n')
+            expect(messagesSent[1].content).not.toContain('msg1\n')
+            expect(messagesSent[1].content).not.toContain('msg2\n')
+            expect(messagesSent[1].content).not.toContain('msg3\n')
+            expect(messagesSent[1].content).not.toContain('msg4\n')
         })
 
         it('uses maximum 10 messages when depth exceeds 10', async () => {
@@ -125,6 +137,27 @@ describe('summarizeWithAI', () => {
             expect(messagesSent[1].role).toBe('user')
             // Verify 10 messages are in user prompt content (max after normalization)
             expect(messagesSent[1].content).toContain('msg19')  // last of 10 messages (indices 10-19)
+            // Verify all 10 messages (indices 10-19) are present - use newline to avoid substring matches
+            expect(messagesSent[1].content).toContain('msg10\n')
+            expect(messagesSent[1].content).toContain('msg11\n')
+            expect(messagesSent[1].content).toContain('msg12\n')
+            expect(messagesSent[1].content).toContain('msg13\n')
+            expect(messagesSent[1].content).toContain('msg14\n')
+            expect(messagesSent[1].content).toContain('msg15\n')
+            expect(messagesSent[1].content).toContain('msg16\n')
+            expect(messagesSent[1].content).toContain('msg17\n')
+            expect(messagesSent[1].content).toContain('msg18\n')
+            // Verify older messages (indices 0-9) are NOT present
+            expect(messagesSent[1].content).not.toContain('msg0\n')
+            expect(messagesSent[1].content).not.toContain('msg1\n')
+            expect(messagesSent[1].content).not.toContain('msg2\n')
+            expect(messagesSent[1].content).not.toContain('msg3\n')
+            expect(messagesSent[1].content).not.toContain('msg4\n')
+            expect(messagesSent[1].content).not.toContain('msg5\n')
+            expect(messagesSent[1].content).not.toContain('msg6\n')
+            expect(messagesSent[1].content).not.toContain('msg7\n')
+            expect(messagesSent[1].content).not.toContain('msg8\n')
+            expect(messagesSent[1].content).not.toContain('msg9\n')
         })
     })
 

@@ -211,7 +211,7 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
     maxTokens: summarizerSettings.maxTokens ?? 0,
     characterPercent: summarizerSettings.characterPercent ?? 30,
     scenePercent: summarizerSettings.scenePercent ?? 70,
-    promptInjection: {},
+    promptInjection: summarizerSettings.promptInjection || settings?.promptInjection || {},
   };
 }
 
@@ -385,7 +385,15 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
 export async function summarizeWithAI(text, charName, userName, settings) {
   const config = buildInvocationConfig(text, charName, userName, settings);
   const characterDescriptions = config.characterDescriptions || {};
-  const passedDescription = characterDescriptions[config.charName];
+  // Normalize lookup: iterate keys and match using trimmed + lowercased comparison
+  const normalizedCharName = String(config.charName || '').trim().toLowerCase();
+  let passedDescription = null;
+  for (const key of Object.keys(characterDescriptions)) {
+    if (key.trim().toLowerCase() === normalizedCharName) {
+      passedDescription = characterDescriptions[key];
+      break;
+    }
+  }
   const characterDescription = (passedDescription && passedDescription.trim()) ? passedDescription.trim() : getCharacterDescription(config.charName);
   const appearanceLines = characterDescription;
   const systemPrompt = buildSystemPrompt(config.systemPromptTemplate, appearanceLines);

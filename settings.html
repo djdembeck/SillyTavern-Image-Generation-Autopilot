@@ -110,8 +110,8 @@
                             <option value="new">Create new message</option>
                         </select>
                     </label>
-                    <label title="Select a text model connection profile to rewrite image prompts.">
-                        <span>Rewrite connection profile</span>
+                    <label title="Select a text model connection profile or completion preset to rewrite image prompts.">
+                        <span>Rewrite connection profile or preset</span>
                         <select
                             id="auto_multi_prompt_rewrite_model"
                             class="text_pole"
@@ -146,7 +146,7 @@
                         </label>
                     </div>
                     <div class="auto-multi-grid">
-                        <label title="Percentage of output dedicated to character description (1-100).">
+                        <label title="Percentage of output dedicated to character description (0-100).">
                             <span>Character %</span>
                             <input
                                 type="number"
@@ -157,7 +157,7 @@
                                 class="text_pole"
                             />
                         </label>
-                        <label title="Percentage of output dedicated to scene description (1-100).">
+                        <label title="Percentage of output dedicated to scene description (0-100).">
                             <span>Scene %</span>
                             <input
                                 type="number"
