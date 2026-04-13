@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 
 // Mock the SillyTavern API
 const mockChatCompletion = async (messages, options) => {
@@ -270,6 +270,20 @@ describe('summarizeWithAI', () => {
     })
 
     describe('character description integration', () => {
+        let originalSillyTavern
+
+        beforeEach(() => {
+            originalSillyTavern = globalThis.SillyTavern
+        })
+
+        afterEach(() => {
+            if (originalSillyTavern === undefined) {
+                delete globalThis.SillyTavern
+            } else {
+                globalThis.SillyTavern = originalSillyTavern
+            }
+        })
+
         it('includes character description in system prompt when character exists', async () => {
             const { summarizeWithAI } = await import('../summarizer.js')
             
@@ -303,8 +317,6 @@ describe('summarizeWithAI', () => {
             })
             
             expect(systemMessageContent).toContain('A brave adventurer with red hair and green eyes')
-            
-            delete globalThis.SillyTavern
         })
     })
 })

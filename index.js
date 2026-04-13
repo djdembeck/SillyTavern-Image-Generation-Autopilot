@@ -487,10 +487,21 @@ function ensureSettings() {
             settings.autoGeneration.promptRewrite.modelId = ''
         }
 
-        // Migration: Remove obsolete promptInjection fields that are no longer used
-        // (enabled, position, depth were for chat injection which no longer exists)
+        // Migration: Ensure promptInjection.enabled is preserved when other fields exist
+        // Previously we removed the enabled/position/depth fields, but we need enabled
+        // for summarizeWithAI to use mainPrompt/instructionsPositive/instructionsNegative
         if (settings.autoGeneration?.promptInjection) {
-            delete settings.autoGeneration.promptInjection.enabled
+            const hasPromptFields =
+                settings.autoGeneration.promptInjection.position ||
+                settings.autoGeneration.promptInjection.depth ||
+                settings.autoGeneration.promptInjection.mainPrompt ||
+                settings.autoGeneration.promptInjection.instructionsPositive ||
+                settings.autoGeneration.promptInjection.instructionsNegative
+            // If other prompt fields exist but enabled is missing/undefined, set it to true
+            if (hasPromptFields && typeof settings.autoGeneration.promptInjection.enabled !== 'boolean') {
+                settings.autoGeneration.promptInjection.enabled = true
+            }
+            // Remove obsolete position/depth fields (chat injection no longer used)
             delete settings.autoGeneration.promptInjection.position
             delete settings.autoGeneration.promptInjection.depth
         }
@@ -3386,6 +3397,7 @@ async function callChatRewrite(originalPrompt, profileName = '', messageId = nul
 
         if (!contextText) {
             for (let i = searchStart - 1; i >= 0; i--) {
+                if (!chat[i] || typeof chat[i] !== 'object') continue
                 if (!chat[i].is_user && chat[i].mes) {
                     const cleanMes = stripPicTags(chat[i].mes)
                     if (cleanMes) {
