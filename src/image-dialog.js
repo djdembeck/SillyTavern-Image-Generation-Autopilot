@@ -191,10 +191,10 @@ export class ImageSelectionDialog {
             <div class="image-selection-prompt-editor hidden" id="prompt-editor-container">
                 <textarea id="img-prompt-editor" class="text_pole" placeholder="Edit image prompt...">${this.editedPrompt}</textarea>
                 <div class="prompt-editor-actions">
-                    <button class="image-selection-btn primary" id="btn-prompt-rewrite" title="Have the AI rewrite the prompt based on context">
+                    <button class="image-selection-btn primary" id="btn-prompt-rewrite" title="Regenerate the prompt from your manual edits using AI - takes your current prompt and rewrites it for better flow">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> Rewrite Prompt
                     </button>
-                    <button class="image-selection-btn primary" id="btn-prompt-resummarize" title="Generate a fresh summary of the prompt">
+                    <button class="image-selection-btn primary" id="btn-prompt-resummarize" title="Create a completely fresh prompt from chat history - ignores your manual edits and re-summarizes the conversation">
                         <i class="fa-solid fa-robot"></i> Resummarize
                     </button>
                     <button class="image-selection-btn primary" id="btn-prompt-apply">Apply & Regenerate</button>
