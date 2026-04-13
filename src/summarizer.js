@@ -28,7 +28,7 @@ Rules:
 - No metaphors, emotions, or abstract concepts
 - Only include what can be seen: colors, shapes, positions, lighting, textures
 - Be concise - omit unnecessary words
-- Group all shared traits (body type, common clothing style) into the Shared line - NEVER repeat them per character
+- Group all shared character traits (body type, common clothing style) into the Shared line under Characters - NEVER repeat them per character
 - Each character line must be SHORT: only what makes them visually unique (skin, hair, accessories, distinctive clothing, pose)
 - Omit minor details (finger positions, small accessories, texture descriptions, fabric sheen) - they waste the word budget
 - Scene description must be brief: name the location, 2-3 key visual elements, and lighting - nothing more
@@ -37,9 +37,9 @@ Output Format:
 {{OUTPUT_FORMAT_LINES}}`;
 
 const OUTPUT_FORMAT_LINES = [
-  'Shared: [body type; common clothing style if shared]',
   'Characters:',
-  '- [Name]: [unique traits only - skin, hair, accessories, distinctive clothing, pose]',
+  '  Shared: [body type; common clothing style if shared across all characters]',
+  '  - [Name]: [unique traits only - skin, hair, accessories, distinctive clothing, pose]',
   '',
   'Scene: [location, 2-3 key visual elements, lighting]',
 ].join('\n');
@@ -109,19 +109,43 @@ export function getCharacterDescription(charName) {
   return '';
 }
 
+function stripReasoning(text) {
+  if (typeof text !== 'string') return text;
+  // Remove <think>...</think> tags (DeepSeek R1, some OpenAI-compatible models)
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // Remove <reasoning>...</reasoning> tags (some models)
+  text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
+  // Remove <reflection>...</reflection> tags (some models)
+  text = text.replace(/<reflection>[\s\S]*?<\/reflection>/gi, '');
+  // Remove leading/trailing whitespace left after stripping
+  return text.trim();
+}
+
+/**
+ * Normalizes the response from various AI completion APIs into a single string.
+ * Explicitly ignores reasoning/thinking fields and strips reasoning tags from content.
+ * @param {Object|string} result - Raw API response or string
+ * @returns {string} Cleaned content string
+ */
 function normalizeResponseContent(result) {
-  const content = result?.choices?.[0]?.message?.content;
-  if (typeof content === 'string' && content.trim()) {
-    return content.trim();
+  // Extract content from standard OpenAI-compatible response structure
+  const message = result?.choices?.[0]?.message;
+  if (message) {
+    // Prefer the main content field; explicitly skip reasoning_content / thinking fields
+    const content = message.content;
+    if (typeof content === 'string' && content.trim()) {
+      return stripReasoning(content.trim());
+    }
   }
 
+  // Fallback: check if the result itself is a string
   if (typeof result === 'string' && result.trim()) {
-    return result.trim();
+    return stripReasoning(result.trim());
   }
 
+  // Try common alternative response shapes
   const candidates = [
     result?.text,
-    result?.message,
     result?.message?.content,
     result?.content,
     result?.reply,
@@ -130,13 +154,12 @@ function normalizeResponseContent(result) {
 
   for (const candidate of candidates) {
     if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim();
+      return stripReasoning(candidate.trim());
     }
   }
 
   return '';
 }
-
 function buildSystemPrompt(systemPromptTemplate, appearanceLines) {
   return systemPromptTemplate
     .replace('{{APPEARANCE_LINES}}', appearanceLines)
