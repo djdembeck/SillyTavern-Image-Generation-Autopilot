@@ -1,5 +1,4 @@
 import { summarizeWithAI } from './src/summarizer.js'
-import { getPresetManager } from '../../../preset-manager.js'
 
 const MODULE_NAME = 'Image-Generation-Autopilot'
 const INSERT_TYPE = Object.freeze({
@@ -2504,6 +2503,8 @@ async function syncProfileSelectOptions(showFeedback = false) {
 
     // Fetch completion presets using preset-manager API
     try {
+        // Dynamic import with absolute path works for both built-in and third-party extensions
+        const { getPresetManager } = await import('/scripts/preset-manager.js')
         const manager = getPresetManager()
         if (!manager) {
             logger.warn('Preset manager not available')
@@ -2950,7 +2951,7 @@ async function resolveSlashCommandParser() {
 
     try {
         const module =
-            await import('../../../slash-commands/SlashCommandParser.js')
+            await import('/scripts/slash-commands/SlashCommandParser.js')
         if (module?.SlashCommandParser?.commands) {
             return module.SlashCommandParser
         }
