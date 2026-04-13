@@ -28,13 +28,15 @@ Rules:
 - No metaphors, emotions, or abstract concepts
 - Only include what can be seen: colors, shapes, positions, lighting, textures
 - Be concise - omit unnecessary words
+- When multiple characters appear, describe each one briefly - focus on only the most visually distinctive traits
+- Split the character description budget evenly across all characters present
 
 Output Format:
 {{OUTPUT_FORMAT_LINES}}`;
 
 const OUTPUT_FORMAT_LINES = [
   'Characters:',
-  '- [Name]: [pose, expression, clothing, visible features]',
+  '- [Name]: [most distinctive visual traits, pose, clothing state]',
   '',
   'Scene: [environment, lighting, camera angle]',
 ].join('\n');
@@ -244,12 +246,17 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
       }
     }
     
-    if (characterPercent > 0 || scenePercent > 0) {
-      taskInstructions.push(`Allocate approximately ${characterPercent}% of your response to character description and ${scenePercent}% to scene description.`);
-    }
-    
     if (maxTokens > 0) {
-      taskInstructions.push(`Keep your response under ${Math.floor(maxTokens * 0.75)} words.`);
+      const totalWords = Math.floor(maxTokens * 0.75);
+      if (characterPercent > 0 || scenePercent > 0) {
+        const charWords = Math.floor(totalWords * characterPercent / 100);
+        const sceneWords = Math.floor(totalWords * scenePercent / 100);
+        taskInstructions.push(`Target approximately ${totalWords} words total: roughly ${charWords} words (${characterPercent}%) for character description and ${sceneWords} words (${scenePercent}%) for scene description. When multiple characters are present, divide the ${charWords}-word character budget evenly across each character.`);
+      } else {
+        taskInstructions.push(`Target approximately ${totalWords} words total.`);
+      }
+    } else if (characterPercent > 0 || scenePercent > 0) {
+      taskInstructions.push(`Allocate ${characterPercent}% of your response to character description and ${scenePercent}% to scene description. When multiple characters are present, divide the character portion evenly across each character.`);
     }
 
     return taskInstructions.join('\n\n');
@@ -273,7 +280,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
         temperature: 0.3,
       };
       if (maxTokens > 0) {
-        options.max_tokens = maxTokens;
+        options.max_tokens = Math.ceil(maxTokens * 1.5);
       }
       return await callChatCompletion(modifiedMessages, options);
     } catch (error) {
@@ -304,7 +311,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
   };
 
   if (maxTokens > 0) {
-    genOptions.max_tokens = maxTokens;
+    genOptions.max_tokens = Math.ceil(maxTokens * 1.5);
   }
   // Note: NOT passing systemPrompt - let the connection profile handle that
 
