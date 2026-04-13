@@ -28,17 +28,20 @@ Rules:
 - No metaphors, emotions, or abstract concepts
 - Only include what can be seen: colors, shapes, positions, lighting, textures
 - Be concise - omit unnecessary words
-- When multiple characters appear, describe each one briefly - focus on only the most visually distinctive traits
-- Split the character description budget evenly across all characters present
+- Group all shared traits (body type, common clothing style) into the Shared line - NEVER repeat them per character
+- Each character line must be SHORT: only what makes them visually unique (skin, hair, accessories, distinctive clothing, pose)
+- Omit minor details (finger positions, small accessories, texture descriptions, fabric sheen) - they waste the word budget
+- Scene description must be brief: name the location, 2-3 key visual elements, and lighting - nothing more
 
 Output Format:
 {{OUTPUT_FORMAT_LINES}}`;
 
 const OUTPUT_FORMAT_LINES = [
+  'Shared: [body type; common clothing style if shared]',
   'Characters:',
-  '- [Name]: [most distinctive visual traits, pose, clothing state]',
+  '- [Name]: [unique traits only - skin, hair, accessories, distinctive clothing, pose]',
   '',
-  'Scene: [environment, lighting, camera angle]',
+  'Scene: [location, 2-3 key visual elements, lighting]',
 ].join('\n');
 
 function getSillyTavernContext() {
@@ -251,12 +254,13 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
       if (characterPercent > 0 || scenePercent > 0) {
         const charWords = Math.floor(totalWords * characterPercent / 100);
         const sceneWords = Math.floor(totalWords * scenePercent / 100);
-        taskInstructions.push(`Target approximately ${totalWords} words total: roughly ${charWords} words (${characterPercent}%) for character description and ${sceneWords} words (${scenePercent}%) for scene description. When multiple characters are present, divide the ${charWords}-word character budget evenly across each character.`);
+        const perCharWords = Math.floor(charWords / 3); // rough per-character estimate when count unknown
+        taskInstructions.push(`STRICT WORD BUDGET - stay close to these targets:`, `Total: ~${totalWords} words`, `Character section: ~${charWords} words (${characterPercent}%) — divide evenly across all characters`, `Scene section: ~${sceneWords} words (${scenePercent}%) — location + 2-3 visual elements + lighting, STOP`, `Per character: ~${perCharWords} words max — only unique traits, no shared details`, ``, `If you exceed any budget, cut minor details first (fabric texture, finger positions, small accessories, reflections).`);
       } else {
         taskInstructions.push(`Target approximately ${totalWords} words total.`);
       }
     } else if (characterPercent > 0 || scenePercent > 0) {
-      taskInstructions.push(`Allocate ${characterPercent}% of your response to character description and ${scenePercent}% to scene description. When multiple characters are present, divide the character portion evenly across each character.`);
+      taskInstructions.push(`Allocate ${characterPercent}% of your response to character description and ${scenePercent}% to scene description. Divide the character portion evenly across each character. Keep scene brief: location, 2-3 elements, lighting.`);
     }
 
     return taskInstructions.join('\n\n');
