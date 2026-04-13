@@ -154,19 +154,7 @@ const logger = {
     error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
 }
 
-function updatePicCountFieldVisibility(container, mode) {
-    if (!container) {
-        return
-    }
-    const normalizedMode = mode || 'exact'
-    const fields = container.querySelectorAll('.auto-multi-count-field')
-    fields.forEach((field) => {
-        const fieldMode = field.dataset.countMode || ''
-        const modes = fieldMode.split(' ')
-        const visible = modes.includes(normalizedMode)
-        field.classList.toggle('is-hidden', !visible)
-    })
-}
+
 
 function resolveTemplateRoot() {
     /** @type {HTMLScriptElement[]} */
@@ -1837,18 +1825,7 @@ async function buildSettingsPanel() {
     const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_negative')
     )
-    const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_mode')
-    )
-    const picCountExactInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_exact')
-    )
-    const picCountMinInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_min')
-    )
-    const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_max')
-    )
+
     if (
         !(
             enabledInput &&
@@ -1907,10 +1884,6 @@ async function buildSettingsPanel() {
         promptMainInput,
         promptPositiveInput,
         promptNegativeInput,
-        picCountModeSelect,
-        picCountExactInput,
-        picCountMinInput,
-        picCountMaxInput,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -2135,38 +2108,6 @@ async function buildSettingsPanel() {
     promptNegativeInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
-        saveSettings()
-    })
-
-
-    picCountModeSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMode = picCountModeSelect.value
-        saveSettings()
-        updatePicCountFieldVisibility(container, picCountModeSelect.value)
-    })
-
-    picCountExactInput?.addEventListener('change', () => {
-        const current = getSettings()
-        const value = Math.max(1, Math.min(12, parseInt(picCountExactInput.value, 10) || 1))
-        current.autoGeneration.promptInjection.picCountExact = value
-        picCountExactInput.value = String(value)
-        saveSettings()
-    })
-
-    picCountMinInput?.addEventListener('change', () => {
-        const current = getSettings()
-        const value = Math.max(1, Math.min(12, parseInt(picCountMinInput.value, 10) || 1))
-        current.autoGeneration.promptInjection.picCountMin = value
-        picCountMinInput.value = String(value)
-        saveSettings()
-    })
-
-    picCountMaxInput?.addEventListener('change', () => {
-        const current = getSettings()
-        const value = Math.max(1, Math.min(12, parseInt(picCountMaxInput.value, 10) || 3))
-        current.autoGeneration.promptInjection.picCountMax = value
-        picCountMaxInput.value = String(value)
         saveSettings()
     })
 
@@ -2729,30 +2670,6 @@ function syncUiFromSettings() {
         state.ui.promptNegativeInput.value =
             settings.autoGeneration.promptInjection.instructionsNegative
     }
-    if (state.ui.picCountModeSelect) {
-        state.ui.picCountModeSelect.value =
-            settings.autoGeneration.promptInjection.picCountMode
-    }
-    if (state.ui.picCountExactInput) {
-        state.ui.picCountExactInput.value = String(
-            Math.max(1, Math.min(12, settings.autoGeneration.promptInjection.picCountExact)),
-        )
-    }
-    if (state.ui.picCountMinInput) {
-        state.ui.picCountMinInput.value = String(
-            Math.max(1, Math.min(12, settings.autoGeneration.promptInjection.picCountMin)),
-        )
-    }
-    if (state.ui.picCountMaxInput) {
-        state.ui.picCountMaxInput.value = String(
-            Math.max(1, Math.min(12, settings.autoGeneration.promptInjection.picCountMax)),
-        )
-    }
-
-    updatePicCountFieldVisibility(
-        state.ui.container,
-        settings.autoGeneration.promptInjection.picCountMode,
-    )
 
     const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
     if (state.ui.concurrencyInput) {

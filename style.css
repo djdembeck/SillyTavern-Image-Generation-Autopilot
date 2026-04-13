@@ -895,6 +895,7 @@
         );
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
     overflow: hidden;
+    overflow: clip;
 }
 
 .auto-multi-image-settings .auto-multi-drawer__toggle {
@@ -955,6 +956,8 @@
     padding: 16px;
     background: rgba(0, 0, 0, 0.25);
     border-radius: 0 0 18px 18px;
+    max-height: 80vh;
+    overflow-y: auto;
 }
 
 .auto-multi-image-settings .auto-multi-hero {
@@ -1105,22 +1108,6 @@
     opacity: 0.85;
 }
 
-.auto-multi-image-settings .auto-multi-count-group {
-    display: grid;
-    grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(90px, 0.6fr));
-    gap: 12px;
-    align-items: end;
-}
-
-.auto-multi-image-settings .auto-multi-count-field.is-hidden {
-    display: none;
-}
-
-@media (max-width: 720px) {
-    .auto-multi-image-settings .auto-multi-count-group {
-        grid-template-columns: 1fr;
-    }
-}
 
 .auto-multi-image-settings .auto-multi-panel--queue header {
     align-items: center;
@@ -1347,6 +1334,9 @@
 @media (max-width: 720px) {
     .auto-multi-global-progress {
         max-width: 100%;
+    }
+    .auto-multi-image-settings .auto-multi-ui {
+        max-height: 65vh;
     }
 }
 

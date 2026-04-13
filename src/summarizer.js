@@ -339,27 +339,19 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
       return await ctx.generateText(genOptions);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.warn('generateText failed, trying generate:', message);
+      logger.warn('generateText failed:', message);
     }
   }
 
-  if (typeof ctx.generate === 'function') {
-    try {
-      logger.debug('Using generate');
-      return await ctx.generate({
-        messages: [{ role: 'user', content: userPrompt }],
-        quiet: true,
-        stream: false,
-        temperature: genOptions.temperature,
-        ...(genOptions.max_tokens && { max_tokens: genOptions.max_tokens }),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`SillyTavern generate() failed: ${message}`);
-    }
+  const tried = [];
+  if (typeof ctx.generateRaw === 'function') tried.push('generateRaw');
+  if (typeof ctx.generateText === 'function') tried.push('generateText');
+
+  if (tried.length > 0) {
+    throw new Error(`Image summarization failed: all available generation APIs (${tried.join(', ')}) returned errors. Check your API connection and try again.`);
   }
 
-  throw new Error('No AI generation API is available for summarization. Ensure SillyTavern is properly initialized.');
+  throw new Error('No AI generation API is available for summarization (generateRaw / generateText not found). Ensure SillyTavern is properly initialized (v1.12.0+).');
 }
 
 /**
