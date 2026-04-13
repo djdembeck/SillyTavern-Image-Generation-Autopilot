@@ -69,8 +69,12 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            const analyzed = messagesSent.slice(2)
-            expect(analyzed).toHaveLength(1)
+            // Messages are now embedded in userPrompt, not as separate messages
+            expect(messagesSent).toHaveLength(2)  // system + user prompt
+            expect(messagesSent[0].role).toBe('system')
+            expect(messagesSent[1].role).toBe('user')
+            // Verify the last message (msg3) is in user prompt content
+            expect(messagesSent[1].content).toContain('msg3')
         })
 
         it('uses 5 messages when depth is 5', async () => {
@@ -90,8 +94,12 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            const analyzed = messagesSent.slice(2)
-            expect(analyzed).toHaveLength(5)
+            // Messages are now embedded in userPrompt, not as separate messages
+            expect(messagesSent).toHaveLength(2)  // system + user prompt
+            expect(messagesSent[0].role).toBe('system')
+            expect(messagesSent[1].role).toBe('user')
+            // Verify conversation text is in user prompt content
+            expect(messagesSent[1].content).toContain('msg9')  // last of 5 messages (0,2,4,6,8)
         })
 
         it('uses maximum 10 messages when depth exceeds 10', async () => {
@@ -111,8 +119,12 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            const analyzed = messagesSent.slice(2)
-            expect(analyzed).toHaveLength(10)
+            // Messages are now embedded in userPrompt, not as separate messages
+            expect(messagesSent).toHaveLength(2)  // system + user prompt
+            expect(messagesSent[0].role).toBe('system')
+            expect(messagesSent[1].role).toBe('user')
+            // Verify 10 messages are in user prompt content (max after normalization)
+            expect(messagesSent[1].content).toContain('msg18')  // last of 10 messages (0,2,4,6,8,10,12,14,16,18)
         })
     })
 

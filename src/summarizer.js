@@ -18,6 +18,8 @@ const logger = {
   error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
 };
 
+const TOKENS_HEADROOM_MULTIPLIER = 1.5;
+
 const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `Create image generation prompts from roleplay scenarios.
 
 Character Appearance:
@@ -111,8 +113,8 @@ export function getCharacterDescription(charName) {
 
 function stripReasoning(text) {
   if (typeof text !== 'string') return text;
-  // Remove <think>...</think> tags (DeepSeek R1, some OpenAI-compatible models)
-  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  // Remove <thinking>...</thinking> tags (DeepSeek R1, some OpenAI-compatible models)
+  text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
   // Remove <reasoning>...</reasoning> tags (some models)
   text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
   // Remove <reflection>...</reflection> tags (some models)
@@ -160,6 +162,7 @@ function normalizeResponseContent(result) {
 
   return '';
 }
+
 function buildSystemPrompt(systemPromptTemplate, appearanceLines) {
   return systemPromptTemplate
     .replace('{{APPEARANCE_LINES}}', appearanceLines)
@@ -215,7 +218,7 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
   };
 }
 
-async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTokens = 0, characterPercent = 30, scenePercent = 70, promptInjection = {}) {
+async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxTokens = 0, characterPercent = 30, scenePercent = 70, promptInjection = {} }) {
   logger.debug('callSummarizer invoked', {
     messageCount: messages.length,
     systemPromptLength: systemPrompt?.length,
@@ -300,14 +303,13 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
       const userPrompt = `Conversation to analyze:\n${conversationText}`;
       const modifiedMessages = [
         { role: 'system', content: taskSection },
-        { role: 'user', content: userPrompt },
-        ...messages
+        { role: 'user', content: userPrompt }
       ];
       const options = {
         temperature: 0.3,
       };
       if (maxTokens > 0) {
-        options.max_tokens = Math.ceil(maxTokens * 1.5);
+        options.max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER);
       }
       return await callChatCompletion(modifiedMessages, options);
     } catch (error) {
@@ -338,7 +340,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
   };
 
   if (maxTokens > 0) {
-    genOptions.max_tokens = Math.ceil(maxTokens * 1.5);
+    genOptions.max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER);
   }
   // Note: NOT passing systemPrompt - let the connection profile handle that
 
@@ -397,7 +399,7 @@ async function callSummarizer(messages, systemPrompt, callChatCompletion, maxTok
  * @param {Object} [config.characterDescriptions] - Character descriptions by name
  * @param {string} [config.charName] - Character name
  * @param {string} [config.userName] - User name
- * @param {number} [config.maxTokens=0] - Maximum tokens for response (0 = no limit)
+ * @param {number} [config.maxTokens=0] - Maximum tokens for response (0 = no limit). The API receives max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER).
  * @param {number} [config.characterPercent=30] - Percentage for character description
  * @param {number} [config.scenePercent=70] - Percentage for scene description
  * @param {Object} [config.promptInjection] - Prompt injection settings
@@ -425,15 +427,15 @@ export async function summarizeWithAI(text, charName, userName, settings) {
   });
 
   try {
-    const result = await callSummarizer(
-      config.messages, 
-      systemPrompt, 
-      config.callChatCompletion, 
-      config.maxTokens,
-      config.characterPercent,
-      config.scenePercent,
-      config.promptInjection
-    );
+    const result = await callSummarizer({
+      messages: config.messages,
+      systemPrompt,
+      callChatCompletion: config.callChatCompletion,
+      maxTokens: config.maxTokens,
+      characterPercent: config.characterPercent,
+      scenePercent: config.scenePercent,
+      promptInjection: config.promptInjection
+    });
     const content = normalizeResponseContent(result);
 
     if (!content) {

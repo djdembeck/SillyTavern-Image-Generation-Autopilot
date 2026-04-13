@@ -117,6 +117,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
         dialog = new ImageSelectionDialog(() => mockGenerator);
 
         global.document.querySelector.mockClear();
+        console.error = mock(() => {});
     });
 
     describe("Resummarize button", () => {
@@ -236,7 +237,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             expect(onResummarizeMock).toHaveBeenCalledWith("original prompt");
         });
 
-        it("should rethrow errors from _handlePromptRewrite for caller to handle", async () => {
+        it("should catch errors from _handlePromptRewrite at DOM boundary and log them", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("API rate limit exceeded")));
 
             const errorDialog = new ImageSelectionDialog({
@@ -274,11 +275,15 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.isRewriting).toBe(false);
-            expect(thrownError).not.toBeNull();
-            expect(thrownError.message).toBe("API rate limit exceeded");
+            expect(thrownError).toBeNull(); // Error caught at DOM boundary
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Prompt rewrite failed:"),
+                expect.any(Error)
+            );
         });
 
-        it("should preserve editedPrompt and rethrow when rewrite fails", async () => {
+        it("should preserve editedPrompt and log error when rewrite fails at DOM boundary", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
 
             const errorDialog = new ImageSelectionDialog({
@@ -315,7 +320,12 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.editedPrompt).toBe("original prompt");
-            expect(errorCaught).toBe(true);
+            expect(errorCaught).toBe(false); // Error caught at DOM boundary, not rethrown
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Prompt rewrite failed:"),
+                expect.any(Error)
+            );
         });
     });
 
@@ -357,32 +367,32 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
     });
 
     describe("Error handling for resummarize", () => {
-        it("should rethrow onResummarize errors for caller to handle", async () => {
+        it("should catch onResummarize errors at DOM boundary and log them", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("API rate limit exceeded")));
-            
+
             const errorDialog = new ImageSelectionDialog({
                 generatorFactory: () => mockGenerator,
                 onResummarize: onResummarizeMock
             });
-            
+
             errorDialog.show(["test prompt"], {});
-            
+
             const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
             const mockIcon = createMockElement('i');
             mockIcon.className = 'fa-solid fa-robot';
             mockResummarizeBtn.appendChild(mockIcon);
             const mockTextNode = { textContent: ' Resummarize' };
             mockResummarizeBtn.appendChild(mockTextNode);
-            
+
             const mockTextarea = createMockElement('img-prompt-editor');
             mockTextarea.value = "original prompt";
-            
+
             errorDialog.domElements.promptResummarizeBtn = mockResummarizeBtn;
             errorDialog.domElements.promptTextarea = mockTextarea;
             errorDialog.editedPrompt = "original prompt";
-            
+
             errorDialog._attachListeners();
-            
+
             let thrownError = null;
             try {
                 if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
@@ -391,40 +401,44 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             } catch (error) {
                 thrownError = error;
             }
-            
+
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.editedPrompt).toBe("original prompt");
-            expect(thrownError).not.toBeNull();
-            expect(thrownError.message).toBe("API rate limit exceeded");
+            expect(thrownError).toBeNull(); // Error caught at DOM boundary
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Resummarize failed:"),
+                expect.any(Error)
+            );
         });
 
-        it("should reset state and rethrow when resummarize fails", async () => {
+        it("should preserve state and log error when resummarize fails at DOM boundary", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
-            
+
             const errorDialog = new ImageSelectionDialog({
                 generatorFactory: () => mockGenerator,
                 onResummarize: onResummarizeMock
             });
-            
+
             errorDialog.show(["test prompt"], {});
-            
+
             const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
             const mockIcon = createMockElement('i');
             mockIcon.className = 'fa-solid fa-robot';
             mockResummarizeBtn.appendChild(mockIcon);
             const mockTextNode = { textContent: ' Resummarize' };
             mockResummarizeBtn.appendChild(mockTextNode);
-            
+
             const mockTextarea = createMockElement('img-prompt-editor');
             mockTextarea.value = "original prompt";
-            
+
             errorDialog.domElements.promptResummarizeBtn = mockResummarizeBtn;
             errorDialog.domElements.promptTextarea = mockTextarea;
             errorDialog.editedPrompt = "original prompt";
             errorDialog.isResummarizing = false;
-            
+
             errorDialog._attachListeners();
-            
+
             let errorCaught = false;
             try {
                 if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
@@ -433,9 +447,14 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             } catch (error) {
                 errorCaught = true;
             }
-            
+
             expect(errorDialog.isResummarizing).toBe(false);
-            expect(errorCaught).toBe(true);
+            expect(errorCaught).toBe(false); // Error caught at DOM boundary, not rethrown
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Resummarize failed:"),
+                expect.any(Error)
+            );
         });
     });
 });

@@ -626,13 +626,21 @@ export class ImageSelectionDialog {
 
         if (this.domElements.promptRewriteBtn) {
             this.domElements.promptRewriteBtn.addEventListener('click', async () => {
-                await this._handlePromptRewrite();
+                try {
+                    await this._handlePromptRewrite();
+                } catch (error) {
+                    logger.error('Prompt rewrite failed:', error);
+                }
             });
         }
 
         if (this.domElements.promptResummarizeBtn) {
             this.domElements.promptResummarizeBtn.addEventListener('click', async () => {
-                await this._handlePromptResummarize();
+                try {
+                    await this._handlePromptResummarize();
+                } catch (error) {
+                    logger.error('Prompt resummarize failed:', error);
+                }
             });
         }
 
