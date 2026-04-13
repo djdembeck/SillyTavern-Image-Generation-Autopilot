@@ -3153,15 +3153,6 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         generatorFactory,
         PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
         modelOptions,
-        onRewrite: async (prompt) => {
-            log('Dialog requested rewrite', { prompt, sourceMessageId })
-            const freshSettings = getSettings()
-            return await callChatRewrite(
-                prompt,
-                freshSettings.autoGeneration.promptRewrite.modelId,
-                sourceMessageId,
-            )
-        },
         onResummarize: async (prompt) => {
             log('Dialog requested resummarize', { prompt, sourceMessageId })
             const context = getCtx()

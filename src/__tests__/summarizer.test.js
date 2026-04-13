@@ -99,7 +99,7 @@ describe('summarizeWithAI', () => {
             expect(messagesSent[0].role).toBe('system')
             expect(messagesSent[1].role).toBe('user')
             // Verify conversation text is in user prompt content
-            expect(messagesSent[1].content).toContain('msg9')  // last of 5 messages (0,2,4,6,8)
+            expect(messagesSent[1].content).toContain('msg9')  // last of 5 messages (indices 5,6,7,8,9)
         })
 
         it('uses maximum 10 messages when depth exceeds 10', async () => {
@@ -124,7 +124,7 @@ describe('summarizeWithAI', () => {
             expect(messagesSent[0].role).toBe('system')
             expect(messagesSent[1].role).toBe('user')
             // Verify 10 messages are in user prompt content (max after normalization)
-            expect(messagesSent[1].content).toContain('msg18')  // last of 10 messages (0,2,4,6,8,10,12,14,16,18)
+            expect(messagesSent[1].content).toContain('msg19')  // last of 10 messages (indices 10-19)
         })
     })
 

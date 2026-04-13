@@ -113,12 +113,9 @@ export function getCharacterDescription(charName) {
 
 function stripReasoning(text) {
   if (typeof text !== 'string') return text;
-  // Remove <thinking>...</thinking> tags (DeepSeek R1, some OpenAI-compatible models)
-  text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-  // Remove <reasoning>...</reasoning> tags (some models)
-  text = text.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '');
-  // Remove <reflection>...</reflection> tags (some models)
-  text = text.replace(/<reflection>[\s\S]*?<\/reflection>/gi, '');
+  // Remove reasoning/thinking tags (DeepSeek R1, OpenAI-compatible, and other models)
+  // Matches: <thinking>, <think>, <thoughts>, <introspect>, <introspection>, <reasoning>, <reflection>
+  text = text.replace(/<(thinking|think|thoughts|introspect|introspection|reasoning|reflection)>[\s\S]*?<\/\1>/gi, '');
   // Remove leading/trailing whitespace left after stripping
   return text.trim();
 }
