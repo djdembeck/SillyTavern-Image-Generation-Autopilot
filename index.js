@@ -1751,6 +1751,8 @@ async function buildSettingsPanel() {
     // Debounce timer for prompt injection input saves
     let promptInjectionDebounceTimer = null
 
+    root.appendChild(container)
+
     const enabledInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_image_enabled')
     )
@@ -2102,35 +2104,35 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-promptMainInput?.addEventListener('input', () => {
-    const current = getSettings()
-    current.autoGeneration.promptInjection.mainPrompt = promptMainInput.value
-    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
-    promptInjectionDebounceTimer = setTimeout(() => {
-        saveSettings()
-        promptInjectionDebounceTimer = null
-    }, 500)
-})
+    promptMainInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.mainPrompt = promptMainInput.value
+        if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+        promptInjectionDebounceTimer = setTimeout(() => {
+            saveSettings()
+            promptInjectionDebounceTimer = null
+        }, 500)
+    })
 
-promptPositiveInput?.addEventListener('input', () => {
-    const current = getSettings()
-    current.autoGeneration.promptInjection.instructionsPositive = promptPositiveInput.value
-    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
-    promptInjectionDebounceTimer = setTimeout(() => {
-        saveSettings()
-        promptInjectionDebounceTimer = null
-    }, 500)
-})
+    promptPositiveInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsPositive = promptPositiveInput.value
+        if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+        promptInjectionDebounceTimer = setTimeout(() => {
+            saveSettings()
+            promptInjectionDebounceTimer = null
+        }, 500)
+    })
 
-promptNegativeInput?.addEventListener('input', () => {
-    const current = getSettings()
-    current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
-    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
-    promptInjectionDebounceTimer = setTimeout(() => {
-        saveSettings()
-        promptInjectionDebounceTimer = null
-    }, 500)
-})
+    promptNegativeInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
+        if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+        promptInjectionDebounceTimer = setTimeout(() => {
+            saveSettings()
+            promptInjectionDebounceTimer = null
+        }, 500)
+    })
 
     addModelButton?.addEventListener('click', (event) => {
         event.preventDefault()
