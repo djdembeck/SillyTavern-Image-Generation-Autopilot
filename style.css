@@ -882,6 +882,8 @@
 .auto-multi-image-settings .inline-drawer-content {
     padding: 0;
     overflow: visible;
+    min-height: 0;
+    flex-shrink: 1;
 }
 
 .auto-multi-image-settings .auto-multi-drawer {
@@ -895,6 +897,7 @@
             transparent 55%
         );
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
+    flex-shrink: 0;
 }
 
 #extensions_settings .auto-multi-image-settings .auto-multi-drawer__toggle,
@@ -952,7 +955,7 @@
 }
 
 .auto-multi-image-settings .auto-multi-ui {
-    display: flex;
+    display: flex !important;
     flex-direction: column;
     gap: 20px;
     padding: 16px;
@@ -960,6 +963,7 @@
     border-radius: 0 0 18px 18px;
     max-height: 80vh;
     overflow-y: auto;
+    min-height: min-content;
 }
 
 .auto-multi-image-settings .auto-multi-hero {
@@ -1032,6 +1036,8 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    flex-shrink: 0;
+    min-height: min-content;
 }
 
 .auto-multi-image-settings .auto-multi-panel.is-disabled {
