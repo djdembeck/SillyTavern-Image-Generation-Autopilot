@@ -260,7 +260,6 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             errorDialog.domElements.promptRewriteBtn = mockRewriteBtn;
             errorDialog.domElements.promptTextarea = mockTextarea;
             errorDialog.editedPrompt = "original prompt";
-            errorDialog.isRewriting = false;
 
             errorDialog._attachListeners();
 
@@ -274,7 +273,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             }
 
             expect(onResummarizeMock).toHaveBeenCalled();
-            expect(errorDialog.isRewriting).toBe(false);
+            expect(errorDialog.isResummarizing).toBe(false);
             expect(thrownError).toBeNull(); // Error caught at DOM boundary
             expect(console.error).toHaveBeenCalledWith(
                 "[ImageSelectionDialog]",

@@ -19,6 +19,8 @@ const logger = {
 };
 
 const TOKENS_HEADROOM_MULTIPLIER = 1.5;
+const WORDS_PER_TOKEN = 0.75;
+const ASSUMED_CHARACTER_COUNT = 3;
 
 const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `Create image generation prompts from roleplay scenarios.
 
@@ -58,6 +60,11 @@ function getSillyTavernContext() {
   return null;
 }
 
+function extractCharacterDescription(char) {
+  const description = char?.data?.description || char?.description || '';
+  return typeof description === 'string' ? description.trim() : '';
+}
+
 /**
  * Retrieves a character's description from SillyTavern character data.
  * Character name lookup is case-insensitive (e.g., 'Alice' will match 'alice' or 'ALICE').
@@ -85,8 +92,7 @@ export function getCharacterDescription(charName) {
     });
 
     if (char) {
-      const description = char?.data?.description || char?.description || '';
-      return typeof description === 'string' ? description.trim() : '';
+      return extractCharacterDescription(char);
     }
 
     return '';
@@ -95,16 +101,14 @@ export function getCharacterDescription(charName) {
   // Handle object format (older SillyTavern versions or keyed by name)
   if (ctx.characters[charName]) {
     const char = ctx.characters[charName];
-    const description = char?.data?.description || char?.description || '';
-    return typeof description === 'string' ? description.trim() : '';
+    return extractCharacterDescription(char);
   }
 
   // Try case-insensitive lookup on object keys
   for (const key of Object.keys(ctx.characters)) {
     if (key.toLowerCase() === needle) {
       const char = ctx.characters[key];
-      const description = char?.data?.description || char?.description || '';
-      return typeof description === 'string' ? description.trim() : '';
+      return extractCharacterDescription(char);
     }
   }
 
@@ -145,6 +149,7 @@ function normalizeResponseContent(result) {
   // Try common alternative response shapes
   const candidates = [
     result?.text,
+    result?.message,
     result?.message?.content,
     result?.content,
     result?.reply,
@@ -228,6 +233,11 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
     hasNegativeInstructions: Boolean(promptInjection?.instructionsNegative && !promptInjection.instructionsNegative.includes('<pic')),
   });
 
+  const conversationText = messages.map(m => {
+    const role = m.role === 'assistant' ? 'Assistant' : 'User';
+    return `${role}: ${m.content}`;
+  }).join('\n\n');
+
   function buildTaskInstructions() {
     const taskInstructions = [];
     
@@ -255,11 +265,11 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
     }
     
     if (maxTokens > 0) {
-      const totalWords = Math.floor(maxTokens * 0.75);
+      const totalWords = Math.floor(maxTokens * WORDS_PER_TOKEN);
       if (characterPercent > 0 || scenePercent > 0) {
         const charWords = Math.floor(totalWords * characterPercent / 100);
         const sceneWords = Math.floor(totalWords * scenePercent / 100);
-        const perCharWords = Math.floor(charWords / 3); // rough per-character estimate when count unknown
+        const perCharWords = Math.floor(charWords / ASSUMED_CHARACTER_COUNT);
         taskInstructions.push(`STRICT WORD BUDGET - stay close to these targets:`, `Total: ~${totalWords} words`, `Character section: ~${charWords} words (${characterPercent}%) — divide evenly across all characters`, `Scene section: ~${sceneWords} words (${scenePercent}%) — location + 2-3 visual elements + lighting, STOP`, `Per character: ~${perCharWords} words max — only unique traits, no shared details`, ``, `If you exceed any budget, cut minor details first (fabric texture, finger positions, small accessories, reflections).`);
       } else {
         taskInstructions.push(`Target approximately ${totalWords} words total.`);
@@ -275,10 +285,6 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
     try {
       logger.debug('Using provided callChatCompletion');
       const taskSection = buildTaskInstructions();
-      const conversationText = messages.map(m => {
-        const role = m.role === 'assistant' ? 'Assistant' : 'User';
-        return `${role}: ${m.content}`;
-      }).join('\n\n');
       const userPrompt = `Conversation to analyze:\n${conversationText}`;
       const modifiedMessages = [
         { role: 'system', content: taskSection },
@@ -302,11 +308,6 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
     throw new Error('SillyTavern context not available for summarization.');
   }
 
-  const conversationText = messages.map(m => {
-    const role = m.role === 'assistant' ? 'Assistant' : 'User';
-    return `${role}: ${m.content}`;
-  }).join('\n\n');
-  
   // Build task instructions to embed in user prompt
   const taskSection = buildTaskInstructions();
   const userPrompt = `${taskSection}\n\n---\n\nConversation to analyze:\n${conversationText}`;

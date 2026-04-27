@@ -94,7 +94,6 @@ const state = {
     chatToken: 0,
     toastPatched: false,
     ui: null,
-    isRewriting: false,
     progress: {
         messageId: null,
         container: null,
@@ -150,6 +149,51 @@ const logger = {
     info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
     warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
     error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
+}
+
+function showToastr(level, message, title) {
+    if (typeof window === 'undefined') return
+    if (typeof window.toastr === 'object' && typeof window.toastr[level] === 'function') {
+        window.toastr[level](message, title)
+    }
+}
+
+function handlePercentChange(input, otherInput, nanDefault, lastEdited) {
+    const current = getSettings()
+    const parsed = parseInt(input.value, 10)
+    const rawValue = Number.isNaN(parsed) ? nanDefault : parsed
+    const currentOther = lastEdited === 'character'
+        ? current.autoGeneration.summarizer.scenePercent ?? 70
+        : current.autoGeneration.summarizer.characterPercent ?? 30
+
+    const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
+        lastEdited === 'character' ? rawValue : currentOther,
+        lastEdited === 'scene' ? rawValue : currentOther,
+        lastEdited,
+    )
+
+    current.autoGeneration.summarizer.characterPercent = charPercent
+    current.autoGeneration.summarizer.scenePercent = scenePercent
+    input.value = String(lastEdited === 'character' ? charPercent : scenePercent)
+    if (otherInput) {
+        otherInput.value = String(lastEdited === 'character' ? scenePercent : charPercent)
+    }
+
+    if (adjusted) {
+        showToastr('info', message, 'Settings Adjusted')
+    }
+
+    saveSettings()
+}
+
+let promptInjectionDebounceTimer = null
+
+function debouncedSaveSettings() {
+    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+    promptInjectionDebounceTimer = setTimeout(() => {
+        saveSettings()
+        promptInjectionDebounceTimer = null
+    }, 500)
 }
 
 
@@ -1748,8 +1792,6 @@ async function buildSettingsPanel() {
 
     // Debounce timer for system prompt saves
     let summarizerSystemPromptDebounceTimer = null
-    // Debounce timer for prompt injection input saves
-    let promptInjectionDebounceTimer = null
 
     root.appendChild(container)
 
@@ -2052,86 +2094,26 @@ async function buildSettingsPanel() {
         return { charPercent: char, scenePercent: scene, adjusted, message }
     }
 
-    summarizerCharacterPercentInput?.addEventListener('change', () => {
-        const current = getSettings()
-        const parsed = parseInt(summarizerCharacterPercentInput.value, 10)
-        const rawValue = Number.isNaN(parsed) ? 30 : parsed
-        const currentScene = current.autoGeneration.summarizer.scenePercent ?? 70
+    summarizerCharacterPercentInput?.addEventListener('change', () => handlePercentChange(summarizerCharacterPercentInput, summarizerScenePercentInput, 30, 'character'))
 
-        const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
-            rawValue,
-            currentScene,
-            'character'
-        )
-
-        current.autoGeneration.summarizer.characterPercent = charPercent
-        current.autoGeneration.summarizer.scenePercent = scenePercent
-        summarizerCharacterPercentInput.value = String(charPercent)
-        if (summarizerScenePercentInput) {
-            summarizerScenePercentInput.value = String(scenePercent)
-        }
-
-        if (adjusted && typeof window !== "undefined" && window.toastr && typeof window.toastr.info === "function") {
-            window.toastr.info(message, 'Settings Adjusted')
-        }
-
-        saveSettings()
-    })
-
-    summarizerScenePercentInput?.addEventListener('change', () => {
-        const current = getSettings()
-        const parsed = parseInt(summarizerScenePercentInput.value, 10)
-        const rawValue = Number.isNaN(parsed) ? 70 : parsed
-        const currentChar = current.autoGeneration.summarizer.characterPercent ?? 30
-
-        const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
-            currentChar,
-            rawValue,
-            'scene'
-        )
-
-        current.autoGeneration.summarizer.characterPercent = charPercent
-        current.autoGeneration.summarizer.scenePercent = scenePercent
-        if (summarizerCharacterPercentInput) {
-            summarizerCharacterPercentInput.value = String(charPercent)
-        }
-        summarizerScenePercentInput.value = String(scenePercent)
-
-        if (adjusted && typeof window !== "undefined" && window.toastr && typeof window.toastr.info === "function") {
-            window.toastr.info(message, 'Settings Adjusted')
-        }
-
-        saveSettings()
-    })
+    summarizerScenePercentInput?.addEventListener('change', () => handlePercentChange(summarizerScenePercentInput, summarizerCharacterPercentInput, 70, 'scene'))
 
     promptMainInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.mainPrompt = promptMainInput.value
-        if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
-        promptInjectionDebounceTimer = setTimeout(() => {
-            saveSettings()
-            promptInjectionDebounceTimer = null
-        }, 500)
+        debouncedSaveSettings()
     })
 
     promptPositiveInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.instructionsPositive = promptPositiveInput.value
-        if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
-        promptInjectionDebounceTimer = setTimeout(() => {
-            saveSettings()
-            promptInjectionDebounceTimer = null
-        }, 500)
+        debouncedSaveSettings()
     })
 
     promptNegativeInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
-        if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
-        promptInjectionDebounceTimer = setTimeout(() => {
-            saveSettings()
-            promptInjectionDebounceTimer = null
-        }, 500)
+        debouncedSaveSettings()
     })
 
     addModelButton?.addEventListener('click', (event) => {
@@ -3125,9 +3107,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
 
             if (summarizerMessages.length === 0) {
                 logger.warn('[ImageAutopilot] No messages to resummarize - all filtered out')
-                if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
-                    window.toastr.warning('No valid message content found to resummarize', 'Resummarize Failed')
-                }
+                showToastr('warning', 'No valid message content found to resummarize', 'Resummarize Failed')
                 throw new Error('No messages to resummarize')
             }
 
@@ -3139,7 +3119,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                     async () =>
                         summarizeWithAI({
                             messages: summarizerMessages,
-                            messageDepth,
+                            messageDepth: summarizerMessages.length,
                             maxTokens: summarizerSettings.maxTokens,
                             characterPercent: summarizerSettings.characterPercent,
                             scenePercent: summarizerSettings.scenePercent,
@@ -3159,9 +3139,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                 const errorMessage = error instanceof Error ? error.message : String(error)
                 logger.error('[ImageAutopilot] Resummarize failed:', errorMessage)
 
-                if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
-                    window.toastr.error(errorMessage, 'Resummarize Failed')
-                }
+                showToastr('error', errorMessage, 'Resummarize Failed')
 
                 throw error
             }
@@ -3350,149 +3328,6 @@ function normalizeRewriteResponse(result) {
     }
 }
 
-function buildPromptRewriteSystem() {
-    const chunks = [
-        '# STABLE DIFFUSION PROMPT GENERATOR',
-        'Your role: Expert technical prompt engineer for Stable Diffusion.',
-        'MANDATORY: ALL OUTPUT MUST BE IN ENGLISH.',
-        'MANDATORY: NO CONVERSATION. NO GREETINGS. NO PREAMBLE. NO CHINESE.',
-        '',
-        '## OUTPUT FORMAT',
-        'Wrap the technical prompt in tags: <sd_prompt>technical_prompt_here</sd_prompt>',
-        '',
-        '## QUALITY RULES',
-        '- Focus on lighting, textures, camera angle, and artistic style.',
-        '- Use comma-separated descriptive phrases.',
-        '- Expand the input context into a vivid cinematic scene description.',
-        '',
-        '## EXAMPLES',
-        'Input Description: "A red car in the rain"',
-        'Output: <sd_prompt>sleek red sports car parked on a rainy city street at night, puddles reflecting neon lights, cinematic lighting, hyper-realistic, 8k, detailed water drops on polished metal</sd_prompt>',
-    ]
-
-    return chunks.join('\n')
-}
-
-function buildPromptRewriteUser(originalPrompt, contextText = '') {
-    const contextPart = contextText ? `STORY CONTEXT:\n${contextText}\n\n` : ''
-    const promptPart = originalPrompt ? `EXISTING PROMPT:\n${originalPrompt}\n\n` : ''
-
-    return `${contextPart}${promptPart}INSTRUCTION: Generate an expanded technical Stable Diffusion prompt based on the story context above. Wrap the result in <sd_prompt>...</sd_prompt> tags. Output ONLY English.`
-}
-
-async function callChatRewrite(originalPrompt, profileName = '', messageId = null) {
-    log('callChatRewrite start', { originalPrompt, profileName, messageId })
-
-    return withConnectionProfile(profileName, async () => {
-        const ctx = getCtx()
-        let contextText = ''
-        const chat = ctx.chat || []
-
-        const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
-
-        if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
-            const cleanMes = stripPicTags(chat[messageId].mes)
-            if (cleanMes) {
-                contextText = cleanMes
-            }
-        }
-
-        if (!contextText) {
-            for (let i = searchStart - 1; i >= 0; i--) {
-                if (!chat[i] || typeof chat[i] !== 'object') continue
-                if (!chat[i].is_user && chat[i].mes) {
-                    const cleanMes = stripPicTags(chat[i].mes)
-                    if (cleanMes) {
-                        contextText = cleanMes
-                        break
-                    }
-                }
-            }
-        }
-
-        if (!contextText && typeof messageId === 'number' && messageId > 0) {
-            const prevMsg = chat[messageId - 1]
-            if (prevMsg?.is_user && prevMsg.mes) {
-                contextText = prevMsg.mes.trim()
-            }
-        }
-
-        log('callChatRewrite context found', { contextText: contextText.substring(0, 100) + '...' })
-
-        const systemPrompt = buildPromptRewriteSystem()
-        const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
-        const startLength = chat.length || 0
-
-        log('callChatRewrite prompts', {
-            systemPrompt: systemPrompt.substring(0, 100) + '...',
-            userPrompt: userPrompt.substring(0, 200) + '...',
-        })
-
-        const attempts = []
-
-        if (typeof ctx.generateRaw === 'function') {
-            attempts.push({
-                name: 'generateRaw',
-                fn: async () => ctx.generateRaw({
-                    prompt: userPrompt,
-                    systemPrompt: systemPrompt,
-                })
-            })
-        }
-
-        if (typeof ctx.generateText === 'function') {
-            attempts.push({
-                name: 'generateText',
-                fn: async () => ctx.generateText({
-                    prompt: userPrompt,
-                    systemPrompt: systemPrompt,
-                })
-            })
-        }
-
-        if (typeof ctx.generate === 'function') {
-            attempts.push({
-                name: 'generate',
-                fn: async () => ctx.generate({
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt },
-                    ],
-                    quiet: true,
-                    stream: false,
-                })
-            })
-        }
-
-        state.isRewriting = true
-        const rewriteRegex = PIC_TAG_REGEX
-        let rewritten = null
-        try {
-            for (const attempt of attempts) {
-                try {
-                    log(`Rewrite attempt starting (${attempt.name})...`)
-                    const result = await attempt.fn()
-                    log(`Rewrite attempt (${attempt.name}) raw result:`, result)
-                    const rewrittenRaw = normalizeRewriteResponse(result)
-                    const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, rewriteRegex)
-                    if (candidate) {
-                        log(`Rewrite attempt (${attempt.name}) success:`, candidate)
-                        rewritten = candidate
-                        break
-                    }
-                } catch (error) {
-                    logger.warn(`Prompt rewrite attempt (${attempt.name}) failed`, error)
-                }
-            }
-        } finally {
-            state.isRewriting = false
-            await cleanupRewriteMessages(startLength)
-        }
-
-        return rewritten || ''
-    })
-}
-
 
 async function generateSummarizedPrompt(messageId) {
     const settings = getSettings()
@@ -3579,9 +3414,7 @@ async function generateSummarizedPrompt(messageId) {
             const errorMessage = error instanceof Error ? error.message : String(error)
             logger.error('[ImageAutopilot] Summarizer failed:', errorMessage)
 
-            if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.error === 'function') {
-                window.toastr.error(errorMessage, 'Image Summarization Failed')
-            }
+            showToastr('error', errorMessage, 'Image Summarization Failed')
 
             return null
         }
@@ -3589,11 +3422,6 @@ async function generateSummarizedPrompt(messageId) {
 }
 
 async function handleIncomingMessage(messageId) {
-    if (state.isRewriting) {
-        log('Ignoring incoming message (currently rewriting)')
-        return
-    }
-
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     if (!autoSettings?.enabled) {
@@ -3698,9 +3526,7 @@ async function handleManualPromptRewrite(messageId) {
             resolvedId,
             contentLength,
         })
-        if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr.warning === 'function') {
-            window.toastr.warning('Message is too short to generate an image prompt', 'Cannot Rewrite')
-        }
+        showToastr('warning', 'Message is too short to generate an image prompt', 'Cannot Rewrite')
         return
     }
 

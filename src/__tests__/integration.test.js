@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ImageSelectionDialog } from '../image-dialog.js'
 
+/** Strips <pic> tags from content. Uses [\s\S]*? instead of .*? because
+ *  JS dot (.) does not match newlines, and prompt attributes can span lines. */
 const stripPicTags = (content) => {
     if (typeof content !== 'string') return content
     return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
@@ -10,7 +12,7 @@ const stripPicTags = (content) => {
 
 const indexSource = readFileSync(resolve(import.meta.dir, '../../index.js'), 'utf8')
 
-function extractFunctionSource(functionName, nextFunctionName) {
+function extractFunctionSource(functionName) {
     const startPattern = new RegExp(`(async function|function) ${functionName}\\([^)]*\\) \\{`)
     const startMatch = indexSource.match(startPattern)
     if (!startMatch) {
@@ -38,6 +40,31 @@ function buildIndexFunction(source, functionName, dependencies) {
     const names = Object.keys(dependencies)
     const values = Object.values(dependencies)
     return new Function(...names, `${source}; return ${functionName};`)(...values)
+}
+
+function buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI) {
+    const showToastr = (level, message, title) => {
+        if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr[level] === 'function') {
+            window.toastr[level](message, title)
+        }
+    }
+    return buildIndexFunction(
+        generateSummarizedPromptSource,
+        'generateSummarizedPrompt',
+        {
+            getSettings,
+            getCtx,
+            summarizeWithAI,
+            log: mock(),
+            withConnectionProfile: (profileName, fn) => fn(),
+            logger: {
+                error: mock(),
+                warn: mock(),
+            },
+            stripPicTags,
+            showToastr,
+        },
+    )
 }
 
 function createMockElement(id = '') {
@@ -126,15 +153,12 @@ function setupDialogGlobals() {
 
 const handleIncomingMessageSource = extractFunctionSource(
     'handleIncomingMessage',
-    'handleManualPromptRewrite',
 )
 const handleDialogResultSource = extractFunctionSource(
     'handleDialogResult',
-    'normalizeRewriteResponse',
 )
 const generateSummarizedPromptSource = extractFunctionSource(
     'generateSummarizedPrompt',
-    'handleIncomingMessage',
 )
 
 describe('full flow integration', () => {
@@ -216,29 +240,13 @@ describe('full flow integration', () => {
             },
         )
 
-        const generateSummarizedPrompt = buildIndexFunction(
-            generateSummarizedPromptSource,
-            'generateSummarizedPrompt',
-            {
-                getSettings,
-                getCtx,
-                summarizeWithAI,
-                log: mock(),
-                withConnectionProfile: (profileName, fn) => fn(),
-                logger: {
-                    error: mock(),
-                    warn: mock(),
-                },
-                stripPicTags,
-            },
-        )
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
 
         const handleIncomingMessage = buildIndexFunction(
             handleIncomingMessageSource,
             'handleIncomingMessage',
             {
                 state: {
-                    isRewriting: false,
                     chatToken: 1,
                     autoGenMessages: new Set(),
                 },
@@ -392,29 +400,13 @@ describe('full flow integration', () => {
         const openImageSelectionDialog = mock(async () => null)
         const handleDialogResult = mock(async () => {})
 
-        const generateSummarizedPrompt = buildIndexFunction(
-            generateSummarizedPromptSource,
-            'generateSummarizedPrompt',
-            {
-                getSettings,
-                getCtx,
-                summarizeWithAI,
-                log: mock(),
-                withConnectionProfile: (profileName, fn) => fn(),
-                logger: {
-                    error: mock(),
-                    warn: mock(),
-                },
-                stripPicTags,
-            },
-        )
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
 
         const handleIncomingMessage = buildIndexFunction(
             handleIncomingMessageSource,
             'handleIncomingMessage',
             {
                 state: {
-                    isRewriting: false,
                     chatToken: 1,
                     autoGenMessages: new Set(),
                 },
@@ -519,29 +511,13 @@ describe('full flow integration', () => {
             throw new Error('Summarizer offline')
         })
 
-        const generateSummarizedPrompt = buildIndexFunction(
-            generateSummarizedPromptSource,
-            'generateSummarizedPrompt',
-            {
-                getSettings,
-                getCtx,
-                summarizeWithAI,
-                log: mock(),
-                withConnectionProfile: (profileName, fn) => fn(),
-                logger: {
-                    error: mock(),
-                    warn: mock(),
-                },
-                stripPicTags,
-            },
-        )
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
 
         const handleIncomingMessage = buildIndexFunction(
             handleIncomingMessageSource,
             'handleIncomingMessage',
             {
                 state: {
-                    isRewriting: false,
                     chatToken: 1,
                     autoGenMessages: new Set(),
                 },

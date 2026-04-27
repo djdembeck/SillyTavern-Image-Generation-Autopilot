@@ -58,7 +58,6 @@ export class ImageSelectionDialog {
         this.selectedModelId = null;
         this.editedPrompt = null;
         this.currentCount = 0;
-        this.isRewriting = false;
         this.onResummarize = dependencies.onResummarize || null;
         this.isResummarizing = false;
         this.lastResummarizeTime = 0;
@@ -1234,140 +1233,99 @@ export class ImageSelectionDialog {
         }
     }
 
-    async _handlePromptRewrite() {
+    async _handleResummarize({ btn, iconClass, busyText, logLabel, debounce }) {
+        if (debounce > 0) {
+            const now = Date.now();
+            if (now - this.lastResummarizeTime < debounce) {
+                logger.warn(`${logLabel} debounced`, {
+                    timeSinceLastCall: now - this.lastResummarizeTime
+                });
+                return;
+            }
+        }
+
         if (isDebugMode()) {
-            logger.debug('Rewrite button clicked - triggering resummarization', {
+            logger.debug(`${logLabel} button clicked`, {
                 hasOnResummarize: !!this.onResummarize,
                 isResummarizing: this.isResummarizing,
-                prompt: this.editedPrompt
+                prompt: this.editedPrompt,
+                ...(debounce > 0 ? { timeSinceLastCall: Date.now() - this.lastResummarizeTime } : {})
             });
         } else {
-            logger.info('Rewrite button clicked - triggering resummarization', {
+            logger.info(`${logLabel} button clicked`, {
                 hasOnResummarize: !!this.onResummarize,
-                isResummarizing: this.isResummarizing
+                isResummarizing: this.isResummarizing,
+                ...(debounce > 0 ? { timeSinceLastCall: Date.now() - this.lastResummarizeTime } : {})
             });
         }
 
         if (!this.onResummarize || this.isResummarizing) {
-            logger.warn('Rewrite aborted', {
+            logger.warn(`${logLabel} aborted`, {
                 reason: !this.onResummarize ? 'No onResummarize callback' : 'Already resummarizing'
             });
             return;
         }
 
-        const btn = this.domElements.promptRewriteBtn;
         const icon = btn.querySelector('i');
         const originalText = btn.lastChild.textContent;
 
         try {
             this.isResummarizing = true;
+            if (debounce > 0) {
+                this.lastResummarizeTime = Date.now();
+            }
             btn.disabled = true;
             if (icon) {
                 icon.className = 'fa-solid fa-circle-notch fa-spin';
             }
-            btn.lastChild.textContent = ' Rewriting...';
+            btn.lastChild.textContent = busyText;
 
-            const rewritten = await this.onResummarize(this.editedPrompt);
-            logger.debug('Rewrite (resummarize) result received:', rewritten);
+            const result = await this.onResummarize(this.editedPrompt);
+            logger.debug(`${logLabel} result received:`, result);
 
-            if (rewritten && rewritten !== this.editedPrompt) {
-                this.editedPrompt = rewritten;
+            if (result && result !== this.editedPrompt) {
+                this.editedPrompt = result;
                 if (this.domElements.promptTextarea) {
-                    this.domElements.promptTextarea.value = rewritten;
+                    this.domElements.promptTextarea.value = result;
                 }
                 if (this.domElements.promptApplyBtn) {
                     this.domElements.promptApplyBtn.classList.add('highlight');
                 }
-            } else if (rewritten === this.editedPrompt) {
-                logger.warn('Rewrite returned identical prompt', { rewritten });
+            } else if (result === this.editedPrompt) {
+                logger.warn(`${logLabel} returned identical prompt`, { result });
             } else {
-                logger.warn('Rewrite returned empty or invalid result', { rewritten });
+                logger.warn(`${logLabel} returned empty or invalid result`, { result });
             }
         } catch (error) {
-            logger.error('Rewrite failed:', error);
+            logger.error(`${logLabel} failed:`, error);
             throw error;
         } finally {
             this.isResummarizing = false;
             btn.disabled = false;
             if (icon) {
-                icon.className = 'fa-solid fa-wand-magic-sparkles';
+                icon.className = iconClass;
             }
             btn.lastChild.textContent = originalText;
         }
     }
 
+    async _handlePromptRewrite() {
+        return this._handleResummarize({
+            btn: this.domElements.promptRewriteBtn,
+            iconClass: 'fa-solid fa-wand-magic-sparkles',
+            busyText: ' Rewriting...',
+            logLabel: 'Rewrite',
+            debounce: 0,
+        });
+    }
+
     async _handlePromptResummarize() {
-        const RESUMMARIZE_DEBOUNCE_MS = 1000;
-        
-        if (isDebugMode()) {
-            logger.debug('Resummarize button clicked', {
-                hasOnResummarize: !!this.onResummarize,
-                isResummarizing: this.isResummarizing,
-                prompt: this.editedPrompt,
-                timeSinceLastCall: Date.now() - this.lastResummarizeTime
-            });
-        } else {
-            logger.info('Resummarize button clicked', {
-                hasOnResummarize: !!this.onResummarize,
-                isResummarizing: this.isResummarizing,
-                timeSinceLastCall: Date.now() - this.lastResummarizeTime
-            });
-        }
-        
-        const now = Date.now();
-        if (now - this.lastResummarizeTime < RESUMMARIZE_DEBOUNCE_MS) {
-            logger.warn('Resummarize debounced', {
-                timeSinceLastCall: now - this.lastResummarizeTime
-            });
-            return;
-        }
-        
-        if (!this.onResummarize || this.isResummarizing) {
-            logger.warn('Resummarize aborted', {
-                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already resummarizing'
-            });
-            return;
-        }
-
-        const btn = this.domElements.promptResummarizeBtn;
-        const icon = btn.querySelector('i');
-        const originalText = btn.lastChild.textContent;
-
-        try {
-            this.isResummarizing = true;
-            this.lastResummarizeTime = now;
-            btn.disabled = true;
-            if (icon) {
-                icon.className = 'fa-solid fa-circle-notch fa-spin';
-            }
-            btn.lastChild.textContent = ' Resummarizing...';
-
-            const resummarized = await this.onResummarize(this.editedPrompt);
-            logger.debug('Resummarize result received:', resummarized);
-            
-            if (resummarized && resummarized !== this.editedPrompt) {
-                this.editedPrompt = resummarized;
-                if (this.domElements.promptTextarea) {
-                    this.domElements.promptTextarea.value = resummarized;
-                }
-                if (this.domElements.promptApplyBtn) {
-                    this.domElements.promptApplyBtn.classList.add('highlight');
-                }
-            } else if (resummarized === this.editedPrompt) {
-                logger.warn('Resummarize returned identical prompt', { resummarized });
-            } else {
-                logger.warn('Resummarize returned empty or invalid result', { resummarized });
-            }
-        } catch (error) {
-            logger.error('Resummarize failed:', error);
-            throw error;
-        } finally {
-            this.isResummarizing = false;
-            btn.disabled = false;
-            if (icon) {
-                icon.className = 'fa-solid fa-robot';
-            }
-            btn.lastChild.textContent = originalText;
-        }
+        return this._handleResummarize({
+            btn: this.domElements.promptResummarizeBtn,
+            iconClass: 'fa-solid fa-robot',
+            busyText: ' Resummarizing...',
+            logLabel: 'Resummarize',
+            debounce: 1000,
+        });
     }
 }
