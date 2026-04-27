@@ -881,9 +881,6 @@
 
 .auto-multi-image-settings .inline-drawer-content {
     padding: 0;
-    overflow: visible;
-    min-height: 0;
-    flex-shrink: 1;
 }
 
 .auto-multi-image-settings .auto-multi-drawer {
@@ -897,20 +894,17 @@
             transparent 55%
         );
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
-    flex-shrink: 0;
+    overflow: hidden;
 }
 
-#extensions_settings .auto-multi-image-settings .auto-multi-drawer__toggle,
-#extensions_settings2 .auto-multi-image-settings .auto-multi-drawer__toggle {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-    padding: 18px 20px !important;
+.auto-multi-image-settings .auto-multi-drawer__toggle {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 18px 20px;
     background: linear-gradient(
         120deg,
         rgba(123, 125, 255, 0.15),
         rgba(12, 15, 35, 0.6)
-    ) !important;
-    border-radius: 0 !important;
-    margin-bottom: 0 !important;
+    );
     backdrop-filter: blur(8px);
 }
 
@@ -955,7 +949,7 @@
 }
 
 .auto-multi-image-settings .auto-multi-ui {
-    display: flex !important;
+    display: flex;
     flex-direction: column;
     gap: 20px;
     padding: 16px;
@@ -1030,11 +1024,10 @@
     border: 1px solid var(--autoMultiBorder);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
     position: relative;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    flex-shrink: 0;
-    min-height: min-content;
 }
 
 .auto-multi-image-settings .auto-multi-panel.is-disabled {
@@ -1101,13 +1094,8 @@
 
 .auto-multi-image-settings .auto-multi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 14px;
-    min-width: 0;
-}
-
-.auto-multi-image-settings .auto-multi-grid label {
-    min-width: 0;
 }
 
 .auto-multi-image-settings .auto-multi-grid label > span {
@@ -1117,6 +1105,22 @@
     opacity: 0.85;
 }
 
+.auto-multi-image-settings .auto-multi-count-group {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(90px, 0.6fr));
+    gap: 12px;
+    align-items: end;
+}
+
+.auto-multi-image-settings .auto-multi-count-field.is-hidden {
+    display: none;
+}
+
+@media (max-width: 720px) {
+    .auto-multi-image-settings .auto-multi-count-group {
+        grid-template-columns: 1fr;
+    }
+}
 
 .auto-multi-image-settings .auto-multi-panel--queue header {
     align-items: center;
