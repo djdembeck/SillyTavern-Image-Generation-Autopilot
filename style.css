@@ -961,9 +961,6 @@
     padding: 16px;
     background: rgba(0, 0, 0, 0.25);
     border-radius: 0 0 18px 18px;
-    max-height: 80vh;
-    overflow-y: auto;
-    min-height: min-content;
 }
 
 .auto-multi-image-settings .auto-multi-hero {
@@ -1346,9 +1343,6 @@
 @media (max-width: 720px) {
     .auto-multi-global-progress {
         max-width: 100%;
-    }
-    .auto-multi-image-settings .auto-multi-ui {
-        max-height: 65vh;
     }
 }
 
