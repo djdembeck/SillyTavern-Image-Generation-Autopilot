@@ -1,6 +1,9 @@
 import { describe, expect, it, beforeEach } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const MODULE_NAME = 'Image-Generation-Autopilot'
+const settingsTemplate = readFileSync(resolve(import.meta.dir, '../../settings.html'), 'utf8')
 
 describe('Settings UI', () => {
     describe('defaultSettings structure', () => {
@@ -39,6 +42,25 @@ describe('Settings UI', () => {
             }
             expect(actualDefaults.autoGeneration.summarizer.messageDepth).toBe(1)
             expect(actualDefaults.autoGeneration.summarizer.systemPromptTemplate).toContain('Character')
+        })
+    })
+
+    describe('settings template structure', () => {
+        it('keeps the flex layout wrapper inside inline-drawer-content', () => {
+            expect(settingsTemplate).toContain('<div class="inline-drawer-content">')
+            expect(settingsTemplate).toContain('<div class="auto-multi-ui">')
+            expect(settingsTemplate).not.toContain(
+                '<div class="inline-drawer-content auto-multi-ui">',
+            )
+
+            const drawerIndex = settingsTemplate.indexOf(
+                '<div class="inline-drawer-content">',
+            )
+            const uiIndex = settingsTemplate.indexOf(
+                '<div class="auto-multi-ui">',
+            )
+            expect(drawerIndex).toBeGreaterThanOrEqual(0)
+            expect(uiIndex).toBeGreaterThan(drawerIndex)
         })
     })
 
