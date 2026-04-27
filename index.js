@@ -2044,7 +2044,7 @@ async function buildSettingsPanel() {
 
     summarizerMaxTokensInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(0, Math.min(4000, parseInt(summarizerMaxTokensInput.value, 10) || 0))
+        const value = Math.max(0, Math.min(8000, parseInt(summarizerMaxTokensInput.value, 10) || 0))
         current.autoGeneration.summarizer.maxTokens = value
         summarizerMaxTokensInput.value = String(value)
         saveSettings()
@@ -2651,7 +2651,7 @@ function syncUiFromSettings() {
     }
 
     if (state.ui.summarizerMaxTokensInput) {
-        const maxTokens = Math.max(0, Math.min(4000, settings.autoGeneration.summarizer.maxTokens || 0))
+        const maxTokens = Math.max(0, Math.min(8000, settings.autoGeneration.summarizer.maxTokens || 0))
         state.ui.summarizerMaxTokensInput.value = String(maxTokens)
     }
 

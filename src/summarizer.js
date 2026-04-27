@@ -21,6 +21,7 @@ const logger = {
 const TOKENS_HEADROOM_MULTIPLIER = 1.5;
 const WORDS_PER_TOKEN = 0.75;
 const ASSUMED_CHARACTER_COUNT = 3;
+const MAX_TOKENS_UNLIMITED = 8000;
 
 const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `Create image generation prompts from roleplay scenarios.
 
@@ -293,9 +294,9 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
       const options = {
         temperature: 0.3,
       };
-      if (maxTokens > 0) {
-        options.max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER);
-      }
+      options.max_tokens = maxTokens > 0
+        ? Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER)
+        : MAX_TOKENS_UNLIMITED;
       return await callChatCompletion(modifiedMessages, options);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -319,9 +320,9 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
     temperature: 0.3,
   };
 
-  if (maxTokens > 0) {
-    genOptions.max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER);
-  }
+  genOptions.max_tokens = maxTokens > 0
+    ? Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER)
+    : MAX_TOKENS_UNLIMITED;
   // Note: NOT passing systemPrompt - let the connection profile handle that
 
   if (typeof ctx.generateRaw === 'function') {
@@ -371,7 +372,7 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
  * @param {Object} [config.characterDescriptions] - Character descriptions by name
  * @param {string} [config.charName] - Character name
  * @param {string} [config.userName] - User name
- * @param {number} [config.maxTokens=0] - Maximum tokens for response (0 = no limit). The API receives max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER).
+ * @param {number} [config.maxTokens=0] - Maximum tokens for response (0 = unlimited, overrides system response length). The API receives max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER) or MAX_TOKENS_UNLIMITED if 0.
  * @param {number} [config.characterPercent=30] - Percentage for character description
  * @param {number} [config.scenePercent=70] - Percentage for scene description
  * @param {Object} [config.promptInjection] - Prompt injection settings

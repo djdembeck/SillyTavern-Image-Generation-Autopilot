@@ -224,7 +224,7 @@ describe('summarizeWithAI', () => {
             expect(optionsUsed.temperature).toBe(0.3)
         })
 
-        it('uses max_tokens of 2500', async () => {
+        it('uses MAX_TOKENS_UNLIMITED when maxTokens is 0', async () => {
             const { summarizeWithAI } = await import('../summarizer.js')
             
             let optionsUsed = {}
@@ -239,7 +239,26 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(optionsUsed.max_tokens).toBeUndefined()
+            expect(optionsUsed.max_tokens).toBe(8000)
+        })
+
+        it('uses headroom multiplier when maxTokens is set', async () => {
+            const { summarizeWithAI } = await import('../summarizer.js')
+            
+            let optionsUsed = {}
+            const captureCompletion = async (messages, options) => {
+                optionsUsed = options
+                return mockChatCompletion(messages, options)
+            }
+            
+            await summarizeWithAI({
+                messages: [],
+                messageDepth: 3,
+                maxTokens: 500,
+                callChatCompletion: captureCompletion
+            })
+            
+            expect(optionsUsed.max_tokens).toBe(750)
         })
     })
 
