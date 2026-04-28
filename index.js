@@ -3740,10 +3740,17 @@ async function handleIncomingMessage(messageId) {
     }
 
     const context = getCtx()
+    const chat = context.chat || []
     const resolvedId =
-        typeof messageId === 'number' ? messageId : context.chat?.length - 1
-    const message = context.chat?.[resolvedId]
+        typeof messageId === 'number' ? messageId : chat.length - 1
+    const message = chat[resolvedId]
     if (!message || message.is_user || !message.mes) {
+        return
+    }
+
+    const hasUserMessages = chat.some(m => m.is_user)
+    if (!hasUserMessages) {
+        log('Skipping auto-generation on greeting-only chat (no user messages)')
         return
     }
 
