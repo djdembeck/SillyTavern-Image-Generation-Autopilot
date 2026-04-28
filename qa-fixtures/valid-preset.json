@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "name": "QA Test Preset",
+  "settings": {
+    "enabled": true,
+    "debugMode": false,
+    "targetCount": 4,
+    "delayMs": 800,
+    "swipeTimeoutMs": 120000,
+    "concurrency": 0,
+    "modelQueue": [],
+    "modelQueueEnabled": true,
+    "swipeModel": "",
+    "perCharacter": { "enabled": false, "globalDefaults": {} },
+    "autoGeneration": {
+      "enabled": false,
+      "insertType": "new",
+      "promptRewrite": { "enabled": false, "modelId": "" },
+      "promptInjection": {
+        "mainPrompt": "Test",
+        "instructionsPositive": "",
+        "instructionsNegative": "",
+        "examplePrompt": "",
+        "lengthLimit": 0,
+        "lengthLimitType": "none",
+        "picCountMode": "exact",
+        "picCountExact": 1,
+        "picCountMin": 1,
+        "picCountMax": 3
+      },
+      "summarizer": {
+        "messageDepth": 1,
+        "maxTokens": 500,
+        "characterPercent": 30,
+        "scenePercent": 70,
+        "systemPromptTemplate": "Test"
+      }
+    }
+  },
+  "createdAt": "2026-04-27T00:00:00.000Z"
+}

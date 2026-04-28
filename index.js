@@ -453,47 +453,15 @@ function ensureSettings() {
         deepMergeDefaults(extensionSettings[MODULE_NAME], defaultSettings)
         const settings = extensionSettings[MODULE_NAME]
 
-        // Migration: Clear old presets that contain circular references
-        // Only delete presets that have actual circular references (preset.settings.presets === the preset itself)
-        if (settings.presets && Object.keys(settings.presets).length > 0) {
-            const presetsWithCircularRefs = []
-            for (const [presetId, preset] of Object.entries(settings.presets)) {
-                if (preset.settings && preset.settings.presets) {
-                    // Check if this is a circular reference (the presets property contains the preset itself)
-                    if (preset.settings.presets[presetId] === preset) {
-                        presetsWithCircularRefs.push(presetId)
-                        logger.debug('Found preset with circular reference:', { presetId, presetName: preset.name })
-                    }
-                }
-            }
-            if (presetsWithCircularRefs.length > 0) {
-                logger.debug('Clearing presets with circular references:', presetsWithCircularRefs)
-                for (const presetId of presetsWithCircularRefs) {
-                    delete settings.presets[presetId]
-                }
-            }
-        }
-
-        // Migration: Move presets from old location to separate storage key
-        // This fixes the race condition between saveSettings() and savePresetToStorage()
-        if (settings.presets && Object.keys(settings.presets).length > 0) {
-            if (!extensionSettings[PRESET_STORAGE_KEY]) {
-                extensionSettings[PRESET_STORAGE_KEY] = {}
-            }
-            // Only migrate if the new storage is empty or has fewer presets
-            if (
-                Object.keys(extensionSettings[PRESET_STORAGE_KEY]).length <
-                Object.keys(settings.presets).length
-            ) {
-                logger.debug('Migrating presets from old location to separate storage key')
-                extensionSettings[PRESET_STORAGE_KEY] = JSON.parse(
-                    JSON.stringify(settings.presets),
-                )
-                // Clear the old location after successful migration
-                delete settings.presets
-                // Save the migrated presets to persist the changes
+        // One-time cleanup: clear old presets on first load of V2 system
+        const V2_FLAG = MODULE_NAME + '_presetsV2'
+        if (!extensionSettings[V2_FLAG]) {
+            extensionSettings[PRESET_STORAGE_KEY] = {}
+            if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
                 ctx.saveSettingsDebounced()
             }
+            extensionSettings[V2_FLAG] = true
+            logger.info('Cleared old preset storage for V2 upgrade')
         }
 
         if (!settings.autoGeneration) {
@@ -1017,7 +985,7 @@ function syncPerCharacterStorage() {
 
 // ==================== PRESET CHARACTER INTEGRATION ====================
 
-function applyPresetToCharacter(presetId) {
+export function applyPresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
         logger.warn('Preset not found:', presetId)
@@ -1050,7 +1018,7 @@ function applyPresetToCharacter(presetId) {
     return true
 }
 
-function savePresetToCharacter(presetId) {
+export function savePresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
         logger.warn('Preset not found:', presetId)
@@ -1083,7 +1051,7 @@ function savePresetToCharacter(presetId) {
     return true
 }
 
-function loadPresetToCharacter(presetId) {
+export function loadPresetToCharacter(presetId) {
     const success = loadPreset(presetId)
     if (success) {
         // Also save to character if per-character is enabled
@@ -1513,26 +1481,33 @@ function getAllPresets() {
     return getPresetStorage()
 }
 
-function getPreset(id) {
+export function getPreset(id) {
     const presets = getAllPresets()
     return presets[id] || null
 }
 
-function savePreset(id, name, settings) {
+export function savePreset(id, name, settings) {
     const presets = getAllPresets()
-    // Exclude 'presets' property from saved preset settings to avoid circular reference
     const { presets: _, ...settingsWithoutPresets } = settings
-    presets[id] = {
-        id,
-        name,
-        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
-        createdAt: new Date().toISOString(),
+    const existing = presets[id]
+
+    if (existing) {
+        existing.name = name
+        existing.settings = JSON.parse(JSON.stringify(settingsWithoutPresets))
+    } else {
+        presets[id] = {
+            id,
+            name,
+            settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
+            createdAt: new Date().toISOString(),
+        }
     }
+
     savePresetToStorage(presets)
     return presets[id]
 }
 
-function deletePreset(id) {
+export function deletePreset(id) {
     const presets = getAllPresets()
     delete presets[id]
     savePresetToStorage(presets)
@@ -1564,7 +1539,7 @@ function handleRenamePreset(id) {
     logger.info('Preset renamed:', { id, oldName: preset.name, newName: trimmedName })
 }
 
-function loadPreset(id) {
+export function loadPreset(id) {
     const preset = getPreset(id)
     if (!preset) {
         logger.warn('Preset not found:', id)
@@ -1594,7 +1569,7 @@ function loadPreset(id) {
     return true
 }
 
-function listPresets() {
+export function listPresets() {
     const presets = getAllPresets()
     return Object.values(presets).sort((a, b) => {
         // Sort by name, then by creation date
@@ -1607,6 +1582,22 @@ function listPresets() {
 
 // ==================== PRESET UI HANDLERS ====================
 
+function updateSaveButtonState() {
+    const saveButton = state.ui.presetSaveButton
+    const activeId = state.ui.activePresetId
+    const activePreset = activeId ? getPreset(activeId) : null
+
+    if (saveButton) {
+        if (activePreset) {
+            saveButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i> Update'
+            saveButton.classList.add('auto-multi-preset-save--active')
+        } else {
+            saveButton.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save'
+            saveButton.classList.remove('auto-multi-preset-save--active')
+        }
+    }
+}
+
 function handleSavePreset() {
     const name = state.ui.presetNameInput?.value?.trim()
     if (!name) {
@@ -1615,20 +1606,32 @@ function handleSavePreset() {
     }
 
     const currentSettings = getCurrentSettingsSnapshot()
-    const id = 'preset_' + Date.now()
+    const activeId = state.ui.activePresetId
+    const existingPreset = activeId ? getPreset(activeId) : null
 
-    savePreset(id, name, currentSettings)
+    if (existingPreset) {
+        savePreset(activeId, name, currentSettings)
+        logger.info('Preset updated', { id: activeId, name })
+    } else {
+        const id = 'preset_' + Date.now()
+        savePreset(id, name, currentSettings)
+        state.ui.activePresetId = id
+        logger.info('Preset saved', { id, name })
+    }
 
-    // Clear input and re-render
-    state.ui.presetNameInput.value = ''
+    updateSaveButtonState()
     renderPresets()
-
-    logger.info('Preset saved', { id, name })
 }
 
 function handleLoadPreset(id) {
     const success = loadPreset(id)
     if (success) {
+        state.ui.activePresetId = id
+        const preset = getPreset(id)
+        if (preset && state.ui.presetNameInput) {
+            state.ui.presetNameInput.value = preset.name
+        }
+        updateSaveButtonState()
         renderPresets()
         logger.info('Preset loaded', { id })
     }
@@ -1640,8 +1643,57 @@ function handleDeletePreset(id) {
     }
 
     deletePreset(id)
+    if (state.ui.activePresetId === id) {
+        state.ui.activePresetId = null
+        updateSaveButtonState()
+    }
     renderPresets()
     logger.info('Preset deleted', { id })
+}
+
+export async function handleImportPreset() {
+    const fileInput = document.getElementById('auto_multi_preset_file_input')
+    if (!fileInput) {
+        logger.error('File input element not found')
+        return
+    }
+
+    fileInput.click()
+
+    fileInput.addEventListener('change', async (event) => {
+        const file = event.target.files?.[0]
+        if (!file) return
+
+        const reader = new FileReader()
+        reader.onload = async (e) => {
+            const jsonString = e.target.result
+
+            try {
+                const presetData = parsePresetFromImport(jsonString)
+                const existingPresets = getAllPresets()
+                const existing = Object.values(existingPresets).find(p => p.name === presetData.name)
+
+                if (existing) {
+                    savePreset(existing.id, presetData.name, presetData.settings)
+                    showToastr('warning', `Preset "${presetData.name}" overwritten with imported version`, 'Preset Imported')
+                } else {
+                    savePreset(presetData.id, presetData.name, presetData.settings)
+                    showToastr('success', `Preset "${presetData.name}" imported successfully`, 'Preset Imported')
+                }
+            } catch (error) {
+                showToastr('error', error.message, 'Import Failed')
+            }
+
+            try {
+                renderPresets()
+            } catch {
+                // UI refresh is non-critical; ignore errors in test/headless environments
+            }
+
+            fileInput.value = ''
+        }
+        reader.readAsText(file)
+    }, { once: true })
 }
 
 function renderPresets() {
@@ -1665,8 +1717,9 @@ function renderPresets() {
     container.innerHTML = presets
         .map((preset) => {
             const createdAt = new Date(preset.createdAt).toLocaleString()
+            const isActive = preset.id === state.ui.activePresetId
             return `
-            <div class="auto-multi-preset-item" data-preset-id="${preset.id}" role="listitem">
+            <div class="auto-multi-preset-item${isActive ? ' auto-multi-preset-item--active' : ''}" data-preset-id="${preset.id}" role="listitem">
                 <button
                     type="button"
                     class="auto-multi-preset-body"
@@ -1694,6 +1747,14 @@ function renderPresets() {
                         aria-label="Rename preset ${escapeHtml(preset.name)}"
                     >
                         <span class="fa-solid fa-pen" aria-hidden="true"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-export-btn"
+                        title="Export this preset"
+                        aria-label="Export preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-file-export" aria-hidden="true"></span>
                     </button>
                     <button
                         type="button"
@@ -1752,6 +1813,18 @@ function renderPresets() {
                 handleRenamePreset(presetId)
             } else {
                 logger.error('Could not get presetId from rename button')
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-export-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const presetItem = btn.closest('.auto-multi-preset-item')
+            const presetId = presetItem?.dataset.presetId
+            if (presetId) {
+                handleExportPreset(presetId)
             }
         })
     })
@@ -1941,6 +2014,7 @@ async function buildSettingsPanel() {
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
+        activePresetId: null,
     }
 
     enabledInput.addEventListener('change', () => {
@@ -2147,6 +2221,23 @@ async function buildSettingsPanel() {
     presetNameInput?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             handleSavePreset()
+        }
+    })
+    presetNameInput?.addEventListener('input', () => {
+        state.ui.activePresetId = null
+        updateSaveButtonState()
+    })
+
+    const importButton = container.querySelector('#auto_multi_import_preset_button')
+    importButton?.addEventListener('click', () => handleImportPreset())
+
+    const exportButton = container.querySelector('#auto_multi_export_preset_button')
+    exportButton?.addEventListener('click', () => {
+        const activeId = state.ui.activePresetId
+        if (activeId) {
+            handleExportPreset(activeId)
+        } else {
+            showToastr('warning', 'Select a preset first', 'Export')
         }
     })
 
@@ -4159,8 +4250,194 @@ async function handleMessageRendered(messageId, origin) {
 
 const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
 
-function getCurrentSettingsSnapshot() {
-    return JSON.parse(JSON.stringify(getSettings()))
+export function getCurrentSettingsSnapshot() {
+    const snapshot = JSON.parse(JSON.stringify(getSettings()))
+
+    // Strip perCharacter fields (mirror buildShareableSettingsSnapshot)
+    if (snapshot?.perCharacter) {
+        delete snapshot.perCharacter.globalDefaults
+        delete snapshot.perCharacter.fields
+    }
+
+    // Exclude 'presets' property from snapshot
+    if (snapshot?.presets) {
+        delete snapshot.presets
+    }
+
+    return snapshot
+}
+
+export function validatePresetJSON(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return { valid: false, error: 'Input must be an object' }
+    }
+
+    if (!('schemaVersion' in data)) {
+        return { valid: false, error: 'Missing schemaVersion field' }
+    }
+    if (typeof data.schemaVersion !== 'number') {
+        return { valid: false, error: 'schemaVersion must be a number' }
+    }
+    if (data.schemaVersion > 1) {
+        return { valid: false, error: 'Preset uses a newer version of the schema' }
+    }
+    if (data.schemaVersion !== 1) {
+        return { valid: false, error: 'Invalid schemaVersion (must be 1)' }
+    }
+
+    if (!('name' in data)) {
+        return { valid: false, error: 'Missing name field' }
+    }
+    if (typeof data.name !== 'string') {
+        return { valid: false, error: 'name must be a string' }
+    }
+    const sanitizedName = data.name
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/javascript:/gi, '')
+        .trim()
+    if (sanitizedName.length === 0) {
+        return { valid: false, error: 'name cannot be empty' }
+    }
+    if (sanitizedName.length > 100) {
+        return { valid: false, error: 'name exceeds 100 characters' }
+    }
+
+    if (!('settings' in data)) {
+        return { valid: false, error: 'Missing settings field' }
+    }
+    if (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings)) {
+        return { valid: false, error: 'settings must be an object' }
+    }
+
+    const SETTINGS_TYPE_MAP = {
+        enabled: 'boolean',
+        debugMode: 'boolean',
+        targetCount: 'number',
+        delayMs: 'number',
+        swipeTimeoutMs: 'number',
+        concurrency: 'number',
+        modelQueue: 'array',
+        modelQueueEnabled: 'boolean',
+        swipeModel: 'string',
+    }
+
+    for (const [key, expectedType] of Object.entries(SETTINGS_TYPE_MAP)) {
+        if (!(key in data.settings)) {
+            return { valid: false, error: `Missing required settings field: ${key}` }
+        }
+        const actualType = Array.isArray(data.settings[key]) ? 'array' : typeof data.settings[key]
+        if (actualType !== expectedType) {
+            return { valid: false, error: `settings field ${key} must be ${expectedType}, got ${actualType}` }
+        }
+    }
+
+    if (typeof data.settings.perCharacter !== 'object' || data.settings.perCharacter === null || Array.isArray(data.settings.perCharacter)) {
+        return { valid: false, error: 'settings field perCharacter must be an object' }
+    }
+    if (!('enabled' in data.settings.perCharacter)) {
+        return { valid: false, error: 'Missing required settings field: perCharacter.enabled' }
+    }
+    if (typeof data.settings.perCharacter.enabled !== 'boolean') {
+        return { valid: false, error: 'settings field perCharacter.enabled must be boolean' }
+    }
+
+    if (typeof data.settings.autoGeneration !== 'object' || data.settings.autoGeneration === null || Array.isArray(data.settings.autoGeneration)) {
+        return { valid: false, error: 'settings field autoGeneration must be an object' }
+    }
+    if (!('enabled' in data.settings.autoGeneration)) {
+        return { valid: false, error: 'Missing required settings field: autoGeneration.enabled' }
+    }
+    if (typeof data.settings.autoGeneration.enabled !== 'boolean') {
+        return { valid: false, error: 'settings field autoGeneration.enabled must be boolean' }
+    }
+
+    if (!('createdAt' in data)) {
+        return { valid: false, error: 'Missing createdAt field' }
+    }
+    if (typeof data.createdAt !== 'string') {
+        return { valid: false, error: 'createdAt must be a string' }
+    }
+    if (isNaN(new Date(data.createdAt).getTime())) {
+        return { valid: false, error: 'Invalid createdAt date format' }
+    }
+
+    return {
+        valid: true,
+        data: {
+            schemaVersion: data.schemaVersion,
+            name: sanitizedName,
+            settings: data.settings,
+            createdAt: data.createdAt,
+        },
+    }
+}
+
+export function serializePresetForExport(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        return null
+    }
+
+    const exportObject = {
+        schemaVersion: 1,
+        name: preset.name,
+        settings: preset.settings,
+        createdAt: preset.createdAt,
+    }
+
+    return JSON.stringify(exportObject, null, 2)
+}
+
+export function handleExportPreset(id) {
+    const jsonString = serializePresetForExport(id)
+    if (!jsonString) {
+        showToastr('error', 'Preset not found', 'Export Failed')
+        return
+    }
+
+    const preset = getPreset(id)
+    if (!preset) return
+
+    const sanitized = preset.name
+        .replace(/[\/\\:*?"<>|]/g, '_')
+        .trim()
+        .substring(0, 100)
+
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${sanitized}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+
+    setTimeout(() => URL.revokeObjectURL(url), 100)
+
+    showToastr('success', `Preset "${preset.name}" exported`, 'Preset Exported')
+}
+
+export function parsePresetFromImport(jsonString) {
+    let data
+    try {
+        data = JSON.parse(jsonString)
+    } catch {
+        throw new Error('Invalid JSON string')
+    }
+
+    const validation = validatePresetJSON(data)
+    if (!validation.valid) {
+        throw new Error(validation.error)
+    }
+
+    const id = 'preset_' + Date.now()
+    return {
+        id,
+        name: validation.data.name,
+        settings: validation.data.settings,
+        createdAt: validation.data.createdAt,
+    }
 }
 
 // ==================== END PRESET MANAGEMENT ====================
@@ -4476,6 +4753,7 @@ async function init() {
 }
 
 ;(function bootstrap() {
+    if (typeof SillyTavern === 'undefined') return
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.eventSource || !ctx.eventTypes) {

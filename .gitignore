@@ -6,5 +6,8 @@ oh-my-opencode.json
 # Sisyphus/Agent working directories
 .sisyphus/
 
+# Playwright CLI test artifacts
+.playwright-cli/
+
 # Chunkhound database files
 .chunkhound/
