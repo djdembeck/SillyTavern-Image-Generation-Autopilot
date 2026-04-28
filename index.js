@@ -3523,6 +3523,8 @@ async function shortenPrompt(prompt, lengthLimit, lengthLimitType) {
         lengthLimitType,
     })
 
+    showToastr('info', `Prompt too long, asking AI to shorten it...`, 'Shortening Prompt')
+
     try {
         return await withConnectionProfile(profileName, async () => {
             const result = await summarizeWithAI({
@@ -3569,7 +3571,7 @@ async function enforcePromptLength(prompt, lengthLimit, lengthLimitType) {
         const shortened = await shortenPrompt(prompt, lengthLimit, lengthLimitType)
         if (shortened && shortened.length <= lengthLimit) {
             log('Prompt shortened via re-summarization (characters)', { original: prompt.length, shortened: shortened.length, limit: lengthLimit })
-            showToastr('info', `Prompt shortened from ${prompt.length} to ${shortened.length} characters via AI`, 'Prompt Length Exceeded')
+            showToastr('success', `Prompt shortened from ${prompt.length} to ${shortened.length} characters via AI`, 'Prompt Shortened')
             return shortened
         }
 
@@ -3603,7 +3605,7 @@ async function enforcePromptLength(prompt, lengthLimit, lengthLimitType) {
             }
             if (shortenedTokenCount <= lengthLimit) {
                 log('Prompt shortened via re-summarization (tokens)', { originalTokens: tokenCount, shortenedTokens: shortenedTokenCount, limit: lengthLimit })
-                showToastr('info', `Prompt shortened from ${tokenCount} to ${shortenedTokenCount} tokens via AI`, 'Prompt Length Exceeded')
+                showToastr('success', `Prompt shortened from ${tokenCount} to ${shortenedTokenCount} tokens via AI`, 'Prompt Shortened')
                 return shortened
             }
         }
@@ -3673,6 +3675,8 @@ async function generateSummarizedPrompt(messageId) {
 
         try {
             const promptInjectionSettings = autoSettings?.promptInjection || {}
+
+            showToastr('info', 'Generating image prompt...', 'Summarizing')
 
             const summarizedPrompt = await summarizeWithAI({
                 messages: boundedMessages,
