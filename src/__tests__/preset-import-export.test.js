@@ -1,10 +1,5 @@
 import { describe, expect, it, mock, beforeAll, beforeEach } from 'bun:test'
 
-// Mock the summarizer module before importing index.js
-mock.module('../../src/summarizer.js', () => ({
-    summarizeWithAI: () => Promise.resolve(''),
-}))
-
 // Mock browser globals needed by index.js module scope
 globalThis.window = globalThis.window || {}
 globalThis.window.toastr = { success: () => {}, error: () => {}, warning: () => {}, info: () => {} }
