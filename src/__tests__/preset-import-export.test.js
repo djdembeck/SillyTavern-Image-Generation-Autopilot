@@ -108,6 +108,18 @@ function setupMockContext(presets = {}, settings = null) {
     }
 }
 
+function setupToastrMock() {
+    const toastrCalls = [];
+    globalThis.window.toastr = {
+        success: (msg, title) => toastrCalls.push({ level: 'success', msg, title }),
+        error: (msg, title) => toastrCalls.push({ level: 'error', msg, title }),
+        warning: (msg, title) => toastrCalls.push({ level: 'warning', msg, title }),
+        info: (msg, title) => toastrCalls.push({ level: 'info', msg, title }),
+    };
+    globalThis.toastr = globalThis.window.toastr;
+    return toastrCalls;
+}
+
 beforeAll(async () => {
     const mod = await import('../../index.js')
     validatePresetJSON = mod.validatePresetJSON
@@ -500,15 +512,7 @@ describe('Preset Import/Export', () => {
 
         beforeEach(() => {
             setupMockContext({})
-            toastrCalls = []
-
-            globalThis.window.toastr = {
-                success: (msg, title) => toastrCalls.push({ level: 'success', msg, title }),
-                error: (msg, title) => toastrCalls.push({ level: 'error', msg, title }),
-                warning: (msg, title) => toastrCalls.push({ level: 'warning', msg, title }),
-                info: (msg, title) => toastrCalls.push({ level: 'info', msg, title }),
-            }
-            globalThis.toastr = globalThis.window.toastr
+            toastrCalls = setupToastrMock()
 
             mockFileInput = {
                 click: mock(() => {}),
@@ -819,18 +823,10 @@ describe('Preset Import/Export', () => {
                 },
             })
 
-            toastrCalls = []
+            toastrCalls = setupToastrMock()
             createdElements = []
             mockBlob = null
             mockUrl = 'blob:mock-url'
-
-            globalThis.window.toastr = {
-                success: (msg, title) => toastrCalls.push({ level: 'success', msg, title }),
-                error: (msg, title) => toastrCalls.push({ level: 'error', msg, title }),
-                warning: (msg, title) => toastrCalls.push({ level: 'warning', msg, title }),
-                info: (msg, title) => toastrCalls.push({ level: 'info', msg, title }),
-            }
-            globalThis.toastr = globalThis.window.toastr
 
             globalThis.Blob = mock(function (parts, opts) {
                 mockBlob = { parts, opts }
@@ -1200,14 +1196,7 @@ describe('Preset Import/Export', () => {
         it('overwrite via handleImportPreset with same name shows warning toast', async () => {
             savePreset('preset_import_ow', 'Same Name Import', JSON.parse(JSON.stringify(VALID_SETTINGS)))
 
-            let toastrCalls = []
-            globalThis.window.toastr = {
-                success: (msg, title) => toastrCalls.push({ level: 'success', msg, title }),
-                error: (msg, title) => toastrCalls.push({ level: 'error', msg, title }),
-                warning: (msg, title) => toastrCalls.push({ level: 'warning', msg, title }),
-                info: (msg, title) => toastrCalls.push({ level: 'info', msg, title }),
-            }
-            globalThis.toastr = globalThis.window.toastr
+            const toastrCalls = setupToastrMock()
 
             const mockFileInput = {
                 click: mock(() => {}),

@@ -48,6 +48,7 @@ function buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI) {
             window.toastr[level](message, title)
         }
     }
+    const clampMessageDepth = (value) => Math.max(1, Math.min(10, Number(value) || 1))
     return buildIndexFunction(
         generateSummarizedPromptSource,
         'generateSummarizedPrompt',
@@ -63,6 +64,7 @@ function buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI) {
             },
             stripPicTags,
             showToastr,
+            clampMessageDepth,
         },
     )
 }

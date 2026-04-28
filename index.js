@@ -1,6 +1,7 @@
 import { summarizeWithAI } from './src/summarizer.js'
 
 const MODULE_NAME = 'Image-Generation-Autopilot'
+const MAX_TOKEN_LIMIT = 8000
 const INSERT_TYPE = Object.freeze({
     DISABLED: 'disabled',
     INLINE: 'inline',
@@ -25,6 +26,14 @@ function stripPicTags(content) {
         .replace(STRIP_PIC_TAG_REGEX, '')
         .replace(CLOSE_PIC_TAG_REGEX, '')
         .trim()
+}
+
+function isPlainObject(v) {
+    return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function clampMessageDepth(value) {
+    return Math.max(1, Math.min(10, parseInt(value, 10) || 1))
 }
 
 const defaultSettings = Object.freeze({
@@ -2101,7 +2110,7 @@ async function buildSettingsPanel() {
 
     summarizerDepthInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(1, Math.min(10, parseInt(summarizerDepthInput.value, 10) || 1))
+        const value = clampMessageDepth(summarizerDepthInput.value)
         current.autoGeneration.summarizer.messageDepth = value
         summarizerDepthInput.value = String(value)
         saveSettings()
@@ -2123,7 +2132,7 @@ async function buildSettingsPanel() {
 
     summarizerMaxTokensInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(0, Math.min(8000, parseInt(summarizerMaxTokensInput.value, 10) || 0))
+        const value = Math.max(0, Math.min(MAX_TOKEN_LIMIT, parseInt(summarizerMaxTokensInput.value, 10) || 0))
         current.autoGeneration.summarizer.maxTokens = value
         summarizerMaxTokensInput.value = String(value)
         saveSettings()
@@ -2203,7 +2212,7 @@ async function buildSettingsPanel() {
 
     promptLengthLimitInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(0, Math.min(8000, parseInt(promptLengthLimitInput.value, 10) || 0))
+        const value = Math.max(0, Math.min(MAX_TOKEN_LIMIT, parseInt(promptLengthLimitInput.value, 10) || 0))
         current.autoGeneration.promptInjection.lengthLimit = value
         promptLengthLimitInput.value = String(value)
         saveSettings()
@@ -2753,7 +2762,7 @@ function syncUiFromSettings() {
     }
 
     if (state.ui.summarizerDepthInput) {
-        const depth = Math.max(1, Math.min(10, settings.autoGeneration.summarizer.messageDepth || 1))
+        const depth = clampMessageDepth(settings.autoGeneration.summarizer.messageDepth || 1)
         state.ui.summarizerDepthInput.value = String(depth)
     }
 
@@ -2763,7 +2772,7 @@ function syncUiFromSettings() {
     }
 
     if (state.ui.summarizerMaxTokensInput) {
-        const maxTokens = Math.max(0, Math.min(8000, settings.autoGeneration.summarizer.maxTokens || 0))
+        const maxTokens = Math.max(0, Math.min(MAX_TOKEN_LIMIT, settings.autoGeneration.summarizer.maxTokens || 0))
         state.ui.summarizerMaxTokensInput.value = String(maxTokens)
     }
 
@@ -2794,7 +2803,7 @@ function syncUiFromSettings() {
             settings.autoGeneration.promptInjection.lengthLimitType || 'none'
     }
     if (state.ui.promptLengthLimitInput) {
-        const limitValue = Math.max(0, Math.min(8000, settings.autoGeneration.promptInjection.lengthLimit || 0))
+        const limitValue = Math.max(0, Math.min(MAX_TOKEN_LIMIT, settings.autoGeneration.promptInjection.lengthLimit || 0))
         state.ui.promptLengthLimitInput.value = String(limitValue)
     }
 
@@ -3204,10 +3213,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
             const autoSettings = freshSettings.autoGeneration
             const summarizerSettings = autoSettings?.summarizer || {}
 
-            const messageDepth = Math.max(
-                1,
-                Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
-            )
+            const messageDepth = clampMessageDepth(summarizerSettings.messageDepth)
 
             const chat = context.chat || []
             const message = chat[sourceMessageId]
@@ -3630,10 +3636,7 @@ async function generateSummarizedPrompt(messageId) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     const summarizerSettings = autoSettings?.summarizer || {}
-    const messageDepth = Math.max(
-        1,
-        Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
-    )
+    const messageDepth = clampMessageDepth(summarizerSettings.messageDepth)
 
     const context = getCtx()
     const message = context.chat?.[messageId]
@@ -4388,9 +4391,6 @@ async function queueAutoFill(messageId, button, options = {}) {
         return
     }
 
-    if (state.runningMessages.has(messageId)) {
-        return
-    }
     state.runningMessages.set(messageId, true)
 
     try {
@@ -4491,7 +4491,7 @@ export function getCurrentSettingsSnapshot() {
 }
 
 export function validatePresetJSON(data) {
-    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    if (!data || !isPlainObject(data)) {
         return { valid: false, error: 'Input must be an object' }
     }
 
@@ -4528,7 +4528,7 @@ export function validatePresetJSON(data) {
     if (!('settings' in data)) {
         return { valid: false, error: 'Missing settings field' }
     }
-    if (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings)) {
+    if (!isPlainObject(data.settings)) {
         return { valid: false, error: 'settings must be an object' }
     }
 
@@ -4556,7 +4556,7 @@ export function validatePresetJSON(data) {
 
     for (let i = 0; i < data.settings.modelQueue.length; i++) {
         const item = data.settings.modelQueue[i]
-        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        if (!item || !isPlainObject(item)) {
             return { valid: false, error: `modelQueue item ${i} must be an object` }
         }
         if (!('model' in item)) {
@@ -4567,7 +4567,7 @@ export function validatePresetJSON(data) {
         }
     }
 
-    if (typeof data.settings.perCharacter !== 'object' || data.settings.perCharacter === null || Array.isArray(data.settings.perCharacter)) {
+    if (!isPlainObject(data.settings.perCharacter)) {
         return { valid: false, error: 'settings field perCharacter must be an object' }
     }
     if (!('enabled' in data.settings.perCharacter)) {
@@ -4577,17 +4577,17 @@ export function validatePresetJSON(data) {
         return { valid: false, error: 'settings field perCharacter.enabled must be boolean' }
     }
     if ('fields' in data.settings.perCharacter) {
-        if (typeof data.settings.perCharacter.fields !== 'object' || data.settings.perCharacter.fields === null || Array.isArray(data.settings.perCharacter.fields)) {
+        if (!isPlainObject(data.settings.perCharacter.fields)) {
             return { valid: false, error: 'settings field perCharacter.fields must be an object' }
         }
     }
     if ('globalDefaults' in data.settings.perCharacter) {
-        if (typeof data.settings.perCharacter.globalDefaults !== 'object' || data.settings.perCharacter.globalDefaults === null || Array.isArray(data.settings.perCharacter.globalDefaults)) {
+        if (!isPlainObject(data.settings.perCharacter.globalDefaults)) {
             return { valid: false, error: 'settings field perCharacter.globalDefaults must be an object' }
         }
     }
 
-    if (typeof data.settings.autoGeneration !== 'object' || data.settings.autoGeneration === null || Array.isArray(data.settings.autoGeneration)) {
+    if (!isPlainObject(data.settings.autoGeneration)) {
         return { valid: false, error: 'settings field autoGeneration must be an object' }
     }
     if (!('enabled' in data.settings.autoGeneration)) {
@@ -4597,7 +4597,7 @@ export function validatePresetJSON(data) {
         return { valid: false, error: 'settings field autoGeneration.enabled must be boolean' }
     }
     if ('promptRewrite' in data.settings.autoGeneration) {
-        if (typeof data.settings.autoGeneration.promptRewrite !== 'object' || data.settings.autoGeneration.promptRewrite === null || Array.isArray(data.settings.autoGeneration.promptRewrite)) {
+        if (!isPlainObject(data.settings.autoGeneration.promptRewrite)) {
             return { valid: false, error: 'settings field autoGeneration.promptRewrite must be an object' }
         }
     }

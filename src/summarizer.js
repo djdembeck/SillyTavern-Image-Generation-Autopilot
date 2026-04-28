@@ -49,7 +49,7 @@ const OUTPUT_FORMAT_LINES = [
   'Scene: [location, 2-3 key visual elements, lighting]',
 ].join('\n');
 
-function getSillyTavernContext() {
+export function getSillyTavernContext() {
   if (typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function') {
     return SillyTavern.getContext();
   }
@@ -120,7 +120,10 @@ function stripReasoning(text) {
   if (typeof text !== 'string') return text;
   // Remove reasoning/thinking tags (DeepSeek R1, OpenAI-compatible, and other models)
   // Matches: <thinking>, <think>, <thoughts>, <introspect>, <introspection>, <reasoning>, <reflection>
+  // First pass: remove properly closed tag pairs
   text = text.replace(/<(thinking|think|thoughts|introspect|introspection|reasoning|reflection)>[\s\S]*?<\/\1>/gi, '');
+  // Second pass: remove unclosed tags (handles truncated responses)
+  text = text.replace(/<(thinking|think|thoughts|introspect|introspection|reasoning|reflection)>\s*[\s\S]*$/gi, '');
   // Remove leading/trailing whitespace left after stripping
   return text.trim();
 }

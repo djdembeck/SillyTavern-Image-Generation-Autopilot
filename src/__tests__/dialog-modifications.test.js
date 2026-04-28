@@ -98,6 +98,23 @@ global.window = {
 
 global.confirm = mock(() => true);
 
+function setupErrorDialog(dialog, buttonId, iconClass, label, initialValue = "original prompt") {
+    const mockButton = createMockElement(buttonId);
+    const mockIcon = createMockElement('i');
+    mockIcon.className = iconClass;
+    mockButton.appendChild(mockIcon);
+    const mockTextNode = { textContent: label };
+    mockButton.appendChild(mockTextNode);
+
+    const mockTextarea = createMockElement('img-prompt-editor');
+    mockTextarea.value = initialValue;
+
+    dialog.domElements.promptTextarea = mockTextarea;
+    dialog.editedPrompt = initialValue;
+
+    return { mockButton, mockTextarea };
+}
+
 describe("ImageSelectionDialog - Dialog Modifications", () => {
     let dialog;
     let mockGenerator;
@@ -247,20 +264,14 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             errorDialog.show(["test prompt"], {});
 
-            const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
-            const mockRewriteIcon = createMockElement('i');
-            mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
-            mockRewriteBtn.appendChild(mockRewriteIcon);
-            const mockTextNode = { textContent: ' Rewrite Prompt' };
-            mockRewriteBtn.appendChild(mockTextNode);
-
-            const mockTextarea = createMockElement('img-prompt-editor');
-            mockTextarea.value = "original prompt";
+            const { mockButton: mockRewriteBtn } = setupErrorDialog(
+                errorDialog,
+                'btn-prompt-rewrite',
+                'fa-solid fa-wand-magic-sparkles',
+                ' Rewrite Prompt'
+            );
 
             errorDialog.domElements.promptRewriteBtn = mockRewriteBtn;
-            errorDialog.domElements.promptTextarea = mockTextarea;
-            errorDialog.editedPrompt = "original prompt";
-
             errorDialog._attachListeners();
 
             let thrownError = null;
@@ -274,7 +285,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.isResummarizing).toBe(false);
-            expect(thrownError).toBeNull(); // Error caught at DOM boundary
+            expect(thrownError).toBeNull();
             expect(console.error).toHaveBeenCalledWith(
                 "[ImageSelectionDialog]",
                 expect.stringContaining("Prompt rewrite failed:"),
@@ -292,20 +303,14 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             errorDialog.show(["test prompt"], {});
 
-            const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
-            const mockRewriteIcon = createMockElement('i');
-            mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
-            mockRewriteBtn.appendChild(mockRewriteIcon);
-            const mockTextNode = { textContent: ' Rewrite Prompt' };
-            mockRewriteBtn.appendChild(mockTextNode);
-
-            const mockTextarea = createMockElement('img-prompt-editor');
-            mockTextarea.value = "original prompt";
+            const { mockButton: mockRewriteBtn } = setupErrorDialog(
+                errorDialog,
+                'btn-prompt-rewrite',
+                'fa-solid fa-wand-magic-sparkles',
+                ' Rewrite Prompt'
+            );
 
             errorDialog.domElements.promptRewriteBtn = mockRewriteBtn;
-            errorDialog.domElements.promptTextarea = mockTextarea;
-            errorDialog.editedPrompt = "original prompt";
-
             errorDialog._attachListeners();
 
             let errorCaught = false;
@@ -319,7 +324,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.editedPrompt).toBe("original prompt");
-            expect(errorCaught).toBe(false); // Error caught at DOM boundary, not rethrown
+            expect(errorCaught).toBe(false);
             expect(console.error).toHaveBeenCalledWith(
                 "[ImageSelectionDialog]",
                 expect.stringContaining("Prompt rewrite failed:"),
@@ -376,20 +381,14 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             errorDialog.show(["test prompt"], {});
 
-            const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
-            const mockIcon = createMockElement('i');
-            mockIcon.className = 'fa-solid fa-robot';
-            mockResummarizeBtn.appendChild(mockIcon);
-            const mockTextNode = { textContent: ' Resummarize' };
-            mockResummarizeBtn.appendChild(mockTextNode);
-
-            const mockTextarea = createMockElement('img-prompt-editor');
-            mockTextarea.value = "original prompt";
+            const { mockButton: mockResummarizeBtn } = setupErrorDialog(
+                errorDialog,
+                'btn-prompt-resummarize',
+                'fa-solid fa-robot',
+                ' Resummarize'
+            );
 
             errorDialog.domElements.promptResummarizeBtn = mockResummarizeBtn;
-            errorDialog.domElements.promptTextarea = mockTextarea;
-            errorDialog.editedPrompt = "original prompt";
-
             errorDialog._attachListeners();
 
             let thrownError = null;
@@ -403,7 +402,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             expect(onResummarizeMock).toHaveBeenCalled();
             expect(errorDialog.editedPrompt).toBe("original prompt");
-            expect(thrownError).toBeNull(); // Error caught at DOM boundary
+            expect(thrownError).toBeNull();
             expect(console.error).toHaveBeenCalledWith(
                 "[ImageSelectionDialog]",
                 expect.stringContaining("Resummarize failed:"),
@@ -411,7 +410,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             );
         });
 
-        it("should preserve state and log error when resummarize fails at DOM boundary", async () => {
+        it("should preserve state and log error when resummarize fails", async () => {
             const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
 
             const errorDialog = new ImageSelectionDialog({
@@ -421,21 +420,14 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
             errorDialog.show(["test prompt"], {});
 
-            const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
-            const mockIcon = createMockElement('i');
-            mockIcon.className = 'fa-solid fa-robot';
-            mockResummarizeBtn.appendChild(mockIcon);
-            const mockTextNode = { textContent: ' Resummarize' };
-            mockResummarizeBtn.appendChild(mockTextNode);
-
-            const mockTextarea = createMockElement('img-prompt-editor');
-            mockTextarea.value = "original prompt";
+            const { mockButton: mockResummarizeBtn } = setupErrorDialog(
+                errorDialog,
+                'btn-prompt-resummarize',
+                'fa-solid fa-robot',
+                ' Resummarize'
+            );
 
             errorDialog.domElements.promptResummarizeBtn = mockResummarizeBtn;
-            errorDialog.domElements.promptTextarea = mockTextarea;
-            errorDialog.editedPrompt = "original prompt";
-            errorDialog.isResummarizing = false;
-
             errorDialog._attachListeners();
 
             let errorCaught = false;
@@ -448,7 +440,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             }
 
             expect(errorDialog.isResummarizing).toBe(false);
-            expect(errorCaught).toBe(false); // Error caught at DOM boundary, not rethrown
+            expect(errorCaught).toBe(false);
             expect(console.error).toHaveBeenCalledWith(
                 "[ImageSelectionDialog]",
                 expect.stringContaining("Resummarize failed:"),

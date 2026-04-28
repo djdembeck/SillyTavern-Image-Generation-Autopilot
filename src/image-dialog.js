@@ -1,4 +1,5 @@
 import { ParallelGenerator } from './parallel-generator.js';
+import { getSillyTavernContext } from './summarizer.js';
 
 const MODULE_NAME = 'ImageSelectionDialog';
 
@@ -60,6 +61,7 @@ export class ImageSelectionDialog {
         this.currentCount = 0;
         this.onResummarize = dependencies.onResummarize || null;
         this.isResummarizing = false;
+        this.isRewriting = false;
         this.lastResummarizeTime = 0;
         this.isLightboxTransitioning = false;
     }
@@ -1136,11 +1138,7 @@ export class ImageSelectionDialog {
 
     _emitStopGeneration() {
         if (typeof window === 'undefined') return;
-        const ctx = (typeof SillyTavern !== 'undefined' && typeof SillyTavern.getContext === 'function')
-            ? SillyTavern.getContext()
-            : (window.SillyTavern && typeof window.SillyTavern.getContext === 'function')
-                ? window.SillyTavern.getContext()
-                : null;
+        const ctx = getSillyTavernContext();
         if (ctx?.eventSource && typeof ctx.eventSource.emit === 'function') {
             ctx.eventSource.emit('sd_stop_generation');
         }
@@ -1233,7 +1231,7 @@ export class ImageSelectionDialog {
         }
     }
 
-    async _handleResummarize({ btn, iconClass, busyText, logLabel, debounce }) {
+    async _handleResummarize({ btn, iconClass, busyText, logLabel, debounce, isBusyFlag }) {
         if (debounce > 0) {
             const now = Date.now();
             if (now - this.lastResummarizeTime < debounce) {
@@ -1244,24 +1242,25 @@ export class ImageSelectionDialog {
             }
         }
 
+        const isBusy = this[isBusyFlag];
         if (isDebugMode()) {
             logger.debug(`${logLabel} button clicked`, {
                 hasOnResummarize: !!this.onResummarize,
-                isResummarizing: this.isResummarizing,
+                isBusy,
                 prompt: this.editedPrompt,
                 ...(debounce > 0 ? { timeSinceLastCall: Date.now() - this.lastResummarizeTime } : {})
             });
         } else {
             logger.info(`${logLabel} button clicked`, {
                 hasOnResummarize: !!this.onResummarize,
-                isResummarizing: this.isResummarizing,
+                isBusy,
                 ...(debounce > 0 ? { timeSinceLastCall: Date.now() - this.lastResummarizeTime } : {})
             });
         }
 
-        if (!this.onResummarize || this.isResummarizing) {
+        if (!this.onResummarize || isBusy) {
             logger.warn(`${logLabel} aborted`, {
-                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already resummarizing'
+                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already busy'
             });
             return;
         }
@@ -1270,7 +1269,7 @@ export class ImageSelectionDialog {
         const originalText = btn.lastChild.textContent;
 
         try {
-            this.isResummarizing = true;
+            this[isBusyFlag] = true;
             if (debounce > 0) {
                 this.lastResummarizeTime = Date.now();
             }
@@ -1300,7 +1299,7 @@ export class ImageSelectionDialog {
             logger.error(`${logLabel} failed:`, error);
             throw error;
         } finally {
-            this.isResummarizing = false;
+            this[isBusyFlag] = false;
             btn.disabled = false;
             if (icon) {
                 icon.className = iconClass;
@@ -1316,6 +1315,7 @@ export class ImageSelectionDialog {
             busyText: ' Rewriting...',
             logLabel: 'Rewrite',
             debounce: 0,
+            isBusyFlag: 'isRewriting',
         });
     }
 
@@ -1326,6 +1326,7 @@ export class ImageSelectionDialog {
             busyText: ' Resummarizing...',
             logLabel: 'Resummarize',
             debounce: 1000,
+            isBusyFlag: 'isResummarizing',
         });
     }
 }
