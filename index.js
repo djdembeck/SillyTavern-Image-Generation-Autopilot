@@ -3413,6 +3413,99 @@ function normalizeRewriteResponse(result) {
 }
 
 
+const QWEN2_CHARS_PER_TOKEN = 3.35
+const QWEN2_TOKENIZER_ENDPOINT = '/api/tokenizers/qwen2/encode'
+const TOKEN_TRUNCATION_CUT_RATIO = 0.1
+
+async function countQwen2Tokens(text) {
+    const response = await fetch(QWEN2_TOKENIZER_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+    })
+    if (!response.ok) {
+        throw new Error(`Tokenizer request failed: ${response.status} ${response.statusText}`)
+    }
+    const data = await response.json()
+    if (typeof data.count !== 'number') {
+        throw new Error(`Tokenizer returned unexpected response: missing count field`)
+    }
+    return data.count
+}
+
+function estimateQwen2Tokens(text) {
+    return Math.ceil(text.length / QWEN2_CHARS_PER_TOKEN)
+}
+
+async function truncateToTokenLimit(text, tokenLimit, knownCount) {
+    if (knownCount && knownCount > tokenLimit) {
+        const targetRatio = tokenLimit / knownCount
+        const targetCharLength = Math.floor(text.length * targetRatio)
+        const tailEstimate = text.substring(text.length - targetCharLength)
+        try {
+            const tailCount = await countQwen2Tokens(tailEstimate)
+            if (tailCount <= tokenLimit) return tailEstimate
+        } catch (_err) {
+            if (estimateQwen2Tokens(tailEstimate) <= tokenLimit) return tailEstimate
+        }
+    } else if (knownCount && knownCount <= tokenLimit) {
+        return text
+    }
+
+    let truncated = text
+    while (truncated.length > 0) {
+        try {
+            const count = await countQwen2Tokens(truncated)
+            if (count <= tokenLimit) return truncated
+        } catch (_err) {
+            if (estimateQwen2Tokens(truncated) <= tokenLimit) return truncated
+        }
+        const cutSize = Math.max(1, Math.floor(truncated.length * TOKEN_TRUNCATION_CUT_RATIO))
+        truncated = truncated.substring(cutSize)
+    }
+    return truncated
+}
+
+async function enforcePromptLength(prompt, lengthLimit, lengthLimitType) {
+    if (!prompt || lengthLimitType === 'none' || !lengthLimit || lengthLimit <= 0) {
+        return prompt
+    }
+
+    if (lengthLimitType === 'characters') {
+        if (prompt.length <= lengthLimit) {
+            log('Prompt length OK (characters)', { charCount: prompt.length, limit: lengthLimit })
+            return prompt
+        }
+
+        const truncated = prompt.substring(prompt.length - lengthLimit)
+        logger.warn(`[ImageAutopilot] Prompt truncated: ${prompt.length} chars → ${lengthLimit} chars (kept end)`)
+        showToastr('warning', `Prompt truncated from ${prompt.length} to ${lengthLimit} characters`, 'Prompt Length Exceeded')
+        return truncated
+    }
+
+    if (lengthLimitType === 'tokens') {
+        let tokenCount
+        try {
+            tokenCount = await countQwen2Tokens(prompt)
+        } catch (err) {
+            logger.warn('[ImageAutopilot] Qwen2 tokenization failed, falling back to estimate', err)
+            tokenCount = estimateQwen2Tokens(prompt)
+        }
+
+        if (tokenCount <= lengthLimit) {
+            log('Prompt length OK (tokens)', { tokenCount, limit: lengthLimit })
+            return prompt
+        }
+
+        const truncated = await truncateToTokenLimit(prompt, lengthLimit, tokenCount)
+        logger.warn(`[ImageAutopilot] Prompt truncated: ${tokenCount} tokens over limit ${lengthLimit}, cut to ${truncated.length} chars (kept end)`)
+        showToastr('warning', `Prompt truncated to ${lengthLimit} tokens (was over limit)`, 'Prompt Length Exceeded')
+        return truncated
+    }
+
+    return prompt
+}
+
 async function generateSummarizedPrompt(messageId) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
@@ -3536,14 +3629,20 @@ async function handleIncomingMessage(messageId) {
                 : message.mes,
     })
 
-    const summarizedPrompt = await generateSummarizedPrompt(resolvedId)
-    if (!summarizedPrompt) {
+    const rawPrompt = await generateSummarizedPrompt(resolvedId)
+    if (!rawPrompt) {
         return
     }
 
+    const promptInjectionSettings = autoSettings?.promptInjection || {}
+    const prompt = await enforcePromptLength(
+        rawPrompt.trim(),
+        promptInjectionSettings.lengthLimit,
+        promptInjectionSettings.lengthLimitType,
+    )
+
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
-    const prompt = summarizedPrompt.trim()
     for (let i = 0; i < swipesPerImage; i += 1) {
         expandedPrompts.push(prompt)
     }
@@ -4172,11 +4271,18 @@ async function queueAutoFill(messageId, button, options = {}) {
     state.runningMessages.set(messageId, true)
 
     try {
-        const summarizedPrompt = await generateSummarizedPrompt(messageId)
-        if (!summarizedPrompt) {
+        const rawPrompt = await generateSummarizedPrompt(messageId)
+        if (!rawPrompt) {
             logger.warn('Auto-fill failed: could not generate prompt')
             return
         }
+
+        const promptInjectionSettings = autoSettings?.promptInjection || {}
+        const summarizedPrompt = await enforcePromptLength(
+            rawPrompt.trim(),
+            promptInjectionSettings.lengthLimit,
+            promptInjectionSettings.lengthLimitType,
+        )
 
         log('Generated summarized prompt', {
             promptLength: summarizedPrompt.length,
