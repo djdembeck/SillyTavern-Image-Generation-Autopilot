@@ -8,8 +8,8 @@ const mockChatCompletion = async (messages, options) => {
             message: {
                 content: `Characters:
   Shared: slender build
-  - a female: red hair, green eyes
-  - a female: dark hair, blue eyes
+  - character: red hair, green eyes
+  - character: dark hair, blue eyes
 
 Scene:
 A mysterious forest with ancient trees.`
