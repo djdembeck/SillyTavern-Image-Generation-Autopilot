@@ -2003,6 +2003,8 @@ async function buildSettingsPanel() {
         promptMainInput,
         promptPositiveInput,
         promptNegativeInput,
+        promptLengthLimitTypeInput,
+        promptLengthLimitInput,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -2180,6 +2182,20 @@ async function buildSettingsPanel() {
         const current = getSettings()
         current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
         debouncedSaveSettings()
+    })
+
+    promptLengthLimitTypeInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.lengthLimitType = promptLengthLimitTypeInput.value
+        saveSettings()
+    })
+
+    promptLengthLimitInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(0, Math.min(8000, parseInt(promptLengthLimitInput.value, 10) || 0))
+        current.autoGeneration.promptInjection.lengthLimit = value
+        promptLengthLimitInput.value = String(value)
+        saveSettings()
     })
 
     addModelButton?.addEventListener('click', (event) => {
@@ -2759,6 +2775,14 @@ function syncUiFromSettings() {
     if (state.ui.promptNegativeInput) {
         state.ui.promptNegativeInput.value =
             settings.autoGeneration.promptInjection.instructionsNegative
+    }
+    if (state.ui.promptLengthLimitTypeInput) {
+        state.ui.promptLengthLimitTypeInput.value =
+            settings.autoGeneration.promptInjection.lengthLimitType || 'none'
+    }
+    if (state.ui.promptLengthLimitInput) {
+        const limitValue = Math.max(0, Math.min(8000, settings.autoGeneration.promptInjection.lengthLimit || 0))
+        state.ui.promptLengthLimitInput.value = String(limitValue)
     }
 
     const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0

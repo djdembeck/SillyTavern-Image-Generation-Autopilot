@@ -210,6 +210,30 @@
                             ></textarea>
                         </label>
                     </div>
+                    <div class="auto-multi-grid">
+                        <label title="Method used to enforce the maximum length of the generated prompt. None = no limit, Characters = character count, Tokens = Qwen2 token count.">
+                            <span>Prompt length limit type</span>
+                            <select
+                                id="auto_multi_prompt_length_limit_type"
+                                class="text_pole"
+                            >
+                                <option value="none">None</option>
+                                <option value="characters">Characters</option>
+                                <option value="tokens">Tokens</option>
+                            </select>
+                        </label>
+                        <label title="Maximum prompt length. Only used when length limit type is set to Characters or Tokens. Set to 0 to disable.">
+                            <span>Prompt length limit</span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="8000"
+                                step="50"
+                                id="auto_multi_prompt_length_limit"
+                                class="text_pole"
+                            />
+                        </label>
+                    </div>
                 </div>
 
             </section>
