@@ -459,7 +459,7 @@ function ensureSettings() {
             const hasLegacyData = legacyPresets && Object.keys(legacyPresets).length > 0
 
             if (hasLegacyData) {
-                extensionSettings[PRESET_STORAGE_KEY + '_legacy_backup'] = legacyPresets
+                extensionSettings[PRESET_STORAGE_KEY + '_legacy_backup'] = JSON.parse(JSON.stringify(legacyPresets))
                 logger.info('Backed up legacy presets before V2 migration')
             }
 
@@ -1611,6 +1611,9 @@ function handleSavePreset() {
         logger.info('Preset saved', { id, name })
     }
 
+    state.ui.activePresetOriginalName = name
+    state.ui.presetNameDirty = false
+
     updateSaveButtonState()
     renderPresets()
 }
@@ -1622,7 +1625,9 @@ function handleLoadPreset(id) {
         const preset = getPreset(id)
         if (preset && state.ui.presetNameInput) {
             state.ui.presetNameInput.value = preset.name
+            state.ui.activePresetOriginalName = preset.name
         }
+        state.ui.presetNameDirty = false
         updateSaveButtonState()
         renderPresets()
         logger.info('Preset loaded', { id })
@@ -2238,7 +2243,9 @@ async function buildSettingsPanel() {
         }
     })
     presetNameInput?.addEventListener('input', () => {
-        state.ui.activePresetId = null
+        const currentName = state.ui.presetNameInput.value
+        const originalName = state.ui.activePresetOriginalName
+        state.ui.presetNameDirty = currentName !== originalName
         updateSaveButtonState()
     })
 
@@ -4547,6 +4554,19 @@ export function validatePresetJSON(data) {
         }
     }
 
+    for (let i = 0; i < data.settings.modelQueue.length; i++) {
+        const item = data.settings.modelQueue[i]
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            return { valid: false, error: `modelQueue item ${i} must be an object` }
+        }
+        if (!('model' in item)) {
+            return { valid: false, error: `modelQueue item ${i} missing required 'model' field` }
+        }
+        if (typeof item.model !== 'string') {
+            return { valid: false, error: `modelQueue item ${i} 'model' field must be a string` }
+        }
+    }
+
     if (typeof data.settings.perCharacter !== 'object' || data.settings.perCharacter === null || Array.isArray(data.settings.perCharacter)) {
         return { valid: false, error: 'settings field perCharacter must be an object' }
     }
@@ -4555,6 +4575,16 @@ export function validatePresetJSON(data) {
     }
     if (typeof data.settings.perCharacter.enabled !== 'boolean') {
         return { valid: false, error: 'settings field perCharacter.enabled must be boolean' }
+    }
+    if ('fields' in data.settings.perCharacter) {
+        if (typeof data.settings.perCharacter.fields !== 'object' || data.settings.perCharacter.fields === null || Array.isArray(data.settings.perCharacter.fields)) {
+            return { valid: false, error: 'settings field perCharacter.fields must be an object' }
+        }
+    }
+    if ('globalDefaults' in data.settings.perCharacter) {
+        if (typeof data.settings.perCharacter.globalDefaults !== 'object' || data.settings.perCharacter.globalDefaults === null || Array.isArray(data.settings.perCharacter.globalDefaults)) {
+            return { valid: false, error: 'settings field perCharacter.globalDefaults must be an object' }
+        }
     }
 
     if (typeof data.settings.autoGeneration !== 'object' || data.settings.autoGeneration === null || Array.isArray(data.settings.autoGeneration)) {
@@ -4565,6 +4595,11 @@ export function validatePresetJSON(data) {
     }
     if (typeof data.settings.autoGeneration.enabled !== 'boolean') {
         return { valid: false, error: 'settings field autoGeneration.enabled must be boolean' }
+    }
+    if ('promptRewrite' in data.settings.autoGeneration) {
+        if (typeof data.settings.autoGeneration.promptRewrite !== 'object' || data.settings.autoGeneration.promptRewrite === null || Array.isArray(data.settings.autoGeneration.promptRewrite)) {
+            return { valid: false, error: 'settings field autoGeneration.promptRewrite must be an object' }
+        }
     }
 
     if (!('createdAt' in data)) {
@@ -4624,7 +4659,8 @@ export function handleExportPreset(id) {
 
     const a = document.createElement('a')
     a.href = url
-    a.download = `${sanitized}.json`
+    const basename = sanitized || 'preset'
+    a.download = `${basename}.json`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
