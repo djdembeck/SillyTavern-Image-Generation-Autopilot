@@ -1944,6 +1944,12 @@ async function buildSettingsPanel() {
     const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_negative')
     )
+    const promptLengthLimitTypeInput = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_length_limit_type')
+    )
+    const promptLengthLimitInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_length_limit')
+    )
 
     if (
         !(
