@@ -3438,11 +3438,14 @@ async function countQwen2Tokens(text) {
     if (typeof data.count !== 'number') {
         throw new Error(`Tokenizer returned unexpected response: missing count field`)
     }
+    log('Token count (Qwen2 API)', { count: data.count, charLength: text.length })
     return data.count
 }
 
 function estimateQwen2Tokens(text) {
-    return Math.ceil(text.length / QWEN2_CHARS_PER_TOKEN)
+    const count = Math.ceil(text.length / QWEN2_CHARS_PER_TOKEN)
+    log('Token count (estimate)', { count, charLength: text.length, charsPerToken: QWEN2_CHARS_PER_TOKEN })
+    return count
 }
 
 async function truncateToTokenLimit(text, tokenLimit, knownCount) {
@@ -3452,6 +3455,7 @@ async function truncateToTokenLimit(text, tokenLimit, knownCount) {
         const tailEstimate = text.substring(text.length - targetCharLength)
         try {
             const tailCount = await countQwen2Tokens(tailEstimate)
+            log('Truncate: tail token count', { tailCount, tokenLimit, tailCharLength: tailEstimate.length })
             if (tailCount <= tokenLimit) return tailEstimate
         } catch (_err) {
             if (estimateQwen2Tokens(tailEstimate) <= tokenLimit) return tailEstimate
@@ -3464,6 +3468,7 @@ async function truncateToTokenLimit(text, tokenLimit, knownCount) {
     while (truncated.length > 0) {
         try {
             const count = await countQwen2Tokens(truncated)
+            log('Truncate: iteration token count', { count, tokenLimit, charLength: truncated.length })
             if (count <= tokenLimit) return truncated
         } catch (_err) {
             if (estimateQwen2Tokens(truncated) <= tokenLimit) return truncated
