@@ -4566,11 +4566,11 @@ export function validatePresetJSON(data) {
         if (!item || !isPlainObject(item)) {
             return { valid: false, error: `modelQueue item ${i} must be an object` }
         }
-        if (!('model' in item)) {
-            return { valid: false, error: `modelQueue item ${i} missing required 'model' field` }
+        if (!('id' in item)) {
+            return { valid: false, error: `modelQueue item ${i} missing required 'id' field` }
         }
-        if (typeof item.model !== 'string') {
-            return { valid: false, error: `modelQueue item ${i} 'model' field must be a string` }
+        if (typeof item.id !== 'string') {
+            return { valid: false, error: `modelQueue item ${i} 'id' field must be a string` }
         }
     }
 

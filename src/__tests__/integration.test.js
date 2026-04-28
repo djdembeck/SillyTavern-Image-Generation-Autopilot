@@ -170,6 +170,11 @@ describe('full flow integration', () => {
     })
 
     it('runs auto-generate flow from incoming message through image insertion', async () => {
+        const userMessage = {
+            is_user: true,
+            mes: 'User says hello.',
+            name: 'User',
+        }
         const message = {
             is_user: false,
             mes: 'Alice steps into the forest clearing.',
@@ -181,7 +186,7 @@ describe('full flow integration', () => {
         }
         const messageElement = createMockElement('message-element')
         const context = {
-            chat: [message],
+            chat: [userMessage, message],
             name1: 'User',
             saveChat: mock(async () => {}),
             reloadCurrentChat: mock(async () => {}),
@@ -275,7 +280,7 @@ describe('full flow integration', () => {
             },
         )
 
-        await handleIncomingMessage(0)
+        await handleIncomingMessage(1)
 
         expect(summarizeWithAI).toHaveBeenCalledTimes(1)
         expect(summarizeWithAI).toHaveBeenCalledWith(
@@ -296,7 +301,7 @@ describe('full flow integration', () => {
                 'Characters:\n- Alice\n\nScene: Misty forest clearing',
                 'Characters:\n- Alice\n\nScene: Misty forest clearing',
             ],
-            0,
+            1,
         )
         expect(appendGeneratedMedia).toHaveBeenCalledWith(message, 'image://selected-1', '', true)
         expect(message.extra.media).toEqual([{ url: 'image://selected-1' }])
@@ -306,6 +311,11 @@ describe('full flow integration', () => {
     })
 
     it('calls enforcePromptLength before opening dialog', async () => {
+        const userMessage = {
+            is_user: true,
+            mes: 'User input.',
+            name: 'User',
+        }
         const message = {
             is_user: false,
             mes: 'Test message.',
@@ -314,7 +324,7 @@ describe('full flow integration', () => {
         }
         const messageElement = createMockElement('message-element')
         const context = {
-            chat: [message],
+            chat: [userMessage, message],
             name1: 'User',
             saveChat: mock(async () => {}),
             reloadCurrentChat: mock(async () => {}),
@@ -393,7 +403,7 @@ describe('full flow integration', () => {
             },
         )
 
-        await handleIncomingMessage(0)
+        await handleIncomingMessage(1)
 
         expect(enforcePromptLengthMock).toHaveBeenCalledTimes(1)
         expect(enforcePromptLengthMock).toHaveBeenCalledWith('Summary', undefined, undefined)
@@ -585,6 +595,11 @@ describe('full flow integration', () => {
         const context = {
             chat: [
                 {
+                    is_user: true,
+                    mes: 'User says hi',
+                    name: 'User',
+                },
+                {
                     is_user: false,
                     mes: 'A broken message',
                     name: 'Alice',
@@ -643,7 +658,7 @@ describe('full flow integration', () => {
             },
         )
 
-        await handleIncomingMessage(0)
+        await handleIncomingMessage(1)
 
         expect(summarizeWithAI).toHaveBeenCalledTimes(1)
         expect(globalThis.window.toastr.error).toHaveBeenCalledWith(
