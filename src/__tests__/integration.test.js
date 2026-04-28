@@ -3,26 +3,68 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { ImageSelectionDialog } from '../image-dialog.js'
 
+/** Strips <pic> tags from content. Uses [\s\S]*? instead of .*? because
+ *  JS dot (.) does not match newlines, and prompt attributes can span lines. */
+const stripPicTags = (content) => {
+    if (typeof content !== 'string') return content
+    return content.replace(/<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi, '').replace(/<\/pic>/gi, '').trim()
+}
+
 const indexSource = readFileSync(resolve(import.meta.dir, '../../index.js'), 'utf8')
 
-function extractFunctionSource(functionName, nextFunctionName) {
-    const pattern = new RegExp(
-        `async function ${functionName}\\([^)]*\\) {([\\s\\S]*?)}\\s*${nextFunctionName ? `(?:async )?function ${nextFunctionName}\\(` : ''}`,
-    )
-    const match = indexSource.match(pattern)
-    if (!match) {
+function extractFunctionSource(functionName) {
+    const startPattern = new RegExp(`(async function|function) ${functionName}\\([^)]*\\) \\{`)
+    const startMatch = indexSource.match(startPattern)
+    if (!startMatch) {
         throw new Error(`Could not locate ${functionName}() in index.js`)
     }
 
-    return nextFunctionName
-        ? match[0].replace(new RegExp(`\\s*(?:async )?function ${nextFunctionName}\\($`), '')
-        : match[0]
+    const startIndex = startMatch.index
+    let braceCount = 1
+    let endIndex = startIndex + startMatch[0].length
+
+    while (braceCount > 0 && endIndex < indexSource.length) {
+        if (indexSource[endIndex] === '{') braceCount++
+        else if (indexSource[endIndex] === '}') braceCount--
+        endIndex++
+    }
+
+    if (braceCount !== 0) {
+        throw new Error(`Could not find matching braces for ${functionName}()`)
+    }
+
+    return indexSource.slice(startIndex, endIndex)
 }
 
 function buildIndexFunction(source, functionName, dependencies) {
     const names = Object.keys(dependencies)
     const values = Object.values(dependencies)
     return new Function(...names, `${source}; return ${functionName};`)(...values)
+}
+
+function buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI) {
+    const showToastr = (level, message, title) => {
+        if (typeof window !== 'undefined' && typeof window.toastr === 'object' && typeof window.toastr[level] === 'function') {
+            window.toastr[level](message, title)
+        }
+    }
+    return buildIndexFunction(
+        generateSummarizedPromptSource,
+        'generateSummarizedPrompt',
+        {
+            getSettings,
+            getCtx,
+            summarizeWithAI,
+            log: mock(),
+            withConnectionProfile: (profileName, fn) => fn(),
+            logger: {
+                error: mock(),
+                warn: mock(),
+            },
+            stripPicTags,
+            showToastr,
+        },
+    )
 }
 
 function createMockElement(id = '') {
@@ -111,11 +153,12 @@ function setupDialogGlobals() {
 
 const handleIncomingMessageSource = extractFunctionSource(
     'handleIncomingMessage',
-    'handleManualPromptRewrite',
 )
 const handleDialogResultSource = extractFunctionSource(
     'handleDialogResult',
-    'normalizeRewriteResponse',
+)
+const generateSummarizedPromptSource = extractFunctionSource(
+    'generateSummarizedPrompt',
 )
 
 describe('full flow integration', () => {
@@ -197,12 +240,13 @@ describe('full flow integration', () => {
             },
         )
 
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
+
         const handleIncomingMessage = buildIndexFunction(
             handleIncomingMessageSource,
             'handleIncomingMessage',
             {
                 state: {
-                    isRewriting: false,
                     chatToken: 1,
                     autoGenMessages: new Set(),
                 },
@@ -214,6 +258,7 @@ describe('full flow integration', () => {
                 },
                 getCtx,
                 summarizeWithAI,
+                generateSummarizedPrompt,
                 getSwipeTotal: mock(() => 2),
                 openImageSelectionDialog,
                 handleDialogResult,
@@ -222,6 +267,7 @@ describe('full flow integration', () => {
                     warn: mock(),
                 },
                 window: globalThis.window,
+                stripPicTags,
             },
         )
 
@@ -230,13 +276,13 @@ describe('full flow integration', () => {
         expect(summarizeWithAI).toHaveBeenCalledTimes(1)
         expect(summarizeWithAI).toHaveBeenCalledWith(
             expect.objectContaining({
-                messages: [
-                    {
+                messages: expect.arrayContaining([
+                    expect.objectContaining({
                         role: 'assistant',
                         content: 'Alice steps into the forest clearing.',
-                    },
-                ],
-                messageDepth: 1,
+                    }),
+                ]),
+                messageDepth: expect.any(Number),
                 charName: 'Alice',
                 userName: 'User',
             }),
@@ -324,6 +370,78 @@ describe('full flow integration', () => {
         expect(onResummarize).not.toHaveBeenCalled()
     })
 
+    it('excludes future messages from summarization context', async () => {
+        const messages = [
+            { is_user: false, mes: 'First message from Alice.', name: 'Alice' },
+            { is_user: true, mes: 'User response here.', name: 'User' },
+            { is_user: false, mes: 'Second message from Alice.', name: 'Alice' },
+        ]
+        const context = {
+            chat: messages,
+            name1: 'User',
+            saveChat: mock(async () => {}),
+            reloadCurrentChat: mock(async () => {}),
+        }
+        const settings = {
+            concurrency: 2,
+            autoGeneration: {
+                enabled: true,
+                insertType: 'inline',
+                summarizer: {
+                    messageDepth: 3,
+                    systemPromptTemplate: 'template',
+                },
+            },
+        }
+
+        const getCtx = mock(() => context)
+        const getSettings = mock(() => settings)
+        const summarizeWithAI = mock(async () => 'Characters:\n- Alice\n\nScene: Forest')
+        const openImageSelectionDialog = mock(async () => null)
+        const handleDialogResult = mock(async () => {})
+
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
+
+        const handleIncomingMessage = buildIndexFunction(
+            handleIncomingMessageSource,
+            'handleIncomingMessage',
+            {
+                state: {
+                    chatToken: 1,
+                    autoGenMessages: new Set(),
+                },
+                log: mock(),
+                getSettings,
+                sleep: mock(async () => {}),
+                INSERT_TYPE: {
+                    DISABLED: 'disabled',
+                },
+                getCtx,
+                summarizeWithAI,
+                generateSummarizedPrompt,
+                getSwipeTotal: mock(() => 2),
+                openImageSelectionDialog,
+                handleDialogResult,
+                logger: {
+                    error: mock(),
+                    warn: mock(),
+                },
+                window: globalThis.window,
+                stripPicTags,
+            },
+        )
+
+        await handleIncomingMessage(0)
+
+        expect(summarizeWithAI).toHaveBeenCalledTimes(1)
+        const callArgs = summarizeWithAI.mock.calls[0][0]
+        const calledMessages = callArgs.messages
+
+        expect(calledMessages.some(m => m.content.includes('First message'))).toBe(true)
+        expect(calledMessages.some(m => m.content.includes('User response'))).toBe(false)
+        expect(calledMessages.some(m => m.content.includes('Second message'))).toBe(false)
+    })
+
     it('rewrites the prompt by triggering a fresh summarization', async () => {
         const onResummarize = mock(async () => 'Characters:\n- Alice\n\nScene: Rewritten prompt')
         const dialog = new ImageSelectionDialog({
@@ -393,12 +511,13 @@ describe('full flow integration', () => {
             throw new Error('Summarizer offline')
         })
 
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
+
         const handleIncomingMessage = buildIndexFunction(
             handleIncomingMessageSource,
             'handleIncomingMessage',
             {
                 state: {
-                    isRewriting: false,
                     chatToken: 1,
                     autoGenMessages: new Set(),
                 },
@@ -410,6 +529,7 @@ describe('full flow integration', () => {
                 },
                 getCtx,
                 summarizeWithAI,
+                generateSummarizedPrompt,
                 getSwipeTotal: mock(() => 1),
                 openImageSelectionDialog,
                 handleDialogResult,
@@ -418,6 +538,7 @@ describe('full flow integration', () => {
                     warn: mock(),
                 },
                 window: globalThis.window,
+                stripPicTags,
             },
         )
 

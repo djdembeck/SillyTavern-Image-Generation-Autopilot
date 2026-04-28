@@ -117,6 +117,7 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
         dialog = new ImageSelectionDialog(() => mockGenerator);
 
         global.document.querySelector.mockClear();
+        console.error = mock(() => {});
     });
 
     describe("Resummarize button", () => {
@@ -200,40 +201,130 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
 
     describe("Rewrite Prompt - fresh summarization", () => {
         it("should trigger fresh summarization when Rewrite Prompt is clicked", async () => {
-            const onRewriteMock = mock(() => Promise.resolve("freshly rewritten prompt"));
-            
+            const onResummarizeMock = mock(() => Promise.resolve("freshly summarized prompt"));
+
             const rewriteDialog = new ImageSelectionDialog({
                 generatorFactory: () => mockGenerator,
-                onRewrite: onRewriteMock
+                onResummarize: onResummarizeMock
             });
-            
+
             rewriteDialog.show(["test prompt"], {});
-            
+
             const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
             const mockRewriteIcon = createMockElement('i');
             mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
             mockRewriteBtn.appendChild(mockRewriteIcon);
             const mockRewriteTextNode = { textContent: ' Rewrite Prompt' };
             mockRewriteBtn.appendChild(mockRewriteTextNode);
-            
+
             const mockTextarea = createMockElement('img-prompt-editor');
             const mockApplyBtn = createMockElement('btn-prompt-apply');
-            
+
             mockTextarea.value = "original prompt";
-            
+
             rewriteDialog.domElements.promptRewriteBtn = mockRewriteBtn;
             rewriteDialog.domElements.promptTextarea = mockTextarea;
             rewriteDialog.domElements.promptApplyBtn = mockApplyBtn;
             rewriteDialog.editedPrompt = "original prompt";
-            
+
             rewriteDialog._attachListeners();
-            
+
             if (mockRewriteBtn.listeners && mockRewriteBtn.listeners.click) {
                 await mockRewriteBtn.listeners.click();
             }
-            
-            expect(onRewriteMock).toHaveBeenCalled();
-            expect(onRewriteMock).toHaveBeenCalledWith("original prompt");
+
+            expect(onResummarizeMock).toHaveBeenCalled();
+            expect(onResummarizeMock).toHaveBeenCalledWith("original prompt");
+        });
+
+        it("should catch errors from _handlePromptRewrite at DOM boundary and log them", async () => {
+            const onResummarizeMock = mock(() => Promise.reject(new Error("API rate limit exceeded")));
+
+            const errorDialog = new ImageSelectionDialog({
+                generatorFactory: () => mockGenerator,
+                onResummarize: onResummarizeMock
+            });
+
+            errorDialog.show(["test prompt"], {});
+
+            const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
+            const mockRewriteIcon = createMockElement('i');
+            mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
+            mockRewriteBtn.appendChild(mockRewriteIcon);
+            const mockTextNode = { textContent: ' Rewrite Prompt' };
+            mockRewriteBtn.appendChild(mockTextNode);
+
+            const mockTextarea = createMockElement('img-prompt-editor');
+            mockTextarea.value = "original prompt";
+
+            errorDialog.domElements.promptRewriteBtn = mockRewriteBtn;
+            errorDialog.domElements.promptTextarea = mockTextarea;
+            errorDialog.editedPrompt = "original prompt";
+
+            errorDialog._attachListeners();
+
+            let thrownError = null;
+            if (mockRewriteBtn.listeners && mockRewriteBtn.listeners.click) {
+                try {
+                    await mockRewriteBtn.listeners.click();
+                } catch (error) {
+                    thrownError = error;
+                }
+            }
+
+            expect(onResummarizeMock).toHaveBeenCalled();
+            expect(errorDialog.isResummarizing).toBe(false);
+            expect(thrownError).toBeNull(); // Error caught at DOM boundary
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Prompt rewrite failed:"),
+                expect.any(Error)
+            );
+        });
+
+        it("should preserve editedPrompt and log error when rewrite fails at DOM boundary", async () => {
+            const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
+
+            const errorDialog = new ImageSelectionDialog({
+                generatorFactory: () => mockGenerator,
+                onResummarize: onResummarizeMock
+            });
+
+            errorDialog.show(["test prompt"], {});
+
+            const mockRewriteBtn = createMockElement('btn-prompt-rewrite');
+            const mockRewriteIcon = createMockElement('i');
+            mockRewriteIcon.className = 'fa-solid fa-wand-magic-sparkles';
+            mockRewriteBtn.appendChild(mockRewriteIcon);
+            const mockTextNode = { textContent: ' Rewrite Prompt' };
+            mockRewriteBtn.appendChild(mockTextNode);
+
+            const mockTextarea = createMockElement('img-prompt-editor');
+            mockTextarea.value = "original prompt";
+
+            errorDialog.domElements.promptRewriteBtn = mockRewriteBtn;
+            errorDialog.domElements.promptTextarea = mockTextarea;
+            errorDialog.editedPrompt = "original prompt";
+
+            errorDialog._attachListeners();
+
+            let errorCaught = false;
+            try {
+                if (mockRewriteBtn.listeners && mockRewriteBtn.listeners.click) {
+                    await mockRewriteBtn.listeners.click();
+                }
+            } catch (error) {
+                errorCaught = true;
+            }
+
+            expect(onResummarizeMock).toHaveBeenCalled();
+            expect(errorDialog.editedPrompt).toBe("original prompt");
+            expect(errorCaught).toBe(false); // Error caught at DOM boundary, not rethrown
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Prompt rewrite failed:"),
+                expect.any(Error)
+            );
         });
     });
 
@@ -271,6 +362,98 @@ describe("ImageSelectionDialog - Dialog Modifications", () => {
             }
             
             expect(onResummarizeMock).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe("Error handling for resummarize", () => {
+        it("should catch onResummarize errors at DOM boundary and log them", async () => {
+            const onResummarizeMock = mock(() => Promise.reject(new Error("API rate limit exceeded")));
+
+            const errorDialog = new ImageSelectionDialog({
+                generatorFactory: () => mockGenerator,
+                onResummarize: onResummarizeMock
+            });
+
+            errorDialog.show(["test prompt"], {});
+
+            const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
+            const mockIcon = createMockElement('i');
+            mockIcon.className = 'fa-solid fa-robot';
+            mockResummarizeBtn.appendChild(mockIcon);
+            const mockTextNode = { textContent: ' Resummarize' };
+            mockResummarizeBtn.appendChild(mockTextNode);
+
+            const mockTextarea = createMockElement('img-prompt-editor');
+            mockTextarea.value = "original prompt";
+
+            errorDialog.domElements.promptResummarizeBtn = mockResummarizeBtn;
+            errorDialog.domElements.promptTextarea = mockTextarea;
+            errorDialog.editedPrompt = "original prompt";
+
+            errorDialog._attachListeners();
+
+            let thrownError = null;
+            try {
+                if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
+                    await mockResummarizeBtn.listeners.click();
+                }
+            } catch (error) {
+                thrownError = error;
+            }
+
+            expect(onResummarizeMock).toHaveBeenCalled();
+            expect(errorDialog.editedPrompt).toBe("original prompt");
+            expect(thrownError).toBeNull(); // Error caught at DOM boundary
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Resummarize failed:"),
+                expect.any(Error)
+            );
+        });
+
+        it("should preserve state and log error when resummarize fails at DOM boundary", async () => {
+            const onResummarizeMock = mock(() => Promise.reject(new Error("Network error")));
+
+            const errorDialog = new ImageSelectionDialog({
+                generatorFactory: () => mockGenerator,
+                onResummarize: onResummarizeMock
+            });
+
+            errorDialog.show(["test prompt"], {});
+
+            const mockResummarizeBtn = createMockElement('btn-prompt-resummarize');
+            const mockIcon = createMockElement('i');
+            mockIcon.className = 'fa-solid fa-robot';
+            mockResummarizeBtn.appendChild(mockIcon);
+            const mockTextNode = { textContent: ' Resummarize' };
+            mockResummarizeBtn.appendChild(mockTextNode);
+
+            const mockTextarea = createMockElement('img-prompt-editor');
+            mockTextarea.value = "original prompt";
+
+            errorDialog.domElements.promptResummarizeBtn = mockResummarizeBtn;
+            errorDialog.domElements.promptTextarea = mockTextarea;
+            errorDialog.editedPrompt = "original prompt";
+            errorDialog.isResummarizing = false;
+
+            errorDialog._attachListeners();
+
+            let errorCaught = false;
+            try {
+                if (mockResummarizeBtn.listeners && mockResummarizeBtn.listeners.click) {
+                    await mockResummarizeBtn.listeners.click();
+                }
+            } catch (error) {
+                errorCaught = true;
+            }
+
+            expect(errorDialog.isResummarizing).toBe(false);
+            expect(errorCaught).toBe(false); // Error caught at DOM boundary, not rethrown
+            expect(console.error).toHaveBeenCalledWith(
+                "[ImageSelectionDialog]",
+                expect.stringContaining("Resummarize failed:"),
+                expect.any(Error)
+            );
         });
     });
 });

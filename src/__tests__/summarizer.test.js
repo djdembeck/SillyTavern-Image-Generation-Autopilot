@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 
 // Mock the SillyTavern API
 const mockChatCompletion = async (messages, options) => {
@@ -69,7 +69,12 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(messagesSent).toHaveLength(1)
+            // Messages are now embedded in userPrompt, not as separate messages
+            expect(messagesSent).toHaveLength(2)  // system + user prompt
+            expect(messagesSent[0].role).toBe('system')
+            expect(messagesSent[1].role).toBe('user')
+            // Verify the last message (msg3) is in user prompt content
+            expect(messagesSent[1].content).toContain('msg3')
         })
 
         it('uses 5 messages when depth is 5', async () => {
@@ -89,7 +94,24 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(messagesSent).toHaveLength(5)
+            // Messages are now embedded in userPrompt, not as separate messages
+            expect(messagesSent).toHaveLength(2)  // system + user prompt
+            expect(messagesSent[0].role).toBe('system')
+            expect(messagesSent[1].role).toBe('user')
+            // Verify the last message (msg9) is in user prompt content
+            expect(messagesSent[1].content).toContain('msg9')  // last of 5 messages (indices 5,6,7,8,9)
+            // Verify all 5 messages (indices 5-9) are present
+            // Verify all 5 messages (indices 5-9) are present - use newline to avoid substring matches
+            expect(messagesSent[1].content).toContain('msg5\n')
+            expect(messagesSent[1].content).toContain('msg6\n')
+            expect(messagesSent[1].content).toContain('msg7\n')
+            expect(messagesSent[1].content).toContain('msg8\n')
+            // Verify older messages (indices 0-4) are NOT present
+            expect(messagesSent[1].content).not.toContain('msg0\n')
+            expect(messagesSent[1].content).not.toContain('msg1\n')
+            expect(messagesSent[1].content).not.toContain('msg2\n')
+            expect(messagesSent[1].content).not.toContain('msg3\n')
+            expect(messagesSent[1].content).not.toContain('msg4\n')
         })
 
         it('uses maximum 10 messages when depth exceeds 10', async () => {
@@ -109,7 +131,33 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(messagesSent).toHaveLength(10)
+            // Messages are now embedded in userPrompt, not as separate messages
+            expect(messagesSent).toHaveLength(2)  // system + user prompt
+            expect(messagesSent[0].role).toBe('system')
+            expect(messagesSent[1].role).toBe('user')
+            // Verify 10 messages are in user prompt content (max after normalization)
+            expect(messagesSent[1].content).toContain('msg19')  // last of 10 messages (indices 10-19)
+            // Verify all 10 messages (indices 10-19) are present - use newline to avoid substring matches
+            expect(messagesSent[1].content).toContain('msg10\n')
+            expect(messagesSent[1].content).toContain('msg11\n')
+            expect(messagesSent[1].content).toContain('msg12\n')
+            expect(messagesSent[1].content).toContain('msg13\n')
+            expect(messagesSent[1].content).toContain('msg14\n')
+            expect(messagesSent[1].content).toContain('msg15\n')
+            expect(messagesSent[1].content).toContain('msg16\n')
+            expect(messagesSent[1].content).toContain('msg17\n')
+            expect(messagesSent[1].content).toContain('msg18\n')
+            // Verify older messages (indices 0-9) are NOT present
+            expect(messagesSent[1].content).not.toContain('msg0\n')
+            expect(messagesSent[1].content).not.toContain('msg1\n')
+            expect(messagesSent[1].content).not.toContain('msg2\n')
+            expect(messagesSent[1].content).not.toContain('msg3\n')
+            expect(messagesSent[1].content).not.toContain('msg4\n')
+            expect(messagesSent[1].content).not.toContain('msg5\n')
+            expect(messagesSent[1].content).not.toContain('msg6\n')
+            expect(messagesSent[1].content).not.toContain('msg7\n')
+            expect(messagesSent[1].content).not.toContain('msg8\n')
+            expect(messagesSent[1].content).not.toContain('msg9\n')
         })
     })
 
@@ -121,29 +169,39 @@ describe('summarizeWithAI', () => {
                 throw new Error('API Error: Rate limit exceeded')
             }
             
-            const result = await summarizeWithAI({
+            await expect(summarizeWithAI({
                 messages: [],
                 messageDepth: 3,
                 callChatCompletion: failingCompletion
-            })
-            
-            expect(result).toContain('Error')
+            })).rejects.toThrow('Image summarization failed')
         })
 
-        it('returns error message when API returns invalid response', async () => {
+        it('throws error when API returns invalid response', async () => {
             const { summarizeWithAI } = await import('../summarizer.js')
             
             const invalidCompletion = async () => ({
                 choices: []
             })
             
-            const result = await summarizeWithAI({
+            await expect(summarizeWithAI({
                 messages: [],
                 messageDepth: 3,
                 callChatCompletion: invalidCompletion
+            })).rejects.toThrow('Image summarization failed')
+        })
+
+        it('throws error with descriptive message when AI returns empty response', async () => {
+            const { summarizeWithAI } = await import('../summarizer.js')
+            
+            const emptyCompletion = async () => ({
+                choices: [{ message: { content: '' } }]
             })
             
-            expect(result).toContain('Error')
+            await expect(summarizeWithAI({
+                messages: [],
+                messageDepth: 3,
+                callChatCompletion: emptyCompletion
+            })).rejects.toThrow('empty or invalid')
         })
     })
 
@@ -166,7 +224,7 @@ describe('summarizeWithAI', () => {
             expect(optionsUsed.temperature).toBe(0.3)
         })
 
-        it('uses max_tokens of 2500', async () => {
+        it('uses MAX_TOKENS_UNLIMITED when maxTokens is 0', async () => {
             const { summarizeWithAI } = await import('../summarizer.js')
             
             let optionsUsed = {}
@@ -181,7 +239,26 @@ describe('summarizeWithAI', () => {
                 callChatCompletion: captureCompletion
             })
             
-            expect(optionsUsed.max_tokens).toBe(2500)
+            expect(optionsUsed.max_tokens).toBe(8000)
+        })
+
+        it('uses headroom multiplier when maxTokens is set', async () => {
+            const { summarizeWithAI } = await import('../summarizer.js')
+            
+            let optionsUsed = {}
+            const captureCompletion = async (messages, options) => {
+                optionsUsed = options
+                return mockChatCompletion(messages, options)
+            }
+            
+            await summarizeWithAI({
+                messages: [],
+                messageDepth: 3,
+                maxTokens: 500,
+                callChatCompletion: captureCompletion
+            })
+            
+            expect(optionsUsed.max_tokens).toBe(750)
         })
     })
 
@@ -211,21 +288,240 @@ describe('summarizeWithAI', () => {
         })
     })
 
-    describe('character description (placeholder for Task 8)', () => {
-        it('includes character descriptions when provided', async () => {
+    describe('character description integration', () => {
+        let originalSillyTavern
+
+        beforeEach(() => {
+            originalSillyTavern = globalThis.SillyTavern
+        })
+
+        afterEach(() => {
+            if (originalSillyTavern === undefined) {
+                delete globalThis.SillyTavern
+            } else {
+                globalThis.SillyTavern = originalSillyTavern
+            }
+        })
+
+        it('includes character description in system prompt when character exists', async () => {
             const { summarizeWithAI } = await import('../summarizer.js')
             
-            // This test is a placeholder - will be implemented in Task 8
-            const result = await summarizeWithAI({
+            let systemMessageContent = ''
+            const captureCompletion = async (messages, options) => {
+                // Capture the system message content instead of options.systemPrompt
+                const systemMessage = messages.find(m => m.role === 'system')
+                systemMessageContent = systemMessage?.content || ''
+                return mockChatCompletion(messages, options)
+            }
+            
+            globalThis.SillyTavern = {
+                getContext: () => ({
+                    characters: [
+                        {
+                            name: 'Alice',
+                            data: {
+                                name: 'Alice',
+                                description: 'A brave adventurer with red hair and green eyes'
+                            }
+                        }
+                    ]
+                })
+            }
+            
+            await summarizeWithAI({
                 messages: [],
                 messageDepth: 3,
-                callChatCompletion: mockChatCompletion,
-                characterDescriptions: {
-                    'Alice': 'A brave adventurer with red hair'
-                }
+                callChatCompletion: captureCompletion,
+                charName: 'Alice'
             })
             
-            expect(result).toContain('Alice')
+            expect(systemMessageContent).toContain('A brave adventurer with red hair and green eyes')
         })
+    })
+})
+
+describe('getCharacterDescription', () => {
+    beforeEach(() => {
+        delete globalThis.SillyTavern
+    })
+
+    it('returns empty string for null charName', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        expect(getCharacterDescription(null)).toBe('')
+    })
+
+    it('returns empty string for undefined charName', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        expect(getCharacterDescription(undefined)).toBe('')
+    })
+
+    it('returns empty string for empty string charName', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        expect(getCharacterDescription('')).toBe('')
+    })
+
+    it('returns empty string when SillyTavern context is unavailable', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        expect(getCharacterDescription('Alice')).toBe('')
+    })
+
+    it('returns empty string when characters array is empty', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({ characters: [] })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('')
+    })
+
+    it('returns description from array format characters', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: [
+                    {
+                        name: 'Alice',
+                        data: {
+                            name: 'Alice',
+                            description: 'A brave adventurer with red hair'
+                        }
+                    }
+                ]
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('A brave adventurer with red hair')
+    })
+
+    it('returns description from object format characters', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: {
+                    'Alice': {
+                        description: 'A brave adventurer with red hair'
+                    }
+                }
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('A brave adventurer with red hair')
+    })
+
+    it('handles case-insensitive lookup in object format', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: {
+                    'alice': {
+                        description: 'A brave adventurer'
+                    }
+                }
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
+    })
+
+    it('handles case-insensitive lookup in array format', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: [
+                    {
+                        name: 'alice',
+                        data: {
+                            name: 'alice',
+                            description: 'A brave adventurer'
+                        }
+                    }
+                ]
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
+    })
+
+    it('returns empty string for non-existent character', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: [
+                    {
+                        name: 'Bob',
+                        data: {
+                            name: 'Bob',
+                            description: 'A friendly companion'
+                        }
+                    }
+                ]
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('')
+    })
+
+    it('returns empty string when character has no description', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: [
+                    {
+                        name: 'Alice',
+                        data: {
+                            name: 'Alice'
+                        }
+                    }
+                ]
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('')
+    })
+
+    it('trims whitespace from description', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: [
+                    {
+                        name: 'Alice',
+                        data: {
+                            name: 'Alice',
+                            description: '  A brave adventurer  '
+                        }
+                    }
+                ]
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
+    })
+
+    it('handles character name with displayName field', async () => {
+        const { getCharacterDescription } = await import('../summarizer.js')
+        
+        globalThis.SillyTavern = {
+            getContext: () => ({
+                characters: [
+                    {
+                        data: {
+                            displayName: 'Alice',
+                            description: 'A brave adventurer'
+                        }
+                    }
+                ]
+            })
+        }
+        
+        expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
     })
 })

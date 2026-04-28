@@ -7,6 +7,26 @@ const INSERT_TYPE = Object.freeze({
     REPLACE: 'replace',
     NEW_MESSAGE: 'new',
 })
+
+// Regex to detect and capture prompt from <pic> tags (case-insensitive)
+const PIC_TAG_REGEX = /<pic[^>]*\sprompt="([\s\S]*?)"(?=\s*\/?>)/gi
+// Regex to strip <pic> tags from message content
+const STRIP_PIC_TAG_REGEX = /<pic[^>]*\sprompt="[\s\S]*?"[^>]*\/?>/gi
+const CLOSE_PIC_TAG_REGEX = /<\/pic>/gi
+
+/**
+ * Strip <pic> tags from message content so they don't influence summarization
+ * @param {string} content - The message content to clean
+ * @returns {string} The content with <pic> tags removed
+ */
+function stripPicTags(content) {
+    if (typeof content !== 'string') return content
+    return content
+        .replace(STRIP_PIC_TAG_REGEX, '')
+        .replace(CLOSE_PIC_TAG_REGEX, '')
+        .trim()
+}
+
 const defaultSettings = Object.freeze({
     enabled: true,
     debugMode: false,
@@ -29,9 +49,8 @@ const defaultSettings = Object.freeze({
             modelId: '',
         },
         promptInjection: {
-            enabled: true,
             mainPrompt:
-                'Insert <pic prompt="detailed scene description"> tags at the end of each reply.',
+                'Create detailed, vivid image descriptions from roleplay scenes.',
             instructionsPositive: '',
             instructionsNegative: '',
             examplePrompt: '',
@@ -41,27 +60,28 @@ const defaultSettings = Object.freeze({
             picCountExact: 1,
             picCountMin: 1,
             picCountMax: 3,
-            regex: '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g',
-            position: 'deep_system',
-            depth: 0,
         },
         summarizer: {
             messageDepth: 1,
-            systemPromptTemplate: `You are an expert at creating detailed image generation prompts from roleplay scenarios.
+            maxTokens: 500,
+            characterPercent: 30,
+            scenePercent: 70,
+            systemPromptTemplate: `Create image generation prompts from roleplay scenarios.
 
 Character Appearance:
 {{APPEARANCE_LINES}}
 
-Your task is to analyze the recent conversation and create a comprehensive image generation prompt that captures:
-1. The characters present and their current state
-2. The scene setting, atmosphere, and mood
-3. Visual details that would make a compelling image
+Rules:
+- Use only literal visual descriptions
+- No metaphors, emotions, or abstract concepts
+- Only include what can be seen: colors, shapes, positions, lighting, textures
+- Be concise - omit unnecessary words
 
 Output Format:
 Characters:
-- [Character Name]: [Brief description of appearance, pose, expression, clothing]
+- [Name]: [pose, expression, clothing, visible features]
 
-Scene: [Detailed description of the environment, lighting, camera angle, style]`,
+Scene: [environment, lighting, camera angle]`,
         },
     },
 })
@@ -74,7 +94,6 @@ const state = {
     chatToken: 0,
     toastPatched: false,
     ui: null,
-    isRewriting: false,
     progress: {
         messageId: null,
         container: null,
@@ -131,6 +150,53 @@ const logger = {
     warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
     error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
 }
+
+function showToastr(level, message, title) {
+    if (typeof window === 'undefined') return
+    if (typeof window.toastr === 'object' && typeof window.toastr[level] === 'function') {
+        window.toastr[level](message, title)
+    }
+}
+
+function handlePercentChange(input, otherInput, nanDefault, lastEdited) {
+    const current = getSettings()
+    const parsed = parseInt(input.value, 10)
+    const rawValue = Number.isNaN(parsed) ? nanDefault : parsed
+    const currentOther = lastEdited === 'character'
+        ? current.autoGeneration.summarizer.scenePercent ?? 70
+        : current.autoGeneration.summarizer.characterPercent ?? 30
+
+    const { charPercent, scenePercent, adjusted, message } = validateAndNormalizePercents(
+        lastEdited === 'character' ? rawValue : currentOther,
+        lastEdited === 'scene' ? rawValue : currentOther,
+        lastEdited,
+    )
+
+    current.autoGeneration.summarizer.characterPercent = charPercent
+    current.autoGeneration.summarizer.scenePercent = scenePercent
+    input.value = String(lastEdited === 'character' ? charPercent : scenePercent)
+    if (otherInput) {
+        otherInput.value = String(lastEdited === 'character' ? scenePercent : charPercent)
+    }
+
+    if (adjusted) {
+        showToastr('info', message, 'Settings Adjusted')
+    }
+
+    saveSettings()
+}
+
+let promptInjectionDebounceTimer = null
+
+function debouncedSaveSettings() {
+    if (promptInjectionDebounceTimer) clearTimeout(promptInjectionDebounceTimer)
+    promptInjectionDebounceTimer = setTimeout(() => {
+        saveSettings()
+        promptInjectionDebounceTimer = null
+    }, 500)
+}
+
+
 
 function resolveTemplateRoot() {
     /** @type {HTMLScriptElement[]} */
@@ -220,6 +286,90 @@ function logPerCharacter(action, payload) {
     logger.debug('[PerCharacter]', action, payload)
 }
 
+/**
+ * Helper to switch to a connection profile/preset, execute a callback, and restore the original profile.
+ * @param {string} profileName - The target profile name (with optional 'profile:' or 'preset:' prefix)
+ * @param {Function} asyncFn - Async function to execute with the switched profile
+ * @returns {Promise<*>} The result of the async function
+ */
+async function withConnectionProfile(profileName, asyncFn) {
+    const ctx = getCtx()
+
+    if (typeof ctx.executeSlashCommandsWithOptions !== 'function') {
+        return asyncFn()
+    }
+
+    const isPreset = profileName.startsWith('preset:')
+    const isProfile = profileName.startsWith('profile:')
+    const realName = profileName.replace(/^(profile|preset):/, '')
+
+    if (!realName) {
+        log('Skipping profile switch - empty name after prefix removal', { profileName })
+        return asyncFn()
+    }
+
+    let originalProfile = null
+    let originalPreset = null
+
+    try {
+        // Save original profile and preset
+        try {
+            const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
+            originalProfile = profileResult?.pipe
+        } catch (error) {
+            logger.warn('Failed to get current profile:', error)
+        }
+
+        try {
+            const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
+            originalPreset = presetResult?.pipe
+        } catch (error) {
+            logger.warn('Failed to get current preset:', error)
+        }
+
+        log('Switching connection profile', {
+            target: realName,
+            isPreset,
+            isProfile,
+            previousProfile: originalProfile,
+            previousPreset: originalPreset
+        })
+
+        // Switch to target profile/preset
+        if (isPreset) {
+            await ctx.executeSlashCommandsWithOptions(`/preset ${realName}`)
+        } else {
+            await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
+        }
+
+        await sleep(100)
+    } catch (error) {
+        logger.warn('Failed to switch profile:', error)
+    }
+
+    try {
+        return await asyncFn()
+    } finally {
+        // Always restore original profile/preset
+        if (originalProfile) {
+            log('Restoring connection profile', { originalProfile })
+            try {
+                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
+            } catch (error) {
+                logger.warn('Failed to restore connection profile:', error)
+            }
+        }
+        if (originalPreset) {
+            log('Restoring completion preset', { originalPreset })
+            try {
+                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
+            } catch (error) {
+                logger.warn('Failed to restore completion preset:', error)
+            }
+        }
+    }
+}
+
 function patchToastrForDebug() {
     if (state.toastPatched || !getSettings().debugMode) {
         return
@@ -288,11 +438,19 @@ function ensureSettings() {
             extensionSettings[MODULE_NAME] = { ...defaultSettings }
         }
 
-        for (const [key, value] of Object.entries(defaultSettings)) {
-            if (typeof extensionSettings[MODULE_NAME][key] === 'undefined') {
-                extensionSettings[MODULE_NAME][key] = value
+        // Deep merge defaults - handles nested objects like autoGeneration.summarizer
+        const deepMergeDefaults = (target, defaults) => {
+            const hasStructuredClone = typeof globalThis.structuredClone === 'function'
+            for (const [key, value] of Object.entries(defaults)) {
+                if (typeof target[key] === 'undefined') {
+                    target[key] = hasStructuredClone ? globalThis.structuredClone(value) : JSON.parse(JSON.stringify(value))
+                } else if (value && typeof value === 'object' && !Array.isArray(value) && target[key] && typeof target[key] === 'object') {
+                    // Recursively merge nested objects
+                    deepMergeDefaults(target[key], value)
+                }
             }
         }
+        deepMergeDefaults(extensionSettings[MODULE_NAME], defaultSettings)
         const settings = extensionSettings[MODULE_NAME]
 
         // Migration: Clear old presets that contain circular references
@@ -371,19 +529,23 @@ function ensureSettings() {
             settings.autoGeneration.promptRewrite.modelId = ''
         }
 
-        if (!settings.autoGeneration.promptInjection) {
-            settings.autoGeneration.promptInjection = {
-                ...defaultSettings.autoGeneration.promptInjection,
+        // Migration: Ensure promptInjection.enabled is preserved when other fields exist
+        // Previously we removed the enabled/position/depth fields, but we need enabled
+        // for summarizeWithAI to use mainPrompt/instructionsPositive/instructionsNegative
+        if (settings.autoGeneration?.promptInjection) {
+            const hasPromptFields =
+                settings.autoGeneration.promptInjection.position ||
+                settings.autoGeneration.promptInjection.depth ||
+                settings.autoGeneration.promptInjection.mainPrompt ||
+                settings.autoGeneration.promptInjection.instructionsPositive ||
+                settings.autoGeneration.promptInjection.instructionsNegative
+            // If other prompt fields exist but enabled is missing/undefined, set it to true
+            if (hasPromptFields && typeof settings.autoGeneration.promptInjection.enabled !== 'boolean') {
+                settings.autoGeneration.promptInjection.enabled = true
             }
-        }
-
-        const promptInjection = settings.autoGeneration.promptInjection
-        for (const [key, value] of Object.entries(
-            defaultSettings.autoGeneration.promptInjection,
-        )) {
-            if (typeof promptInjection[key] === 'undefined') {
-                promptInjection[key] = value
-            }
+            // Remove obsolete position/depth fields (chat injection no longer used)
+            delete settings.autoGeneration.promptInjection.position
+            delete settings.autoGeneration.promptInjection.depth
         }
 
         if (!Array.isArray(settings.modelQueue)) {
@@ -417,13 +579,6 @@ function ensureSettings() {
                     count: clampCount(settings.targetCount),
                 },
             ]
-        }
-
-        const oldRegex = '/<pic[^>]*\\sprompt="([^"]*)"[^>]*?>/g'
-        const newRegex = '/<pic[^>]*\\sprompt="([\\s\\S]*?)"(?=\\s*\\/?>)/g'
-        if (settings.autoGeneration?.promptInjection?.regex === oldRegex) {
-            logger.debug('Migrating regex to robust version')
-            settings.autoGeneration.promptInjection.regex = newRegex
         }
 
         return settings
@@ -479,42 +634,6 @@ function applyQueueEnabledState(queueEnabled) {
 }
 
 const PER_CHARACTER_FIELDS = Object.freeze({
-    mainPrompt: {
-        label: 'Main prompt',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.mainPrompt || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.mainPrompt =
-                typeof value === 'string' ? value : ''
-        },
-    },
-    promptPositive: {
-        label: 'Image prompt instructions (positive)',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.instructionsPositive || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.instructionsPositive =
-                typeof value === 'string' ? value : ''
-        },
-    },
-    promptNegative: {
-        label: 'Image prompt instructions (negative)',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.instructionsNegative || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.instructionsNegative =
-                typeof value === 'string' ? value : ''
-        },
-    },
-    examplePrompt: {
-        label: 'Example prompt',
-        get: (settings) =>
-            settings.autoGeneration.promptInjection.examplePrompt || '',
-        set: (settings, value) => {
-            settings.autoGeneration.promptInjection.examplePrompt =
-                typeof value === 'string' ? value : ''
-        },
-    },
     modelQueue: {
         label: 'Model queue',
         get: (settings) => ({
@@ -543,38 +662,6 @@ const PER_CHARACTER_FIELDS = Object.freeze({
                     defaultSettings.modelQueueEnabled,
                 )
             }
-        },
-    },
-    imageCount: {
-        label: 'Image count rule + values',
-        get: (settings) => ({
-            picCountMode: settings.autoGeneration.promptInjection.picCountMode,
-            picCountExact:
-                settings.autoGeneration.promptInjection.picCountExact,
-            picCountMin: settings.autoGeneration.promptInjection.picCountMin,
-            picCountMax: settings.autoGeneration.promptInjection.picCountMax,
-        }),
-        set: (settings, value) => {
-            if (!value || typeof value !== 'object') {
-                return
-            }
-            if (value.picCountMode) {
-                settings.autoGeneration.promptInjection.picCountMode =
-                    value.picCountMode
-            }
-            settings.autoGeneration.promptInjection.picCountExact =
-                clampPicCount(value.picCountExact, 1)
-            settings.autoGeneration.promptInjection.picCountMin = clampPicCount(
-                value.picCountMin,
-                1,
-            )
-            settings.autoGeneration.promptInjection.picCountMax = clampPicCount(
-                value.picCountMax,
-                Math.max(
-                    settings.autoGeneration.promptInjection.picCountMin,
-                    1,
-                ),
-            )
         },
     },
 })
@@ -1054,50 +1141,19 @@ function normalizeModelQueueEnabled(
 function clampDepth(value) {
     const numeric = Number(value)
     if (Number.isNaN(numeric)) {
-        return defaultSettings.autoGeneration.promptInjection.depth
+        return 0
     }
     return Math.max(0, Math.min(100, Math.round(numeric)))
 }
 
-function normalizeRegexString(value) {
-    if (typeof value !== 'string') {
-        return ''
-    }
-    return value.trim()
-}
-
-function parseRegexFromString(raw) {
-    const source = normalizeRegexString(raw)
-    if (!source) {
-        return null
-    }
-
-    if (source.startsWith('/') && source.lastIndexOf('/') > 0) {
-        const lastSlash = source.lastIndexOf('/')
-        const pattern = source.slice(1, lastSlash)
-        const flags = source.slice(lastSlash + 1) || 'g'
-        try {
-            return new RegExp(
-                pattern,
-                flags.includes('g') ? flags : `${flags}g`,
-            )
-        } catch (error) {
-            logger.warn('Invalid regex string', error)
-            return null
-        }
-    }
-
-    try {
-        return new RegExp(source, 'g')
-    } catch (error) {
-        logger.warn('Invalid regex string', error)
-        return null
-    }
-}
-
-function getPicPromptMatches(messageText, regex) {
+function getPicPromptMatches(messageText, regex = PIC_TAG_REGEX) {
     if (!messageText || !regex) {
         return []
+    }
+
+    // Reset regex lastIndex for global regexes (allows reuse)
+    if (regex.global) {
+        regex.lastIndex = 0
     }
 
     return regex.global
@@ -1132,7 +1188,7 @@ const FILLER_PATTERNS = [
     /^(?:the|your|an?)\s+(?:enhanced|expanded|detailed|rewritten|improved|transformed)\s+prompt\s*(?:is|:)?\s*/i,
     /^(?:here\s+(?:is|are)\s+(?:a\s+)?(?:few\s+)?(?:options?|examples?|suggestions?|prompts?|variations?))\s*(?:for\s+[^:]+)?[:.]?\s*/i,
     /^(?:prompt|output|result|here you go|expanded prompt)\s*[:]\s*/i,
-    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题|你的消息是空的|不知道你想了解什么|我会尽力帮助你|欢迎和我聊聊)\s*[:!。,，？！]?\s*/i,
+    /^(?:你好|您好|对不起|抱歉|我注意到|我发现|这是一个|这是我为您|为你|生成的|提示词|在这里|请看|好的|没问题|你的消息是空的|不知道你想了解什么|我会尽力帮助你|欢迎和我聊聊)\s*[:!。,,?!]?\s*/i,
     /^["'"`]+\s*/,
     /\s*["'"`]+$/,
 ]
@@ -1367,105 +1423,6 @@ function finalizeUnifiedProgress() {
     return false
 }
 
-function clampPicCount(value, fallback = 1) {
-    const numeric = Number(value)
-    if (Number.isNaN(numeric)) {
-        return fallback
-    }
-    return Math.max(1, Math.min(12, Math.round(numeric)))
-}
-
-function buildPicCountInstruction(injection) {
-    if (!injection) {
-        return ''
-    }
-
-    const mode = injection.picCountMode || 'exact'
-    const exact = clampPicCount(injection.picCountExact, 1)
-    const min = clampPicCount(injection.picCountMin, 1)
-    const max = clampPicCount(injection.picCountMax, Math.max(min, 1))
-
-    switch (mode) {
-        case 'range':
-            return `Insert between ${Math.min(min, max)} and ${Math.max(
-                min,
-                max,
-            )} <pic prompt="..."> tags per reply.`
-        case 'min':
-            return `Insert at least ${min} <pic prompt="..."> tag${
-                min === 1 ? '' : 's'
-            } per reply.`
-        case 'max':
-            return `Insert at most ${max} <pic prompt="..."> tag${
-                max === 1 ? '' : 's'
-            } per reply.`
-        case 'exact':
-        default:
-            return `Insert exactly ${exact} <pic prompt="..."> tag${
-                exact === 1 ? '' : 's'
-            } per reply.`
-    }
-}
-
-function updatePicCountFieldVisibility(container, mode) {
-    if (!container) {
-        return
-    }
-
-    const normalizedMode = mode || 'exact'
-    const fields = container.querySelectorAll('.auto-multi-count-field')
-    fields.forEach((field) => {
-        const modes = field.getAttribute('data-count-mode')?.split(/\s+/) || []
-        const shouldShow = modes.includes(normalizedMode)
-        field.classList.toggle('is-hidden', !shouldShow)
-    })
-}
-
-function composePromptInjection(injection) {
-    if (!injection) {
-        return ''
-    }
-
-    const chunks = []
-    chunks.push('IMAGE PROMPT INSTRUCTIONS')
-
-    const countInstruction = buildPicCountInstruction(injection)
-    if (countInstruction) {
-        chunks.push(countInstruction)
-    }
-
-    if (injection.mainPrompt?.trim()) {
-        chunks.push(injection.mainPrompt.trim())
-    }
-
-    if (injection.instructionsPositive?.trim()) {
-        chunks.push(injection.instructionsPositive.trim())
-    }
-
-    if (injection.instructionsNegative?.trim()) {
-        chunks.push('NEGATIVE PROMPT INSTRUCTIONS:')
-        chunks.push(injection.instructionsNegative.trim())
-    }
-
-    const limitValue = clampPromptLimit(injection.lengthLimit)
-    if (limitValue > 0 && injection.lengthLimitType !== 'none') {
-        const limitLabel =
-            injection.lengthLimitType === 'words' ? 'words' : 'characters'
-        chunks.push(`MAXIMUM ${limitValue} ${limitLabel} per prompt`)
-    }
-
-    if (injection.examplePrompt?.trim()) {
-        chunks.push('EXAMPLE STRUCTURE:')
-        chunks.push(injection.examplePrompt.trim())
-    }
-
-    if (!chunks.length) {
-        return ''
-    }
-
-    return `<image_generation>\n${chunks.join('\n')}\n</image_generation>`
-}
-
 function sanitizeModelQueue(
     queue,
     fallbackCount = defaultSettings.targetCount,
@@ -1628,6 +1585,8 @@ function loadPreset(id) {
             ...settingsWithoutPresets,
             ...newSettingsWithoutPresets,
         }
+        // Apply defaults for any missing nested properties (e.g., summarizer)
+        ensureSettings()
     }
 
     // Save and sync UI
@@ -1831,6 +1790,9 @@ async function buildSettingsPanel() {
         return
     }
 
+    // Debounce timer for system prompt saves
+    let summarizerSystemPromptDebounceTimer = null
+
     root.appendChild(container)
 
     const enabledInput = /** @type {HTMLInputElement | null} */ (
@@ -1884,53 +1846,11 @@ async function buildSettingsPanel() {
     const autoGenInsertSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_auto_gen_insert_type')
     )
-    const promptInjectionEnabledInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_injection_enabled')
-    )
-    const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_main')
-    )
-    const promptPositiveInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_positive')
-    )
-    const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_negative')
-    )
-    const promptExampleInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_example')
-    )
-    const promptLimitInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_limit')
-    )
-    const promptLimitTypeSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_prompt_limit_type')
-    )
-    const promptRegexInput = /** @type {HTMLTextAreaElement | null} */ (
-        container.querySelector('#auto_multi_prompt_regex')
-    )
     const promptRewriteModelSelect = /** @type {HTMLSelectElement | null} */ (
         container.querySelector('#auto_multi_prompt_rewrite_model')
     )
-    const promptPositionSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_prompt_position')
-    )
-    const promptDepthInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_prompt_depth')
-    )
     const debugModeInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_multi_debug_mode')
-    )
-    const picCountModeSelect = /** @type {HTMLSelectElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_mode')
-    )
-    const picCountExactInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_exact')
-    )
-    const picCountMinInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_min')
-    )
-    const picCountMaxInput = /** @type {HTMLInputElement | null} */ (
-        container.querySelector('#auto_multi_pic_count_max')
     )
     const concurrencyInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#auto_swipe_concurrency')
@@ -1941,6 +1861,25 @@ async function buildSettingsPanel() {
     const summarizerSystemPromptInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#summarizer-system-prompt')
     )
+    const summarizerMaxTokensInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#summarizer-max-tokens')
+    )
+    const summarizerCharacterPercentInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#summarizer-character-percent')
+    )
+    const summarizerScenePercentInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#summarizer-scene-percent')
+    )
+    const promptMainInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_main')
+    )
+    const promptPositiveInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_positive')
+    )
+    const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
+        container.querySelector('#auto_multi_prompt_negative')
+    )
+
     if (
         !(
             enabledInput &&
@@ -1960,21 +1899,7 @@ async function buildSettingsPanel() {
         !(
             autoGenEnabledInput &&
             autoGenInsertSelect &&
-            promptInjectionEnabledInput &&
-            promptMainInput &&
-            promptPositiveInput &&
-            promptNegativeInput &&
-            promptExampleInput &&
-            promptLimitInput &&
-            promptLimitTypeSelect &&
-            promptRegexInput &&
-            promptPositionSelect &&
-            promptDepthInput &&
             debugModeInput &&
-            picCountModeSelect &&
-            picCountExactInput &&
-            picCountMinInput &&
-            picCountMaxInput &&
             summarizerDepthInput &&
             summarizerSystemPromptInput
         )
@@ -1995,22 +1920,8 @@ async function buildSettingsPanel() {
         refreshModelsButton,
         autoGenEnabledInput,
         autoGenInsertSelect,
-        promptInjectionEnabledInput,
-        promptMainInput,
-        promptPositiveInput,
-        promptNegativeInput,
-        promptExampleInput,
-        promptLimitInput,
-        promptLimitTypeSelect,
-        promptRegexInput,
         promptRewriteModelSelect,
-        promptPositionSelect,
-        promptDepthInput,
         debugModeInput,
-        picCountModeSelect,
-        picCountExactInput,
-        picCountMinInput,
-        picCountMaxInput,
         summaryPanel,
         autoGenPanel,
         queuePanel,
@@ -2021,6 +1932,12 @@ async function buildSettingsPanel() {
         concurrencyInput,
         summarizerDepthInput,
         summarizerSystemPromptInput,
+        summarizerMaxTokensInput,
+        summarizerCharacterPercentInput,
+        summarizerScenePercentInput,
+        promptMainInput,
+        promptPositiveInput,
+        promptNegativeInput,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
@@ -2091,139 +2008,15 @@ async function buildSettingsPanel() {
         saveSettings()
     })
 
-    promptInjectionEnabledInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.enabled =
-            promptInjectionEnabledInput.checked
-        saveSettings()
-    })
-
-    promptMainInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.mainPrompt =
-            promptMainInput.value
-        saveSettings()
-    })
-
-    promptPositiveInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsPositive =
-            promptPositiveInput.value
-        saveSettings()
-    })
-
-    promptNegativeInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.instructionsNegative =
-            promptNegativeInput.value
-        saveSettings()
-    })
-
-    promptExampleInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.examplePrompt =
-            promptExampleInput.value
-        saveSettings()
-    })
-
-    promptLimitInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.lengthLimit = clampPromptLimit(
-            promptLimitInput.value,
-        )
-        promptLimitInput.value = String(
-            current.autoGeneration.promptInjection.lengthLimit,
-        )
-        saveSettings()
-    })
-
-    promptLimitTypeSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.lengthLimitType =
-            promptLimitTypeSelect.value
-        saveSettings()
-    })
-
-    promptRegexInput?.addEventListener('input', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.regex = promptRegexInput.value
-        saveSettings()
-    })
-
     promptRewriteModelSelect?.addEventListener('change', () => {
         const current = getSettings()
         current.autoGeneration.promptRewrite.modelId = promptRewriteModelSelect.value
         saveSettings()
     })
 
-    promptPositionSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.position =
-            promptPositionSelect.value
-        saveSettings()
-    })
-
-    promptDepthInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.depth = clampDepth(
-            promptDepthInput.value,
-        )
-        promptDepthInput.value = String(
-            current.autoGeneration.promptInjection.depth,
-        )
-        saveSettings()
-    })
-
     debugModeInput?.addEventListener('change', () => {
         const current = getSettings()
         current.debugMode = debugModeInput.checked
-        saveSettings()
-    })
-
-    picCountModeSelect?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMode =
-            picCountModeSelect.value
-        updatePicCountFieldVisibility(
-            container,
-            current.autoGeneration.promptInjection.picCountMode,
-        )
-        saveSettings()
-    })
-
-    picCountExactInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountExact = clampPicCount(
-            picCountExactInput.value,
-            1,
-        )
-        picCountExactInput.value = String(
-            current.autoGeneration.promptInjection.picCountExact,
-        )
-        saveSettings()
-    })
-
-    picCountMinInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMin = clampPicCount(
-            picCountMinInput.value,
-            1,
-        )
-        picCountMinInput.value = String(
-            current.autoGeneration.promptInjection.picCountMin,
-        )
-        saveSettings()
-    })
-
-    picCountMaxInput?.addEventListener('change', () => {
-        const current = getSettings()
-        current.autoGeneration.promptInjection.picCountMax = clampPicCount(
-            picCountMaxInput.value,
-            3,
-        )
-        picCountMaxInput.value = String(
-            current.autoGeneration.promptInjection.picCountMax,
-        )
         saveSettings()
     })
 
@@ -2238,7 +2031,89 @@ async function buildSettingsPanel() {
     summarizerSystemPromptInput?.addEventListener('input', () => {
         const current = getSettings()
         current.autoGeneration.summarizer.systemPromptTemplate = summarizerSystemPromptInput.value
+        // Debounce saveSettings to avoid expensive UI syncs on every keystroke
+        if (summarizerSystemPromptDebounceTimer) {
+            clearTimeout(summarizerSystemPromptDebounceTimer)
+        }
+        summarizerSystemPromptDebounceTimer = setTimeout(() => {
+            saveSettings()
+            summarizerSystemPromptDebounceTimer = null
+        }, 500)
+    })
+
+
+    summarizerMaxTokensInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(0, Math.min(8000, parseInt(summarizerMaxTokensInput.value, 10) || 0))
+        current.autoGeneration.summarizer.maxTokens = value
+        summarizerMaxTokensInput.value = String(value)
         saveSettings()
+    })
+
+    /**
+     * Validates and normalizes character/scene percentages.
+     * - Both must be 0-100
+     * - Both cannot be 0
+     * - Sum should equal 100 (auto-balances if not)
+     * @param {number} charPercent - Character percentage
+     * @param {number} scenePercent - Scene percentage
+     * @param {'character' | 'scene'} lastEdited - Which field was just edited
+     * @returns {{charPercent: number, scenePercent: number, adjusted: boolean, message?: string}}
+     */
+    function validateAndNormalizePercents(charPercent, scenePercent, lastEdited) {
+        // Clamp to 0-100
+        let char = Math.max(0, Math.min(100, charPercent))
+        let scene = Math.max(0, Math.min(100, scenePercent))
+        let adjusted = false
+        let message = ''
+
+        // Prevent both from being 0
+        if (char === 0 && scene === 0) {
+            if (lastEdited === 'character') {
+                char = 30
+                message = 'Character % cannot be 0 when Scene % is 0. Set to 30%.'
+            } else {
+                scene = 30
+                message = 'Scene % cannot be 0 when Character % is 0. Set to 30%.'
+            }
+            adjusted = true
+        }
+
+        // Normalize sum to 100 by adjusting the field NOT just edited
+        const sum = char + scene
+        if (sum !== 100) {
+            if (lastEdited === 'character') {
+                scene = Math.max(0, Math.min(100, 100 - char))
+            } else {
+                char = Math.max(0, Math.min(100, 100 - scene))
+            }
+            adjusted = true
+            message = message || `Percentages auto-balanced to ${char}% / ${scene}% (sum must be 100%)`
+        }
+
+        return { charPercent: char, scenePercent: scene, adjusted, message }
+    }
+
+    summarizerCharacterPercentInput?.addEventListener('change', () => handlePercentChange(summarizerCharacterPercentInput, summarizerScenePercentInput, 30, 'character'))
+
+    summarizerScenePercentInput?.addEventListener('change', () => handlePercentChange(summarizerScenePercentInput, summarizerCharacterPercentInput, 70, 'scene'))
+
+    promptMainInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.mainPrompt = promptMainInput.value
+        debouncedSaveSettings()
+    })
+
+    promptPositiveInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsPositive = promptPositiveInput.value
+        debouncedSaveSettings()
+    })
+
+    promptNegativeInput?.addEventListener('input', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.instructionsNegative = promptNegativeInput.value
+        debouncedSaveSettings()
     })
 
     addModelButton?.addEventListener('click', (event) => {
@@ -2580,7 +2455,9 @@ function syncModelSelectOptions(showFeedback = false) {
 async function syncProfileSelectOptions(showFeedback = false) {
     const ctx = getCtx()
     let connectionProfiles = []
-    
+    let completionPresets = []
+
+    // Fetch connection profiles
     try {
         const result = await ctx.executeSlashCommandsWithOptions('/profile-list')
         const raw = result?.pipe || (typeof result === 'string' ? result : '')
@@ -2607,18 +2484,60 @@ async function syncProfileSelectOptions(showFeedback = false) {
         }
     }
 
+    // Fetch completion presets using preset-manager API
+    try {
+        // Dynamic import with absolute path works for both built-in and third-party extensions
+        const { getPresetManager } = await import('/scripts/preset-manager.js')
+        const manager = getPresetManager()
+        if (!manager) {
+            logger.warn('Preset manager not available')
+        } else {
+            const { presets, preset_names } = manager.getPresetList()
+            if (Array.isArray(preset_names)) {
+                completionPresets = preset_names
+            } else if (preset_names && typeof preset_names === 'object') {
+                completionPresets = Object.keys(preset_names)
+            } else if (Array.isArray(presets)) {
+                // Fallback: extract names from presets array
+                completionPresets = presets.map(p => p?.name).filter(Boolean)
+            }
+        }
+    } catch (error) {
+        logger.warn('Failed to list presets via preset-manager:', error)
+    }
+
     const select = state.ui?.promptRewriteModelSelect
     if (!select) return
 
-    const currentValue = select.value || ''
+    // Use settings-backed value instead of DOM value (which is empty after innerHTML clear)
+    const currentValue = getSettings()?.autoGeneration?.promptRewrite?.modelId ?? ''
     select.innerHTML = '<option value="">Default (Active chat model)</option>'
 
-    connectionProfiles.sort().forEach((name) => {
-        const option = document.createElement('option')
-        option.value = 'profile:' + name
-        option.textContent = name
-        select.appendChild(option)
-    })
+    // Add connection profiles section
+    if (connectionProfiles.length > 0) {
+        const profileGroup = document.createElement('optgroup')
+        profileGroup.label = 'Connection Profiles'
+        connectionProfiles.sort().forEach((name) => {
+            const option = document.createElement('option')
+            option.value = 'profile:' + name
+            option.textContent = name
+            profileGroup.appendChild(option)
+        })
+        select.appendChild(profileGroup)
+    }
+
+    // Add completion presets section
+    if (completionPresets.length > 0) {
+        const presetGroup = document.createElement('optgroup')
+        presetGroup.label = 'Completion Presets'
+        completionPresets.sort().forEach((name) => {
+            const option = document.createElement('option')
+            option.value = 'preset:' + name
+            option.textContent = name
+            presetGroup.appendChild(option)
+        })
+        select.appendChild(presetGroup)
+    }
 
     if (currentValue) {
         const exists = Array.from(select.options).some(o => o.value === currentValue)
@@ -2634,8 +2553,9 @@ async function syncProfileSelectOptions(showFeedback = false) {
     }
 
     if (showFeedback) {
-        log('Profile list refreshed.', { 
-            profiles: connectionProfiles.length
+        log('Profile and preset list refreshed.', {
+            profiles: connectionProfiles.length,
+            presets: completionPresets.length
         })
     }
 }
@@ -2704,53 +2624,9 @@ function syncUiFromSettings() {
         state.ui.autoGenInsertSelect.value =
             settings.autoGeneration.insertType || INSERT_TYPE.DISABLED
     }
-    if (state.ui.promptInjectionEnabledInput) {
-        state.ui.promptInjectionEnabledInput.checked =
-            settings.autoGeneration.promptInjection.enabled
-    }
-    if (state.ui.promptMainInput) {
-        state.ui.promptMainInput.value =
-            settings.autoGeneration.promptInjection.mainPrompt
-    }
-    if (state.ui.promptPositiveInput) {
-        state.ui.promptPositiveInput.value =
-            settings.autoGeneration.promptInjection.instructionsPositive
-    }
-    if (state.ui.promptNegativeInput) {
-        state.ui.promptNegativeInput.value =
-            settings.autoGeneration.promptInjection.instructionsNegative
-    }
-    if (state.ui.promptExampleInput) {
-        state.ui.promptExampleInput.value =
-            settings.autoGeneration.promptInjection.examplePrompt
-    }
-    if (state.ui.promptLimitInput) {
-        state.ui.promptLimitInput.value = String(
-            clampPromptLimit(
-                settings.autoGeneration.promptInjection.lengthLimit,
-            ),
-        )
-    }
-    if (state.ui.promptLimitTypeSelect) {
-        state.ui.promptLimitTypeSelect.value =
-            settings.autoGeneration.promptInjection.lengthLimitType
-    }
-    if (state.ui.promptRegexInput) {
-        state.ui.promptRegexInput.value =
-            settings.autoGeneration.promptInjection.regex
-    }
     if (state.ui.promptRewriteModelSelect) {
         state.ui.promptRewriteModelSelect.value =
             settings.autoGeneration.promptRewrite.modelId || ''
-    }
-    if (state.ui.promptPositionSelect) {
-        state.ui.promptPositionSelect.value =
-            settings.autoGeneration.promptInjection.position
-    }
-    if (state.ui.promptDepthInput) {
-        state.ui.promptDepthInput.value = String(
-            clampDepth(settings.autoGeneration.promptInjection.depth),
-        )
     }
     if (state.ui.debugModeInput) {
         state.ui.debugModeInput.checked = settings.debugMode
@@ -2763,34 +2639,6 @@ function syncUiFromSettings() {
     if (state.ui.characterResetButton) {
         state.ui.characterResetButton.disabled = !canResetCharacter
     }
-    if (state.ui.picCountModeSelect) {
-        state.ui.picCountModeSelect.value =
-            settings.autoGeneration.promptInjection.picCountMode
-    }
-    if (state.ui.picCountExactInput) {
-        state.ui.picCountExactInput.value = String(
-            clampPicCount(
-                settings.autoGeneration.promptInjection.picCountExact,
-                1,
-            ),
-        )
-    }
-    if (state.ui.picCountMinInput) {
-        state.ui.picCountMinInput.value = String(
-            clampPicCount(
-                settings.autoGeneration.promptInjection.picCountMin,
-                1,
-            ),
-        )
-    }
-    if (state.ui.picCountMaxInput) {
-        state.ui.picCountMaxInput.value = String(
-            clampPicCount(
-                settings.autoGeneration.promptInjection.picCountMax,
-                3,
-            ),
-        )
-    }
 
     if (state.ui.summarizerDepthInput) {
         const depth = Math.max(1, Math.min(10, settings.autoGeneration.summarizer.messageDepth || 1))
@@ -2802,15 +2650,38 @@ function syncUiFromSettings() {
             settings.autoGeneration.summarizer.systemPromptTemplate || ''
     }
 
+    if (state.ui.summarizerMaxTokensInput) {
+        const maxTokens = Math.max(0, Math.min(8000, settings.autoGeneration.summarizer.maxTokens || 0))
+        state.ui.summarizerMaxTokensInput.value = String(maxTokens)
+    }
+
+    if (state.ui.summarizerCharacterPercentInput) {
+        const charPercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.characterPercent ?? 30))
+        state.ui.summarizerCharacterPercentInput.value = String(charPercent)
+    }
+
+    if (state.ui.summarizerScenePercentInput) {
+        const scenePercent = Math.max(0, Math.min(100, settings.autoGeneration.summarizer.scenePercent ?? 70))
+        state.ui.summarizerScenePercentInput.value = String(scenePercent)
+    }
+
+    if (state.ui.promptMainInput) {
+        state.ui.promptMainInput.value =
+            settings.autoGeneration.promptInjection.mainPrompt
+    }
+    if (state.ui.promptPositiveInput) {
+        state.ui.promptPositiveInput.value =
+            settings.autoGeneration.promptInjection.instructionsPositive
+    }
+    if (state.ui.promptNegativeInput) {
+        state.ui.promptNegativeInput.value =
+            settings.autoGeneration.promptInjection.instructionsNegative
+    }
+
     const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
     if (state.ui.concurrencyInput) {
         state.ui.concurrencyInput.value = String(concurrencyValue)
     }
-
-    updatePicCountFieldVisibility(
-        state.ui.container,
-        settings.autoGeneration.promptInjection.picCountMode,
-    )
 
     const setPanelEnabled = (panel, enabled) => {
         if (!panel) {
@@ -2875,10 +2746,7 @@ function syncUiFromSettings() {
 
     if (settings.autoGeneration.enabled) {
         const insertLabel = settings.autoGeneration.insertType
-        const injectionLabel = settings.autoGeneration.promptInjection.enabled
-            ? 'prompt injection on'
-            : 'prompt injection off'
-        segments.push(`auto image gen (${insertLabel}, ${injectionLabel})`)
+        segments.push(`auto image gen (${insertLabel})`)
     }
 
     const baseStrategyBlurb = settings.delayMs <= 0
@@ -2916,7 +2784,7 @@ function ensureGlobalProgressElement(messageId) {
         container.className = 'auto-multi-global-progress'
         container.innerHTML = `
             <div class="auto-multi-global-progress__meta">
-                <span class="auto-multi-global-progress__status">Preparing generation queue…</span>
+                <span class="auto-multi-global-progress__status">Preparing generation queue...</span>
                 <span class="auto-multi-global-progress__ratio">0 / 0</span>
             </div>
             <progress value="0" max="1"></progress>
@@ -3000,7 +2868,7 @@ function updateProgressUi(messageId, current, target, waiting, labelText = '') {
     const displayCurrent = Math.min(clampedCurrent + 1, safeTarget)
     const descriptor =
         labelText ||
-        (waiting ? 'Preparing generation queue…' : 'Image Generation Autopilot')
+        (waiting ? 'Preparing generation queue...' : 'Image Generation Autopilot')
 
     entry.container.classList.toggle('waiting', !!waiting)
     entry.statusLabel.textContent = descriptor
@@ -3055,59 +2923,6 @@ function resetPerChatState() {
     setTimeout(() => refreshReswipeButtons(), 0)
 }
 
-function getPromptRole(position) {
-    switch (position) {
-        case 'deep_user':
-            return 'user'
-        case 'deep_assistant':
-            return 'assistant'
-        case 'deep_system':
-        default:
-            return 'system'
-    }
-}
-
-function insertPromptAtDepth(chat, prompt, role, depth) {
-    if (!Array.isArray(chat)) {
-        return
-    }
-
-    const entry = { role, content: prompt }
-    if (!Number.isFinite(depth) || depth <= 0) {
-        chat.push(entry)
-        return
-    }
-
-    const insertIndex = Math.max(0, chat.length - depth)
-    chat.splice(insertIndex, 0, entry)
-}
-
-async function handlePromptInjection(eventData) {
-    if (state.isRewriting) {
-        return
-    }
-    const settings = getSettings()
-    const autoSettings = settings.autoGeneration
-    if (!autoSettings?.enabled) {
-        return
-    }
-
-    if (autoSettings.insertType === INSERT_TYPE.DISABLED) {
-        return
-    }
-
-    const injection = autoSettings.promptInjection
-    const composedPrompt = composePromptInjection(injection)
-    if (!injection?.enabled || !composedPrompt.trim()) {
-        return
-    }
-
-    const role = getPromptRole(injection.position)
-    const depth = clampDepth(injection.depth)
-    insertPromptAtDepth(eventData?.chat, composedPrompt, role, depth)
-    log('Prompt injected', { role, depth })
-}
-
 async function resolveSlashCommandParser() {
     if (window?.SlashCommandParser?.commands) {
         return window.SlashCommandParser
@@ -3119,7 +2934,7 @@ async function resolveSlashCommandParser() {
 
     try {
         const module =
-            await import('../../../slash-commands/SlashCommandParser.js')
+            await import('/scripts/slash-commands/SlashCommandParser.js')
         if (module?.SlashCommandParser?.commands) {
             return module.SlashCommandParser
         }
@@ -3262,17 +3077,75 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
         generatorFactory,
         PopupClass: typeof Popup !== 'undefined' ? Popup : window.Popup,
         modelOptions,
-        onRewrite: async (prompt) => {
-            log('Dialog requested rewrite', { prompt, sourceMessageId })
-            return await callChatRewrite(
-                prompt,
-                settings.autoGeneration.promptInjection,
-                settings.autoGeneration.promptRewrite.modelId,
-                sourceMessageId,
+        onResummarize: async (prompt) => {
+            log('Dialog requested resummarize', { prompt, sourceMessageId })
+            const context = getCtx()
+            const freshSettings = getSettings()
+            const autoSettings = freshSettings.autoGeneration
+            const summarizerSettings = autoSettings?.summarizer || {}
+
+            const messageDepth = Math.max(
+                1,
+                Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
             )
+
+            const chat = context.chat || []
+            const message = chat[sourceMessageId]
+            const charName = message?.name || context.name2 || context.character_name || ''
+            const userName = context.name1 || context.user_name || 'User'
+            // Prepend edited prompt to summarizer messages
+            const summarizerMessages = [{ role: 'user', content: prompt }]
+                .concat(
+                    chat
+                        .slice(Math.max(0, sourceMessageId - messageDepth + 1), sourceMessageId + 1)
+                        .map((entry) => ({
+                            role: entry?.is_user ? 'user' : 'assistant',
+                            content: stripPicTags(entry?.mes),
+                        }))
+                )
+                .filter((entry) => entry.content)
+
+            if (summarizerMessages.length === 0) {
+                logger.warn('[ImageAutopilot] No messages to resummarize - all filtered out')
+                showToastr('warning', 'No valid message content found to resummarize', 'Resummarize Failed')
+                throw new Error('No messages to resummarize')
+            }
+
+            const promptInjectionSettings = autoSettings?.promptInjection || {}
+
+            try {
+                const result = await withConnectionProfile(
+                    autoSettings.promptRewrite?.modelId || '',
+                    async () =>
+                        summarizeWithAI({
+                            messages: summarizerMessages,
+                            messageDepth: summarizerMessages.length,
+                            maxTokens: summarizerSettings.maxTokens,
+                            characterPercent: summarizerSettings.characterPercent,
+                            scenePercent: summarizerSettings.scenePercent,
+                            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                            promptInjection: promptInjectionSettings,
+                            charName,
+                            userName,
+                        }),
+                )
+
+                if (typeof result !== 'string' || !result.trim()) {
+                    throw new Error('AI returned an empty response')
+                }
+
+                return result
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                logger.error('[ImageAutopilot] Resummarize failed:', errorMessage)
+
+                showToastr('error', errorMessage, 'Resummarize Failed')
+
+                throw error
+            }
         },
     })
-    
+
     const generatorOptions = {
         modelQueue: modelQueue,
         quiet: true,
@@ -3308,13 +3181,13 @@ async function handleDialogResult(dialogResult, triggerMessage) {
         for (const imageUrl of dialogResult.selected) {
             appendGeneratedMedia(triggerMessage, imageUrl, '', true)
         }
-        
+
         const messageId = dialogResult.sourceMessageId
         let messageElement = document.querySelector(`.mes[mesid="${messageId}"]`)
         if (!messageElement) {
             messageElement = await waitForMessageElement(messageId, 2000)
         }
-        
+
         if (messageElement && typeof window.appendMediaToMessage === 'function') {
             sanitizeMessageMediaState(triggerMessage)
             window.appendMediaToMessage(triggerMessage, messageElement)
@@ -3322,7 +3195,7 @@ async function handleDialogResult(dialogResult, triggerMessage) {
             sanitizeMessageMediaState(triggerMessage)
             window.updateMessageBlock(messageId, triggerMessage)
         }
-        
+
         if (typeof context.saveChat === 'function') {
             await context.saveChat()
         }
@@ -3455,217 +3328,100 @@ function normalizeRewriteResponse(result) {
     }
 }
 
-function buildPromptRewriteSystem(injection) {
-    const chunks = [
-        '# STABLE DIFFUSION PROMPT GENERATOR',
-        'Your role: Expert technical prompt engineer for Stable Diffusion.',
-        'MANDATORY: ALL OUTPUT MUST BE IN ENGLISH.',
-        'MANDATORY: NO CONVERSATION. NO GREETINGS. NO PREAMBLE. NO CHINESE.',
-        '',
-        '## OUTPUT FORMAT',
-        'Wrap the technical prompt in tags: <sd_prompt>technical_prompt_here</sd_prompt>',
-        '',
-        '## QUALITY RULES',
-        '- Focus on lighting, textures, camera angle, and artistic style.',
-        '- Use comma-separated descriptive phrases.',
-        '- Expand the input context into a vivid cinematic scene description.',
-        '',
-        '## EXAMPLES',
-        'Input Description: "A red car in the rain"',
-        'Output: <sd_prompt>sleek red sports car parked on a rainy city street at night, puddles reflecting neon lights, cinematic lighting, hyper-realistic, 8k, detailed water drops on polished metal</sd_prompt>',
-    ]
 
-    if (injection?.mainPrompt?.trim()) {
-        chunks.push(`\nGlobal guidance: ${injection.mainPrompt.trim()}`)
-    }
-
-    if (injection?.instructionsPositive?.trim()) {
-        chunks.push(
-            `Positive constraints: ${injection.instructionsPositive.trim()}`,
-        )
-    }
-
-    if (injection?.instructionsNegative?.trim()) {
-        chunks.push(
-            `Negative constraints: ${injection.instructionsNegative.trim()}`,
-        )
-    }
-
-    if (injection?.examplePrompt?.trim()) {
-        chunks.push(`Example style: ${injection.examplePrompt.trim()}`)
-    }
-
-    const limitValue = clampPromptLimit(injection?.lengthLimit)
-    if (limitValue > 0 && injection?.lengthLimitType !== 'none') {
-        const limitLabel =
-            injection.lengthLimitType === 'words' ? 'words' : 'characters'
-        chunks.push(`Keep the prompt within ${limitValue} ${limitLabel}.`)
-    }
-
-    return chunks.join('\n')
-}
-
-function buildPromptRewriteUser(originalPrompt, contextText = '') {
-    const contextPart = contextText ? `STORY CONTEXT:\n${contextText}\n\n` : ''
-    const promptPart = originalPrompt ? `EXISTING PROMPT:\n${originalPrompt}\n\n` : ''
-    
-    return `${contextPart}${promptPart}INSTRUCTION: Generate an expanded technical Stable Diffusion prompt based on the story context above. Wrap the result in <sd_prompt>...</sd_prompt> tags. Output ONLY English.`
-}
-
-async function callChatRewrite(originalPrompt, injection, profileName = '', messageId = null) {
-    log('callChatRewrite start', { originalPrompt, profileName, messageId })
-    const ctx = getCtx()
-    let originalProfile = null
-    let originalPreset = null
-
-    if (profileName && typeof ctx.executeSlashCommandsWithOptions === 'function') {
-        try {
-            const realName = profileName.replace(/^(profile|preset):/, '')
-
-            const profileResult = await ctx.executeSlashCommandsWithOptions('/profile')
-            originalProfile = profileResult?.pipe
-            
-            const presetResult = await ctx.executeSlashCommandsWithOptions('/preset')
-            originalPreset = presetResult?.pipe
-
-            log('Switching connection profile for rewrite', { 
-                target: realName,
-                previousProfile: originalProfile, 
-                previousPreset: originalPreset 
-            })
-
-            await ctx.executeSlashCommandsWithOptions(`/profile ${realName}`)
-            
-            await sleep(100)
-        } catch (error) {
-            logger.warn('Failed to switch profile:', error)
-        }
-    }
-
-    let contextText = ''
-    const chat = ctx.chat || []
+async function generateSummarizedPrompt(messageId) {
     const settings = getSettings()
-    const regex = parseRegexFromString(settings.autoGeneration.promptInjection.regex)
+    const autoSettings = settings.autoGeneration
+    const summarizerSettings = autoSettings?.summarizer || {}
+    const messageDepth = Math.max(
+        1,
+        Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
+    )
 
-    const searchStart = typeof messageId === 'number' ? messageId : chat.length - 1
-    
-    if (typeof messageId === 'number' && chat[messageId] && !chat[messageId].is_user) {
-        const cleanMes = chat[messageId].mes.replace(regex, '').trim()
-        if (cleanMes) {
-            contextText = cleanMes
-        }
+    const context = getCtx()
+    const message = context.chat?.[messageId]
+    if (!message) {
+        return null
     }
 
-    if (!contextText) {
-        for (let i = searchStart - 1; i >= 0; i--) {
-            if (!chat[i].is_user && chat[i].mes) {
-                const cleanMes = chat[i].mes.replace(regex, '').trim()
-                if (cleanMes) {
-                    contextText = cleanMes
-                    break
-                }
-            }
+    const charName = message.name || context.name2 || context.character_name || ''
+    const userName = context.name1 || context.user_name || 'User'
+
+    const profileName = autoSettings?.promptRewrite?.modelId
+
+    return withConnectionProfile(profileName, async () => {
+        const rawChatSlice = (context.chat || []).slice(0, messageId + 1)
+        const normalizedMessages = rawChatSlice
+            .filter((m) => m && typeof m === 'object')
+            .map((m) => ({
+                role: m.is_user ? 'user' : 'assistant',
+                content: stripPicTags(m.mes),
+            }))
+            .filter((m) => m.content)
+
+        // Compute window slice: center on resolvedId (or last message if not found)
+        const targetIndex = normalizedMessages.length - 1
+        const halfDepth = Math.floor(messageDepth / 2)
+        let sliceStart = Math.max(0, targetIndex - halfDepth)
+        let sliceEnd = Math.min(normalizedMessages.length, sliceStart + messageDepth)
+        // Adjust start if we're at the end of the chat
+        if (sliceEnd - sliceStart < messageDepth) {
+            sliceStart = Math.max(0, sliceEnd - messageDepth)
         }
-    }
+        const boundedMessages = normalizedMessages.slice(sliceStart, sliceEnd)
 
-    if (!contextText && typeof messageId === 'number' && messageId > 0) {
-        const prevMsg = chat[messageId - 1]
-        if (prevMsg?.is_user && prevMsg.mes) {
-            contextText = prevMsg.mes.trim()
+        if (boundedMessages.length === 0) {
+            logger.warn('[ImageAutopilot] No messages to summarize - all filtered out')
+            return null
         }
-    }
 
-    log('callChatRewrite context found', { contextText: contextText.substring(0, 100) + '...' })
-
-    const systemPrompt = buildPromptRewriteSystem(injection)
-    const userPrompt = buildPromptRewriteUser(originalPrompt, contextText)
-    const startLength = chat.length || 0
-
-    log('callChatRewrite prompts', {
-        systemPrompt: systemPrompt.substring(0, 100) + '...',
-        userPrompt: userPrompt.substring(0, 200) + '...',
-    })
-
-    const attempts = []
-
-    if (typeof ctx.generateRaw === 'function') {
-        attempts.push({
-            name: 'generateRaw',
-            fn: async () => ctx.generateRaw({
-                prompt: userPrompt,
-                systemPrompt: systemPrompt,
-            })
+        log('Summarization context prepared', {
+            messageCount: boundedMessages.length,
+            charName,
+            userName,
+            messageDepth,
+            profileName
         })
-    }
 
-    if (typeof ctx.generateText === 'function') {
-        attempts.push({
-            name: 'generateText',
-            fn: async () => ctx.generateText({
-                prompt: userPrompt,
-                systemPrompt: systemPrompt,
+        try {
+            const promptInjectionSettings = autoSettings?.promptInjection || {}
+
+            const summarizedPrompt = await summarizeWithAI({
+                messages: boundedMessages,
+                messageDepth: boundedMessages.length,
+                maxTokens: summarizerSettings.maxTokens,
+                characterPercent: summarizerSettings.characterPercent,
+                scenePercent: summarizerSettings.scenePercent,
+                systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                promptInjection: promptInjectionSettings,
+                charName,
+                userName,
             })
-        })
-    }
 
-    if (typeof ctx.generate === 'function') {
-        attempts.push({
-            name: 'generate',
-            fn: async () => ctx.generate({
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                ],
-                quiet: true,
-                stream: false,
+            log('Summarizer returned result', {
+                resultType: typeof summarizedPrompt,
+                resultLength: summarizedPrompt?.length,
+                preview: typeof summarizedPrompt === 'string' ? summarizedPrompt.substring(0, 100) + '...' : null
             })
+
+            if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
+                logger.error('[ImageAutopilot] Summarizer returned empty response')
+                return null
+            }
+
+            return summarizedPrompt.trim()
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error)
+            logger.error('[ImageAutopilot] Summarizer failed:', errorMessage)
+
+            showToastr('error', errorMessage, 'Image Summarization Failed')
+
+            return null
+        }
         })
-    }
-
-    state.isRewriting = true
-    let rewritten = null
-    try {
-        for (const attempt of attempts) {
-            try {
-                log(`Rewrite attempt starting (${attempt.name})...`)
-                const result = await attempt.fn()
-                log(`Rewrite attempt (${attempt.name}) raw result:`, result)
-                const rewrittenRaw = normalizeRewriteResponse(result)
-                const candidate = normalizeRewrittenPrompt(originalPrompt, rewrittenRaw, regex)
-                if (candidate) {
-                    log(`Rewrite attempt (${attempt.name}) success:`, candidate)
-                    rewritten = candidate
-                    break
-                }
-            } catch (error) {
-                logger.warn(`Prompt rewrite attempt (${attempt.name}) failed`, error)
-            }
-        }
-    } finally {
-        state.isRewriting = false
-        await cleanupRewriteMessages(startLength)
-        
-        if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
-            if (originalProfile) {
-                log('Restoring connection profile', { originalProfile })
-                await ctx.executeSlashCommandsWithOptions(`/profile ${originalProfile}`)
-            }
-            if (originalPreset) {
-                log('Restoring completion preset', { originalPreset })
-                await ctx.executeSlashCommandsWithOptions(`/preset ${originalPreset}`)
-            }
-        }
-    }
-
-    return rewritten || ''
 }
 
 async function handleIncomingMessage(messageId) {
-    if (state.isRewriting) {
-        log('Ignoring incoming message (currently rewriting)')
-        return
-    }
-
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     if (!autoSettings?.enabled) {
@@ -3696,43 +3452,8 @@ async function handleIncomingMessage(messageId) {
                 : message.mes,
     })
 
-    const summarizerSettings = autoSettings.summarizer || {}
-    const messageDepth = Math.max(
-        1,
-        Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
-    )
-    const summarizerMessages = (context.chat || [])
-        .slice(Math.max(0, resolvedId - messageDepth + 1), resolvedId + 1)
-        .map((entry) => ({
-            role: entry?.is_user ? 'user' : 'assistant',
-            content: typeof entry?.mes === 'string' ? entry.mes.trim() : '',
-        }))
-        .filter((entry) => entry.content)
-
-    const charName = message.name || context.name2 || context.character_name || ''
-    const userName = context.name1 || context.user_name || 'User'
-
-    let summarizedPrompt = ''
-    try {
-        summarizedPrompt = await summarizeWithAI({
-            messages: summarizerMessages,
-            messageDepth,
-            settings: summarizerSettings,
-            systemPromptTemplate: summarizerSettings.systemPromptTemplate,
-            charName,
-            userName,
-        })
-    } catch (error) {
-        logger.warn('Auto-generation summarizer failed', error)
-        return
-    }
-
-    if (typeof summarizedPrompt !== 'string' || !summarizedPrompt.trim()) {
-        return
-    }
-
-    if (summarizedPrompt.startsWith('Error:')) {
-        logger.warn('Auto-generation summarizer returned error', summarizedPrompt)
+    const summarizedPrompt = await generateSummarizedPrompt(resolvedId)
+    if (!summarizedPrompt) {
         return
     }
 
@@ -3783,26 +3504,29 @@ async function handleManualPromptRewrite(messageId) {
         return
     }
 
-    const regex = parseRegexFromString(autoSettings.promptInjection?.regex)
-    const hasPrompts = (msg) =>
-        msg?.mes && getPicPromptMatches(msg.mes, regex).length > 0
+    const minContentLength = 20
 
-    // If this message doesn't have prompts but has images, it might be a separate image message (New message mode).
-    // Try to find the source message with prompts (usually the one before).
-    if (!hasPrompts(message) && hasGeneratedMedia(message) && resolvedId > 0) {
-        const prevId = resolvedId - 1
-        const prevMsg = chat[prevId]
-        if (prevMsg && !prevMsg.is_user && hasPrompts(prevMsg)) {
-            log('Targeting previous message for prompts', { prevId })
-            resolvedId = prevId
-            message = prevMsg
+    // In "New message" mode, images go to a separate message. Find the source message.
+    if (autoSettings.insertType === INSERT_TYPE.NEW_MESSAGE) {
+        if (hasGeneratedMedia(message) && resolvedId > 0) {
+            const prevId = resolvedId - 1
+            const prevMsg = chat[prevId]
+            const prevContentLength = stripPicTags(prevMsg?.mes || '').trim().length
+            if (prevMsg && !prevMsg.is_user && prevContentLength >= minContentLength) {
+                log('Targeting previous message as source', { prevId })
+                resolvedId = prevId
+                message = prevMsg
+            }
         }
     }
 
-    if (!hasPrompts(message)) {
-        log('Rewrite ignored (no prompts found)', {
+    const contentLength = stripPicTags(message?.mes || '').trim().length
+    if (contentLength < minContentLength) {
+        log('Rewrite ignored (message too short for summarization)', {
             resolvedId,
+            contentLength,
         })
+        showToastr('warning', 'Message is too short to generate an image prompt', 'Cannot Rewrite')
         return
     }
 
@@ -3849,7 +3573,7 @@ async function handleManualPromptRewrite(messageId) {
         log('Hammer action complete (images message deleted)', {
             lastImageMessageId,
         })
-        
+
         await handleIncomingMessage(resolvedId)
         return
     }
@@ -4339,7 +4063,7 @@ function getMediaCount(message) {
     return Array.isArray(mediaList) ? mediaList.length : 0
 }
 
-async function queueAutoFill(messageId, button) {
+async function queueAutoFill(messageId, button, options = {}) {
     if (state.runningMessages.has(messageId)) {
         return
     }
@@ -4353,34 +4077,38 @@ async function queueAutoFill(messageId, button) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
 
-    let prompts = []
-
-    if (autoSettings?.promptInjection?.regex) {
-        const regex = parseRegexFromString(autoSettings.promptInjection.regex)
-        if (regex) {
-            const matches = getPicPromptMatches(message?.mes, regex)
-            prompts = matches
-                .map((m) => (typeof m?.[1] === 'string' ? m[1] : ''))
-                .filter((p) => p.trim())
-        }
-    }
-
-    if (!prompts.length) {
-        logger.warn('No prompts found in message for auto-fill')
+    if (!autoSettings?.enabled && !options?.isManual) {
+        logger.warn('Auto-fill ignored (auto generation disabled)')
         return
     }
 
-    const swipesPerImage = getSwipeTotal(settings)
-    const expandedPrompts = []
-    for (let prompt of prompts) {
-        for (let i = 0; i < swipesPerImage; i += 1) {
-            expandedPrompts.push(prompt)
-        }
+    if (state.runningMessages.has(messageId)) {
+        return
     }
-
     state.runningMessages.set(messageId, true)
 
     try {
+        const summarizedPrompt = await generateSummarizedPrompt(messageId)
+        if (!summarizedPrompt) {
+            logger.warn('Auto-fill failed: could not generate prompt')
+            return
+        }
+
+        log('Generated summarized prompt', {
+            promptLength: summarizedPrompt.length,
+            preview: summarizedPrompt.substring(0, 100) + '...'
+        })
+
+        const swipesPerImage = getSwipeTotal(settings)
+        const expandedPrompts = []
+        for (let i = 0; i < swipesPerImage; i += 1) {
+            expandedPrompts.push(summarizedPrompt)
+        }
+
+        if (!expandedPrompts.length) {
+            return
+        }
+
         const result = await openImageSelectionDialog(
             expandedPrompts,
             messageId,
@@ -4402,13 +4130,7 @@ async function handleMessageRendered(messageId, origin) {
     const message = getCtx().chat?.[messageId]
     const hasMedia = getMediaCount(message) > 0
 
-    const regex = parseRegexFromString(
-        settings.autoGeneration?.promptInjection?.regex,
-    )
-    const hasPicTags =
-        regex && getPicPromptMatches(message?.mes, regex).length > 0
-
-    ensureReswipeButton(messageId, settings.enabled && (hasPicTags || !hasMedia))
+    ensureReswipeButton(messageId, settings.enabled && !hasMedia && !message?.is_user)
     ensureRewriteButton(messageId, shouldShowPromptRewriteButton(message))
 
     if (!shouldAutoFill(message)) {
@@ -4611,10 +4333,6 @@ function refreshReswipeButtons() {
     const chat = getCtx().chat || []
     const messageElements = document.querySelectorAll('.mes[mesid]')
 
-    const regex = parseRegexFromString(
-        settings.autoGeneration?.promptInjection?.regex,
-    )
-
     messageElements.forEach((element) => {
         try {
             const messageId = Number(element.getAttribute('mesid'))
@@ -4629,12 +4347,7 @@ function refreshReswipeButtons() {
 
             const hasMedia = getMediaCount(message) > 0
 
-            // Also check if message contains pic tags for reswipe trigger
-            const hasPicTags =
-                regex && getPicPromptMatches(message?.mes, regex).length > 0
-
-            // Show if it has tags OR if it has no images at all
-            const shouldShow = settings.enabled && (hasPicTags || !hasMedia)
+            const shouldShow = settings.enabled && !hasMedia && !message?.is_user
             ensureReswipeButton(messageId, shouldShow)
 
             const shouldShowRewrite = shouldShowPromptRewriteButton(message)
@@ -4718,7 +4431,7 @@ async function init() {
                     return
                 }
 
-                queueAutoFill(messageId, paintbrush)
+                queueAutoFill(messageId, paintbrush, { isManual: true })
             },
             true,
         )
@@ -4747,12 +4460,6 @@ async function init() {
             )
         }
         eventSource.on(eventTypes.SETTINGS_UPDATED, syncUiFromSettings)
-        if (eventTypes.CHAT_COMPLETION_PROMPT_READY) {
-            eventSource.on(
-                eventTypes.CHAT_COMPLETION_PROMPT_READY,
-                handlePromptInjection,
-            )
-        }
         if (eventTypes.MESSAGE_RECEIVED) {
             eventSource.on(eventTypes.MESSAGE_RECEIVED, handleIncomingMessage)
         }
