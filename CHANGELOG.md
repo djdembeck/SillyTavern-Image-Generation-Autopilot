@@ -2,12 +2,6 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
-
-### Fixed
-
-- Fixed the settings drawer cards collapsing and clipping in SillyTavern by restoring the drawer content wrapper the host drawer toggle expects, so settings stay visible and editable.
-
 ## [2.1.0] - 2026-04-09
 
 ### Added
