@@ -3509,6 +3509,52 @@ async function truncateToTokenLimit(text, tokenLimit, knownCount) {
     return truncated
 }
 
+async function shortenPrompt(prompt, lengthLimit, lengthLimitType) {
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+    const profileName = autoSettings?.promptRewrite?.modelId
+
+    const limitLabel = lengthLimitType === 'tokens' ? `${lengthLimit} tokens` : `${lengthLimit} characters`
+    const shortenSystemPrompt = `You are an editor. The following image generation prompt exceeds the ${limitLabel} limit. Rewrite it to fit within ${limitLabel} while preserving the most important visual details. Keep the same format and style. Output only the shortened prompt, nothing else.`
+
+    log('Attempting to shorten prompt via re-summarization', {
+        currentLength: prompt.length,
+        lengthLimit,
+        lengthLimitType,
+    })
+
+    try {
+        return await withConnectionProfile(profileName, async () => {
+            const result = await summarizeWithAI({
+                messages: [{ role: 'user', content: prompt }],
+                messageDepth: 1,
+                systemPromptTemplate: shortenSystemPrompt,
+                maxTokens: lengthLimitType === 'tokens' ? lengthLimit : 0,
+                characterPercent: 0,
+                scenePercent: 0,
+                promptInjection: { enabled: false },
+            })
+
+            const shortened = typeof result === 'string' ? result.trim() : null
+            if (!shortened) {
+                log('Re-summarization returned empty, falling back to truncation')
+                return null
+            }
+
+            log('Re-summarization returned result', {
+                originalLength: prompt.length,
+                shortenedLength: shortened.length,
+                estimatedTokens: estimateQwen2Tokens(shortened),
+            })
+
+            return shortened
+        })
+    } catch (err) {
+        logger.warn('[ImageAutopilot] Re-summarization failed, falling back to truncation', err)
+        return null
+    }
+}
+
 async function enforcePromptLength(prompt, lengthLimit, lengthLimitType) {
     if (!prompt || lengthLimitType === 'none' || !lengthLimit || lengthLimit <= 0) {
         return prompt
@@ -3520,10 +3566,17 @@ async function enforcePromptLength(prompt, lengthLimit, lengthLimitType) {
             return prompt
         }
 
-        const truncated = prompt.substring(prompt.length - lengthLimit)
-        logger.warn(`[ImageAutopilot] Prompt truncated: ${prompt.length} chars → ${lengthLimit} chars (kept end)`)
+        const shortened = await shortenPrompt(prompt, lengthLimit, lengthLimitType)
+        if (shortened && shortened.length <= lengthLimit) {
+            log('Prompt shortened via re-summarization (characters)', { original: prompt.length, shortened: shortened.length, limit: lengthLimit })
+            showToastr('info', `Prompt shortened from ${prompt.length} to ${shortened.length} characters via AI`, 'Prompt Length Exceeded')
+            return shortened
+        }
+
+        const fallback = shortened || prompt.substring(prompt.length - lengthLimit)
+        logger.warn(`[ImageAutopilot] Prompt truncated: ${prompt.length} chars → ${fallback.length} chars (kept end)`)
         showToastr('warning', `Prompt truncated from ${prompt.length} to ${lengthLimit} characters`, 'Prompt Length Exceeded')
-        return truncated
+        return fallback
     }
 
     if (lengthLimitType === 'tokens') {
@@ -3540,10 +3593,25 @@ async function enforcePromptLength(prompt, lengthLimit, lengthLimitType) {
             return prompt
         }
 
-        const truncated = await truncateToTokenLimit(prompt, lengthLimit, tokenCount)
-        logger.warn(`[ImageAutopilot] Prompt truncated: ${tokenCount} tokens over limit ${lengthLimit}, cut to ${truncated.length} chars (kept end)`)
+        const shortened = await shortenPrompt(prompt, lengthLimit, lengthLimitType)
+        if (shortened) {
+            let shortenedTokenCount
+            try {
+                shortenedTokenCount = await countQwen2Tokens(shortened)
+            } catch (_err) {
+                shortenedTokenCount = estimateQwen2Tokens(shortened)
+            }
+            if (shortenedTokenCount <= lengthLimit) {
+                log('Prompt shortened via re-summarization (tokens)', { originalTokens: tokenCount, shortenedTokens: shortenedTokenCount, limit: lengthLimit })
+                showToastr('info', `Prompt shortened from ${tokenCount} to ${shortenedTokenCount} tokens via AI`, 'Prompt Length Exceeded')
+                return shortened
+            }
+        }
+
+        const fallback = shortened || await truncateToTokenLimit(prompt, lengthLimit, tokenCount)
+        logger.warn(`[ImageAutopilot] Prompt truncated: ${tokenCount} tokens over limit ${lengthLimit}, cut to ${fallback.length} chars (kept end)`)
         showToastr('warning', `Prompt truncated to ${lengthLimit} tokens (was over limit)`, 'Prompt Length Exceeded')
-        return truncated
+        return fallback
     }
 
     return prompt
