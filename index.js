@@ -3591,6 +3591,7 @@ async function generateSummarizedPrompt(messageId) {
             log('Summarizer returned result', {
                 resultType: typeof summarizedPrompt,
                 resultLength: summarizedPrompt?.length,
+                estimatedTokens: typeof summarizedPrompt === 'string' ? estimateQwen2Tokens(summarizedPrompt) : null,
                 preview: typeof summarizedPrompt === 'string' ? summarizedPrompt.substring(0, 100) + '...' : null
             })
 
@@ -4299,6 +4300,7 @@ async function queueAutoFill(messageId, button, options = {}) {
 
         log('Generated summarized prompt', {
             promptLength: summarizedPrompt.length,
+            estimatedTokens: estimateQwen2Tokens(summarizedPrompt),
             preview: summarizedPrompt.substring(0, 100) + '...'
         })
 
