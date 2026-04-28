@@ -213,6 +213,7 @@ describe('full flow integration', () => {
         const getCtx = mock(() => context)
         const getSettings = mock(() => settings)
         const summarizeWithAI = mock(async () => 'Characters:\n- Alice\n\nScene: Misty forest clearing')
+        const enforcePromptLengthMock = mock(async (prompt) => prompt)
         const openImageSelectionDialog = mock(async (prompts, sourceMessageId) => ({
             selected: ['image://selected-1'],
             destination: 'current',
@@ -300,6 +301,101 @@ describe('full flow integration', () => {
         expect(globalThis.window.appendMediaToMessage).toHaveBeenCalledWith(message, messageElement)
         expect(context.saveChat).toHaveBeenCalledTimes(1)
         expect(context.reloadCurrentChat).toHaveBeenCalledTimes(1)
+    })
+
+    it('calls enforcePromptLength before opening dialog', async () => {
+        const message = {
+            is_user: false,
+            mes: 'Test message.',
+            name: 'Alice',
+            extra: { media: [], media_index: 0 },
+        }
+        const messageElement = createMockElement('message-element')
+        const context = {
+            chat: [message],
+            name1: 'User',
+            saveChat: mock(async () => {}),
+            reloadCurrentChat: mock(async () => {}),
+        }
+        const settings = {
+            concurrency: 1,
+            autoGeneration: {
+                enabled: true,
+                insertType: 'inline',
+                summarizer: { messageDepth: 1, systemPromptTemplate: 'template' },
+            },
+        }
+
+        globalThis.document.querySelector = mock((selector) => {
+            if (selector === '.mes[mesid="0"]') return messageElement
+            return null
+        })
+
+        const appendGeneratedMedia = mock((targetMessage, url) => {
+            targetMessage.extra.media.push({ url })
+        })
+        const sanitizeMessageMediaState = mock()
+        const waitForMessageElement = mock(async () => messageElement)
+        const createPlaceholderImageMessage = mock(async () => 1)
+        const hasGeneratedMedia = mock(() => false)
+        const getCtx = mock(() => context)
+        const getSettings = mock(() => settings)
+        const summarizeWithAI = mock(async () => 'Summary')
+        const enforcePromptLengthMock = mock(async (prompt) => prompt)
+        const openImageSelectionDialog = mock(async (prompts, sourceMessageId) => ({
+            selected: ['image://selected-1'],
+            destination: 'current',
+            sourceMessageId,
+            prompts,
+        }))
+
+        const handleDialogResult = buildIndexFunction(
+            handleDialogResultSource,
+            'handleDialogResult',
+            {
+                getCtx,
+                getSettings,
+                INSERT_TYPE: { NEW_MESSAGE: 'new' },
+                appendGeneratedMedia,
+                document: globalThis.document,
+                waitForMessageElement,
+                window: globalThis.window,
+                sanitizeMessageMediaState,
+                createPlaceholderImageMessage,
+                hasGeneratedMedia,
+                log: mock(),
+            },
+        )
+
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
+
+        const handleIncomingMessage = buildIndexFunction(
+            handleIncomingMessageSource,
+            'handleIncomingMessage',
+            {
+                state: { chatToken: 1, autoGenMessages: new Set() },
+                log: mock(),
+                getSettings,
+                sleep: mock(async () => {}),
+                INSERT_TYPE: { DISABLED: 'disabled' },
+                getCtx,
+                summarizeWithAI,
+                generateSummarizedPrompt,
+                enforcePromptLength: enforcePromptLengthMock,
+                getSwipeTotal: mock(() => 1),
+                openImageSelectionDialog,
+                handleDialogResult,
+                logger: { error: mock(), warn: mock() },
+                window: globalThis.window,
+                stripPicTags,
+            },
+        )
+
+        await handleIncomingMessage(0)
+
+        expect(enforcePromptLengthMock).toHaveBeenCalledTimes(1)
+        expect(enforcePromptLengthMock).toHaveBeenCalledWith('Summary', undefined, undefined)
+        expect(openImageSelectionDialog).toHaveBeenCalled()
     })
 
     it('updates the working prompt when resummarize is clicked', async () => {

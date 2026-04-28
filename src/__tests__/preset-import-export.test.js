@@ -398,12 +398,13 @@ describe('Preset Import/Export', () => {
         it('settings survive full round-trip', () => {
             const json = serializePresetForExport('preset_roundtrip')
             const parsed = parsePresetFromImport(json)
-            savePreset(parsed.id, parsed.name, parsed.settings)
+            savePreset(parsed.id, parsed.name, parsed.settings, parsed.createdAt)
             const loaded = getPreset(parsed.id)
             expect(loaded.name).toBe('Round Trip Preset')
             expect(loaded.settings.targetCount).toBe(4)
             expect(loaded.settings.enabled).toBe(true)
             expect(loaded.settings.autoGeneration.promptInjection.picCountMode).toBe('exact')
+            expect(loaded.createdAt).toBe(parsed.createdAt)
         })
     })
 
@@ -463,6 +464,14 @@ describe('Preset Import/Export', () => {
             expect(presetKeys.length).toBe(0)
             expect(mockExtensionSettings[MODULE_NAME + '_presetsV2']).toBe(true)
             expect(mockExtensionSettings[PRESET_STORAGE_KEY + '_legacy_backup']).toBeDefined()
+
+            const backup = mockExtensionSettings[PRESET_STORAGE_KEY + '_legacy_backup']
+            expect(backup.preset_legacy).toBeDefined()
+            expect(backup.preset_legacy.id).toBe('preset_legacy')
+            expect(backup.preset_legacy.name).toBe('Legacy Preset')
+            expect(backup.preset_legacy.createdAt).toBe('2026-01-01T00:00:00.000Z')
+            expect(backup.preset_legacy.settings.targetCount).toBe(VALID_SETTINGS.targetCount)
+            expect(backup.preset_legacy.settings.enabled).toBe(VALID_SETTINGS.enabled)
         })
 
         it('preserves presets when V2 flag is already set (no second cleanup)', () => {

@@ -1051,7 +1051,6 @@ export function savePresetToCharacter(presetId) {
 export function loadPresetToCharacter(presetId) {
     const success = loadPreset(presetId)
     if (success) {
-        saveSettings()
         logger.info('Preset loaded to character', { presetId })
     }
     return success
@@ -3418,9 +3417,18 @@ const QWEN2_TOKENIZER_ENDPOINT = '/api/tokenizers/qwen2/encode'
 const TOKEN_TRUNCATION_CUT_RATIO = 0.1
 
 async function countQwen2Tokens(text) {
+    const ctx = getCtx()
+    const headers = (typeof ctx?.getRequestHeaders === 'function'
+        ? ctx.getRequestHeaders()
+        : typeof window?.getRequestHeaders === 'function'
+            ? window.getRequestHeaders()
+            : { 'Content-Type': 'application/json' }) || {
+        'Content-Type': 'application/json',
+    }
+
     const response = await fetch(QWEN2_TOKENIZER_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ text }),
     })
     if (!response.ok) {
@@ -4852,7 +4860,11 @@ async function init() {
 }
 
 ;(function bootstrap() {
-    if (typeof SillyTavern === 'undefined') return
+    if (typeof SillyTavern === 'undefined') {
+        logger.warn('SillyTavern not ready, retrying...')
+        setTimeout(() => bootstrap(), 100)
+        return
+    }
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.eventSource || !ctx.eventTypes) {
