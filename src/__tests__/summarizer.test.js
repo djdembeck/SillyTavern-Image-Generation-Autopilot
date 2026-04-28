@@ -7,8 +7,9 @@ const mockChatCompletion = async (messages, options) => {
         choices: [{
             message: {
                 content: `Characters:
-- Alice: The protagonist
-- Bob: The companion
+  Shared: slender build
+  - a female: red hair, green eyes
+  - a female: dark hair, blue eyes
 
 Scene:
 A mysterious forest with ancient trees.`

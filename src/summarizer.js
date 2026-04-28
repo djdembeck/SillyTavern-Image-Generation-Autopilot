@@ -33,8 +33,11 @@ Rules:
 - No metaphors, emotions, or abstract concepts
 - Only include what can be seen: colors, shapes, positions, lighting, textures
 - Be concise - omit unnecessary words
-- Group all shared character traits (body type, common clothing style) into the Shared line under Characters - NEVER repeat them per character
-- Each character line must be SHORT: only what makes them visually unique (skin, hair, accessories, distinctive clothing, pose)
+- Group all shared character traits (body type, clothing style) into the Shared line under Characters - NEVER repeat them per character
+- Each character line must start with "a female:" followed by only their unique visual traits (skin, hair, accessories, distinctive clothing, pose)
+- Do NOT include character names in the output — image generators ignore them
+- Output exactly one bullet line per character in the scene. Count them from the conversation and never skip, merge, or combine any character. If the scene has N characters, there must be N bullet lines.
+- Each character line must be fully self-contained. Never reference another character (e.g. "beside the blonde") — describe position in absolute terms only (e.g. "standing far right", "crouching center")
 - Omit minor details (finger positions, small accessories, texture descriptions, fabric sheen) - they waste the word budget
 - Scene description must be brief: name the location, 2-3 key visual elements, and lighting - nothing more
 
@@ -43,8 +46,8 @@ Output Format:
 
 const OUTPUT_FORMAT_LINES = [
   'Characters:',
-  '  Shared: [body type; common clothing style if shared across all characters]',
-  '  - [Name]: [unique traits only - skin, hair, accessories, distinctive clothing, pose]',
+  '  Shared: [body type; clothing style directive]',
+  '  - a female: [unique traits only - skin, hair, accessories, distinctive clothing, pose]',
   '',
   'Scene: [location, 2-3 key visual elements, lighting]',
 ].join('\n');
