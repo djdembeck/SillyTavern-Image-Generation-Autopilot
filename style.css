@@ -1608,3 +1608,7 @@
     color: rgba(255, 255, 255, 0.4);
     font-size: 0.9rem;
 }
+
+.auto-multi-hidden-input {
+    display: none;
+}

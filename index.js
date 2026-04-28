@@ -453,15 +453,24 @@ function ensureSettings() {
         deepMergeDefaults(extensionSettings[MODULE_NAME], defaultSettings)
         const settings = extensionSettings[MODULE_NAME]
 
-        // One-time cleanup: clear old presets on first load of V2 system
         const V2_FLAG = MODULE_NAME + '_presetsV2'
         if (!extensionSettings[V2_FLAG]) {
+            const legacyPresets = extensionSettings[PRESET_STORAGE_KEY]
+            const hasLegacyData = legacyPresets && Object.keys(legacyPresets).length > 0
+
+            if (hasLegacyData) {
+                extensionSettings[PRESET_STORAGE_KEY + '_legacy_backup'] = legacyPresets
+                logger.info('Backed up legacy presets before V2 migration')
+            }
+
             extensionSettings[PRESET_STORAGE_KEY] = {}
+            extensionSettings[V2_FLAG] = true
+
             if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
                 ctx.saveSettingsDebounced()
             }
-            extensionSettings[V2_FLAG] = true
-            logger.info('Cleared old preset storage for V2 upgrade')
+
+            logger.info(hasLegacyData ? 'V2 migration completed with backup' : 'V2 migration completed (no legacy data)')
         }
 
         if (!settings.autoGeneration) {
@@ -556,7 +565,7 @@ function ensureSettings() {
     }
 }
 
-function getSettings() {
+export function getSettings() {
     return ensureSettings()
 }
 
@@ -1008,12 +1017,6 @@ export function applyPresetToCharacter(presetId) {
         }
     }
 
-    // Save to character if per-character is enabled
-    if (settings.perCharacter?.enabled) {
-        syncPerCharacterStorage()
-    }
-
-    // Save and sync UI
     saveSettings()
     return true
 }
@@ -1041,12 +1044,6 @@ export function savePresetToCharacter(presetId) {
         }
     }
 
-    // Save to character if per-character is enabled
-    if (settings.perCharacter?.enabled) {
-        syncPerCharacterStorage()
-    }
-
-    // Save and sync UI
     saveSettings()
     return true
 }
@@ -1054,11 +1051,7 @@ export function savePresetToCharacter(presetId) {
 export function loadPresetToCharacter(presetId) {
     const success = loadPreset(presetId)
     if (success) {
-        // Also save to character if per-character is enabled
-        const settings = getSettings()
-        if (settings.perCharacter?.enabled) {
-            syncPerCharacterStorage()
-        }
+        saveSettings()
         logger.info('Preset loaded to character', { presetId })
     }
     return success
@@ -1434,7 +1427,7 @@ function getSwipePlan(settings) {
 }
 
 
-function getPresetStorage() {
+export function getPresetStorage() {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.extensionSettings) {
@@ -1486,7 +1479,7 @@ export function getPreset(id) {
     return presets[id] || null
 }
 
-export function savePreset(id, name, settings) {
+export function savePreset(id, name, settings, createdAt) {
     const presets = getAllPresets()
     const { presets: _, ...settingsWithoutPresets } = settings
     const existing = presets[id]
@@ -1499,7 +1492,7 @@ export function savePreset(id, name, settings) {
             id,
             name,
             settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
-            createdAt: new Date().toISOString(),
+            createdAt: createdAt || new Date().toISOString(),
         }
     }
 
@@ -1660,7 +1653,7 @@ export async function handleImportPreset() {
 
     fileInput.click()
 
-    fileInput.addEventListener('change', async (event) => {
+    fileInput.onchange = async (event) => {
         const file = event.target.files?.[0]
         if (!file) return
 
@@ -1674,10 +1667,10 @@ export async function handleImportPreset() {
                 const existing = Object.values(existingPresets).find(p => p.name === presetData.name)
 
                 if (existing) {
-                    savePreset(existing.id, presetData.name, presetData.settings)
+                    savePreset(existing.id, presetData.name, presetData.settings, presetData.createdAt)
                     showToastr('warning', `Preset "${presetData.name}" overwritten with imported version`, 'Preset Imported')
                 } else {
-                    savePreset(presetData.id, presetData.name, presetData.settings)
+                    savePreset(presetData.id, presetData.name, presetData.settings, presetData.createdAt)
                     showToastr('success', `Preset "${presetData.name}" imported successfully`, 'Preset Imported')
                 }
             } catch (error) {
@@ -1693,7 +1686,7 @@ export async function handleImportPreset() {
             fileInput.value = ''
         }
         reader.readAsText(file)
-    }, { once: true })
+    }
 }
 
 function renderPresets() {

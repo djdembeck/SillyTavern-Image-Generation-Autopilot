@@ -30,6 +30,8 @@ let applyPresetToCharacter
 let savePresetToCharacter
 let loadPresetToCharacter
 let loadPreset
+let getSettings
+let getPresetStorage
 
 const MODULE_NAME = 'Image-Generation-Autopilot'
 const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
@@ -122,6 +124,8 @@ beforeAll(async () => {
     savePresetToCharacter = mod.savePresetToCharacter
     loadPresetToCharacter = mod.loadPresetToCharacter
     loadPreset = mod.loadPreset
+    getSettings = mod.getSettings
+    getPresetStorage = mod.getPresetStorage
 })
 
 describe('Preset Import/Export', () => {
@@ -440,17 +444,55 @@ describe('Preset Import/Export', () => {
         })
     })
 
+    describe('V2 migration gate', () => {
+        it('clears presets when V2 flag is not set (migration runs)', () => {
+            setupMockContext({
+                preset_legacy: {
+                    id: 'preset_legacy',
+                    name: 'Legacy Preset',
+                    settings: JSON.parse(JSON.stringify(VALID_SETTINGS)),
+                    createdAt: '2026-01-01T00:00:00.000Z',
+                },
+            })
+            delete mockExtensionSettings[MODULE_NAME + '_presetsV2']
+
+            const settings = getSettings()
+
+            const presets = getPresetStorage()
+            const presetKeys = Object.keys(presets)
+            expect(presetKeys.length).toBe(0)
+            expect(mockExtensionSettings[MODULE_NAME + '_presetsV2']).toBe(true)
+            expect(mockExtensionSettings[PRESET_STORAGE_KEY + '_legacy_backup']).toBeDefined()
+        })
+
+        it('preserves presets when V2 flag is already set (no second cleanup)', () => {
+            setupMockContext({
+                preset_v2: {
+                    id: 'preset_v2',
+                    name: 'V2 Preset',
+                    settings: JSON.parse(JSON.stringify(VALID_SETTINGS)),
+                    createdAt: '2026-04-01T00:00:00.000Z',
+                },
+            })
+            mockExtensionSettings[MODULE_NAME + '_presetsV2'] = true
+
+            const settings = getSettings()
+
+            const presets = getPresetStorage()
+            expect(Object.keys(presets).length).toBe(1)
+            expect(presets.preset_v2).toBeDefined()
+            expect(presets.preset_v2.name).toBe('V2 Preset')
+        })
+    })
+
     describe('handleImportPreset', () => {
         let mockFileInput
-        let changeListeners
         let toastrCalls
 
         beforeEach(() => {
             setupMockContext({})
-            changeListeners = []
             toastrCalls = []
 
-            // Mock toastr to capture calls
             globalThis.window.toastr = {
                 success: (msg, title) => toastrCalls.push({ level: 'success', msg, title }),
                 error: (msg, title) => toastrCalls.push({ level: 'error', msg, title }),
@@ -459,18 +501,12 @@ describe('Preset Import/Export', () => {
             }
             globalThis.toastr = globalThis.window.toastr
 
-            // Mock file input element
             mockFileInput = {
                 click: mock(() => {}),
-                addEventListener: mock((event, listener, options) => {
-                    if (event === 'change') {
-                        changeListeners.push({ listener, options })
-                    }
-                }),
+                onchange: null,
                 value: '',
             }
 
-            // Mock document.getElementById to return our mock file input
             const origGetElementById = globalThis.document.getElementById
             globalThis.document.getElementById = (id) => {
                 if (id === 'auto_multi_preset_file_input') return mockFileInput
@@ -479,29 +515,24 @@ describe('Preset Import/Export', () => {
         })
 
         function simulateFileSelect(fileContent) {
-            // Simulate the change event with a mock file
             const mockFile = { type: 'application/json' }
             const mockReader = {
                 onload: null,
                 readAsText: mock(function (file) {
-                    // Simulate FileReader completing synchronously
                     if (this.onload) {
                         this.onload({ target: { result: fileContent } })
                     }
                 }),
             }
 
-            // Mock FileReader constructor
             const OrigFileReader = globalThis.FileReader
             globalThis.FileReader = mock(function () { return mockReader })
 
-            // Trigger the change listener
             const changeEvent = { target: { files: [mockFile] } }
-            for (const { listener } of changeListeners) {
-                listener(changeEvent)
+            if (mockFileInput.onchange) {
+                mockFileInput.onchange(changeEvent)
             }
 
-            // Restore
             globalThis.FileReader = OrigFileReader
         }
 
@@ -510,10 +541,10 @@ describe('Preset Import/Export', () => {
             expect(mockFileInput.click).toHaveBeenCalled()
         })
 
-        it('registers a change event listener with { once: true }', async () => {
+        it('assigns an onchange handler on the file input', async () => {
             await handleImportPreset()
-            expect(changeListeners.length).toBe(1)
-            expect(changeListeners[0].options).toEqual({ once: true })
+            expect(mockFileInput.onchange).toBeDefined()
+            expect(typeof mockFileInput.onchange).toBe('function')
         })
 
         it('imports a valid preset and shows success toast', async () => {
@@ -583,9 +614,8 @@ describe('Preset Import/Export', () => {
 
         it('returns early if file input element not found', async () => {
             globalThis.document.getElementById = () => null
-            // Should not throw
             await handleImportPreset()
-            expect(changeListeners.length).toBe(0)
+            expect(mockFileInput.onchange).toBeNull()
         })
 
         it('does nothing when no file is selected (files array empty)', async () => {
@@ -596,8 +626,8 @@ describe('Preset Import/Export', () => {
             globalThis.FileReader = mock(function () { return { onload: null, readAsText: mock(() => {}) } })
 
             const changeEvent = { target: { files: [] } }
-            for (const { listener } of changeListeners) {
-                listener(changeEvent)
+            if (mockFileInput.onchange) {
+                mockFileInput.onchange(changeEvent)
             }
 
             globalThis.FileReader = OrigFileReader
@@ -975,8 +1005,8 @@ describe('Preset Import/Export', () => {
             const queueSettings = JSON.parse(JSON.stringify(VALID_SETTINGS))
             queueSettings.modelQueueEnabled = true
             queueSettings.modelQueue = [
-                { modelId: 'sd-1.5', count: 3 },
-                { modelId: 'sdxl-turbo', count: 2 },
+                { id: 'sd-1.5', count: 3 },
+                { id: 'sdxl-turbo', count: 2 },
             ]
             savePreset('preset_queue', 'Queue Test', queueSettings)
 
@@ -984,12 +1014,23 @@ describe('Preset Import/Export', () => {
             const imported = parsePresetFromImport(json)
             savePreset(imported.id, imported.name, imported.settings)
 
+            mockExtensionSettings[MODULE_NAME + '_presetsV2'] = true
+            loadPreset(imported.id)
+            const ctx = SillyTavern.getContext()
+            const activeSettings = ctx.extensionSettings[MODULE_NAME]
+            expect(activeSettings.modelQueueEnabled).toBe(true)
+            expect(activeSettings.modelQueue).toHaveLength(2)
+            expect(activeSettings.modelQueue[0].id).toBe('sd-1.5')
+            expect(activeSettings.modelQueue[0].count).toBe(3)
+            expect(activeSettings.modelQueue[1].id).toBe('sdxl-turbo')
+            expect(activeSettings.modelQueue[1].count).toBe(2)
+
             const loaded = getPreset(imported.id)
             expect(loaded.settings.modelQueueEnabled).toBe(true)
             expect(loaded.settings.modelQueue).toHaveLength(2)
-            expect(loaded.settings.modelQueue[0].modelId).toBe('sd-1.5')
+            expect(loaded.settings.modelQueue[0].id).toBe('sd-1.5')
             expect(loaded.settings.modelQueue[0].count).toBe(3)
-            expect(loaded.settings.modelQueue[1].modelId).toBe('sdxl-turbo')
+            expect(loaded.settings.modelQueue[1].id).toBe('sdxl-turbo')
             expect(loaded.settings.modelQueue[1].count).toBe(2)
         })
 
@@ -1148,7 +1189,6 @@ describe('Preset Import/Export', () => {
         })
 
         it('overwrite via handleImportPreset with same name shows warning toast', async () => {
-            // Pre-save a preset with the same name
             savePreset('preset_import_ow', 'Same Name Import', JSON.parse(JSON.stringify(VALID_SETTINGS)))
 
             let toastrCalls = []
@@ -1160,12 +1200,9 @@ describe('Preset Import/Export', () => {
             }
             globalThis.toastr = globalThis.window.toastr
 
-            let changeListeners = []
             const mockFileInput = {
                 click: mock(() => {}),
-                addEventListener: mock((event, listener, options) => {
-                    if (event === 'change') changeListeners.push({ listener, options })
-                }),
+                onchange: null,
                 value: '',
             }
 
@@ -1177,7 +1214,6 @@ describe('Preset Import/Export', () => {
             const presetJson = JSON.stringify(createValidPreset({ name: 'Same Name Import', settings: { ...JSON.parse(JSON.stringify(VALID_SETTINGS)), targetCount: 15 } }))
             await handleImportPreset()
 
-            // Simulate file read
             const mockReader = {
                 onload: null,
                 readAsText: mock(function (file) {
@@ -1187,16 +1223,14 @@ describe('Preset Import/Export', () => {
             globalThis.FileReader = mock(function () { return mockReader })
 
             const changeEvent = { target: { files: [{ type: 'application/json' }] } }
-            for (const { listener } of changeListeners) {
-                listener(changeEvent)
+            if (mockFileInput.onchange) {
+                mockFileInput.onchange(changeEvent)
             }
 
-            // Should show warning toast about overwrite
             expect(toastrCalls.length).toBe(1)
             expect(toastrCalls[0].level).toBe('warning')
             expect(toastrCalls[0].msg).toContain('overwritten')
 
-            // Settings should be updated
             expect(getPreset('preset_import_ow').settings.targetCount).toBe(15)
         })
     })
