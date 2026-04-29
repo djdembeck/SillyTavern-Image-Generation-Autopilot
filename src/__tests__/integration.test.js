@@ -48,6 +48,7 @@ function buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI) {
             window.toastr[level](message, title)
         }
     }
+    const clampMessageDepth = (value) => Math.max(1, Math.min(10, Number(value) || 1))
     return buildIndexFunction(
         generateSummarizedPromptSource,
         'generateSummarizedPrompt',
@@ -63,6 +64,7 @@ function buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI) {
             },
             stripPicTags,
             showToastr,
+            clampMessageDepth,
         },
     )
 }
@@ -168,6 +170,11 @@ describe('full flow integration', () => {
     })
 
     it('runs auto-generate flow from incoming message through image insertion', async () => {
+        const userMessage = {
+            is_user: true,
+            mes: 'User says hello.',
+            name: 'User',
+        }
         const message = {
             is_user: false,
             mes: 'Alice steps into the forest clearing.',
@@ -179,7 +186,7 @@ describe('full flow integration', () => {
         }
         const messageElement = createMockElement('message-element')
         const context = {
-            chat: [message],
+            chat: [userMessage, message],
             name1: 'User',
             saveChat: mock(async () => {}),
             reloadCurrentChat: mock(async () => {}),
@@ -197,7 +204,7 @@ describe('full flow integration', () => {
         }
 
         globalThis.document.querySelector = mock((selector) => {
-            if (selector === '.mes[mesid="0"]') {
+            if (selector === '.mes[mesid="1"]') {
                 return messageElement
             }
             return null
@@ -213,6 +220,7 @@ describe('full flow integration', () => {
         const getCtx = mock(() => context)
         const getSettings = mock(() => settings)
         const summarizeWithAI = mock(async () => 'Characters:\n- Alice\n\nScene: Misty forest clearing')
+        const enforcePromptLengthMock = mock(async (prompt) => prompt)
         const openImageSelectionDialog = mock(async (prompts, sourceMessageId) => ({
             selected: ['image://selected-1'],
             destination: 'current',
@@ -259,6 +267,7 @@ describe('full flow integration', () => {
                 getCtx,
                 summarizeWithAI,
                 generateSummarizedPrompt,
+                enforcePromptLength: mock(async (prompt) => prompt),
                 getSwipeTotal: mock(() => 2),
                 openImageSelectionDialog,
                 handleDialogResult,
@@ -271,7 +280,7 @@ describe('full flow integration', () => {
             },
         )
 
-        await handleIncomingMessage(0)
+        await handleIncomingMessage(1)
 
         expect(summarizeWithAI).toHaveBeenCalledTimes(1)
         expect(summarizeWithAI).toHaveBeenCalledWith(
@@ -292,13 +301,113 @@ describe('full flow integration', () => {
                 'Characters:\n- Alice\n\nScene: Misty forest clearing',
                 'Characters:\n- Alice\n\nScene: Misty forest clearing',
             ],
-            0,
+            1,
         )
         expect(appendGeneratedMedia).toHaveBeenCalledWith(message, 'image://selected-1', '', true)
         expect(message.extra.media).toEqual([{ url: 'image://selected-1' }])
         expect(globalThis.window.appendMediaToMessage).toHaveBeenCalledWith(message, messageElement)
         expect(context.saveChat).toHaveBeenCalledTimes(1)
         expect(context.reloadCurrentChat).toHaveBeenCalledTimes(1)
+    })
+
+    it('calls enforcePromptLength before opening dialog', async () => {
+        const userMessage = {
+            is_user: true,
+            mes: 'User input.',
+            name: 'User',
+        }
+        const message = {
+            is_user: false,
+            mes: 'Test message.',
+            name: 'Alice',
+            extra: { media: [], media_index: 0 },
+        }
+        const messageElement = createMockElement('message-element')
+        const context = {
+            chat: [userMessage, message],
+            name1: 'User',
+            saveChat: mock(async () => {}),
+            reloadCurrentChat: mock(async () => {}),
+        }
+        const settings = {
+            concurrency: 1,
+            autoGeneration: {
+                enabled: true,
+                insertType: 'inline',
+                summarizer: { messageDepth: 1, systemPromptTemplate: 'template' },
+            },
+        }
+
+        globalThis.document.querySelector = mock((selector) => {
+            if (selector === '.mes[mesid="1"]') return messageElement
+            return null
+        })
+
+        const appendGeneratedMedia = mock((targetMessage, url) => {
+            targetMessage.extra.media.push({ url })
+        })
+        const sanitizeMessageMediaState = mock()
+        const waitForMessageElement = mock(async () => messageElement)
+        const createPlaceholderImageMessage = mock(async () => 1)
+        const hasGeneratedMedia = mock(() => false)
+        const getCtx = mock(() => context)
+        const getSettings = mock(() => settings)
+        const summarizeWithAI = mock(async () => 'Summary')
+        const enforcePromptLengthMock = mock(async (prompt) => prompt)
+        const openImageSelectionDialog = mock(async (prompts, sourceMessageId) => ({
+            selected: ['image://selected-1'],
+            destination: 'current',
+            sourceMessageId,
+            prompts,
+        }))
+
+        const handleDialogResult = buildIndexFunction(
+            handleDialogResultSource,
+            'handleDialogResult',
+            {
+                getCtx,
+                getSettings,
+                INSERT_TYPE: { NEW_MESSAGE: 'new' },
+                appendGeneratedMedia,
+                document: globalThis.document,
+                waitForMessageElement,
+                window: globalThis.window,
+                sanitizeMessageMediaState,
+                createPlaceholderImageMessage,
+                hasGeneratedMedia,
+                log: mock(),
+            },
+        )
+
+        const generateSummarizedPrompt = buildGenerateSummarizedPrompt(getSettings, getCtx, summarizeWithAI)
+
+        const handleIncomingMessage = buildIndexFunction(
+            handleIncomingMessageSource,
+            'handleIncomingMessage',
+            {
+                state: { chatToken: 1, autoGenMessages: new Set() },
+                log: mock(),
+                getSettings,
+                sleep: mock(async () => {}),
+                INSERT_TYPE: { DISABLED: 'disabled' },
+                getCtx,
+                summarizeWithAI,
+                generateSummarizedPrompt,
+                enforcePromptLength: enforcePromptLengthMock,
+                getSwipeTotal: mock(() => 1),
+                openImageSelectionDialog,
+                handleDialogResult,
+                logger: { error: mock(), warn: mock() },
+                window: globalThis.window,
+                stripPicTags,
+            },
+        )
+
+        await handleIncomingMessage(1)
+
+        expect(enforcePromptLengthMock).toHaveBeenCalledTimes(1)
+        expect(enforcePromptLengthMock).toHaveBeenCalledWith('Summary', undefined, undefined)
+        expect(openImageSelectionDialog).toHaveBeenCalled()
     })
 
     it('updates the working prompt when resummarize is clicked', async () => {
@@ -419,6 +528,7 @@ describe('full flow integration', () => {
                 getCtx,
                 summarizeWithAI,
                 generateSummarizedPrompt,
+                enforcePromptLength: mock(async (prompt) => prompt),
                 getSwipeTotal: mock(() => 2),
                 openImageSelectionDialog,
                 handleDialogResult,
@@ -485,6 +595,11 @@ describe('full flow integration', () => {
         const context = {
             chat: [
                 {
+                    is_user: true,
+                    mes: 'User says hi',
+                    name: 'User',
+                },
+                {
                     is_user: false,
                     mes: 'A broken message',
                     name: 'Alice',
@@ -530,6 +645,7 @@ describe('full flow integration', () => {
                 getCtx,
                 summarizeWithAI,
                 generateSummarizedPrompt,
+                enforcePromptLength: mock(async (prompt) => prompt),
                 getSwipeTotal: mock(() => 1),
                 openImageSelectionDialog,
                 handleDialogResult,
@@ -542,7 +658,7 @@ describe('full flow integration', () => {
             },
         )
 
-        await handleIncomingMessage(0)
+        await handleIncomingMessage(1)
 
         expect(summarizeWithAI).toHaveBeenCalledTimes(1)
         expect(globalThis.window.toastr.error).toHaveBeenCalledWith(

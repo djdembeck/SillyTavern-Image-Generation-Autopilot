@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, it, beforeEach, afterEach, beforeAll } from 'bun:test'
 
 // Mock the SillyTavern API
 const mockChatCompletion = async (messages, options) => {
@@ -100,7 +100,6 @@ describe('summarizeWithAI', () => {
             expect(messagesSent[1].role).toBe('user')
             // Verify the last message (msg9) is in user prompt content
             expect(messagesSent[1].content).toContain('msg9')  // last of 5 messages (indices 5,6,7,8,9)
-            // Verify all 5 messages (indices 5-9) are present
             // Verify all 5 messages (indices 5-9) are present - use newline to avoid substring matches
             expect(messagesSent[1].content).toContain('msg5\n')
             expect(messagesSent[1].content).toContain('msg6\n')
@@ -341,33 +340,34 @@ describe('summarizeWithAI', () => {
 })
 
 describe('getCharacterDescription', () => {
+    let getCharacterDescription;
+
+    beforeAll(async () => {
+        const mod = await import('../summarizer.js');
+        getCharacterDescription = mod.getCharacterDescription;
+    });
+
     beforeEach(() => {
-        delete globalThis.SillyTavern
-    })
+        delete globalThis.SillyTavern;
+    });
 
-    it('returns empty string for null charName', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        expect(getCharacterDescription(null)).toBe('')
-    })
+    it('returns empty string for null charName', () => {
+        expect(getCharacterDescription(null)).toBe('');
+    });
 
-    it('returns empty string for undefined charName', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        expect(getCharacterDescription(undefined)).toBe('')
-    })
+    it('returns empty string for undefined charName', () => {
+        expect(getCharacterDescription(undefined)).toBe('');
+    });
 
-    it('returns empty string for empty string charName', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        expect(getCharacterDescription('')).toBe('')
-    })
+    it('returns empty string for empty string charName', () => {
+        expect(getCharacterDescription('')).toBe('');
+    });
 
-    it('returns empty string when SillyTavern context is unavailable', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        expect(getCharacterDescription('Alice')).toBe('')
-    })
+    it('returns empty string when SillyTavern context is unavailable', () => {
+        expect(getCharacterDescription('Alice')).toBe('');
+    });
 
-    it('returns empty string when characters array is empty', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('returns empty string when characters array is empty', () => {
         globalThis.SillyTavern = {
             getContext: () => ({ characters: [] })
         }
@@ -375,9 +375,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('')
     })
 
-    it('returns description from array format characters', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('returns description from array format characters', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: [
@@ -395,9 +393,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('A brave adventurer with red hair')
     })
 
-    it('returns description from object format characters', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('returns description from object format characters', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: {
@@ -411,9 +407,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('A brave adventurer with red hair')
     })
 
-    it('handles case-insensitive lookup in object format', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('handles case-insensitive lookup in object format', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: {
@@ -427,9 +421,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
     })
 
-    it('handles case-insensitive lookup in array format', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('handles case-insensitive lookup in array format', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: [
@@ -447,9 +439,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
     })
 
-    it('returns empty string for non-existent character', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('returns empty string for non-existent character', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: [
@@ -467,9 +457,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('')
     })
 
-    it('returns empty string when character has no description', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('returns empty string when character has no description', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: [
@@ -486,9 +474,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('')
     })
 
-    it('trims whitespace from description', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('trims whitespace from description', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: [
@@ -506,9 +492,7 @@ describe('getCharacterDescription', () => {
         expect(getCharacterDescription('Alice')).toBe('A brave adventurer')
     })
 
-    it('handles character name with displayName field', async () => {
-        const { getCharacterDescription } = await import('../summarizer.js')
-        
+    it('handles character name with displayName field', () => {
         globalThis.SillyTavern = {
             getContext: () => ({
                 characters: [

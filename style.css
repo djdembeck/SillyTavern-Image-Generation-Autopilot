@@ -1105,23 +1105,6 @@
     opacity: 0.85;
 }
 
-.auto-multi-image-settings .auto-multi-count-group {
-    display: grid;
-    grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(90px, 0.6fr));
-    gap: 12px;
-    align-items: end;
-}
-
-.auto-multi-image-settings .auto-multi-count-field.is-hidden {
-    display: none;
-}
-
-@media (max-width: 720px) {
-    .auto-multi-image-settings .auto-multi-count-group {
-        grid-template-columns: 1fr;
-    }
-}
-
 .auto-multi-image-settings .auto-multi-panel--queue header {
     align-items: center;
 }
@@ -1357,14 +1340,14 @@
 }
 
 .auto-multi-image-settings .auto-multi-preset-create {
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 16px;
 }
 
 .auto-multi-image-settings .auto-multi-preset-input {
-    width: 100%;
+    flex: 1 1 160px;
     min-width: 0;
     padding: 10px 14px;
     background: rgba(0, 0, 0, 0.3);
@@ -1386,11 +1369,9 @@
     background: rgba(0, 0, 0, 0.4);
 }
 
-.auto-multi-image-settings .auto-multi-preset-save {
+.auto-multi-image-settings .auto-multi-preset-btn {
     min-width: 80px;
     padding: 10px 16px;
-    background: linear-gradient(135deg, rgba(123, 181, 255, 0.25), rgba(138, 123, 255, 0.2));
-    border: 1px solid rgba(123, 181, 255, 0.4);
     border-radius: 10px;
     color: rgba(255, 255, 255, 0.95);
     font-size: 0.9rem;
@@ -1403,11 +1384,61 @@
     transition: all 0.2s ease;
 }
 
+.auto-multi-image-settings .auto-multi-preset-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.auto-multi-image-settings .auto-multi-preset-save {
+    background: linear-gradient(135deg, rgba(123, 181, 255, 0.25), rgba(138, 123, 255, 0.2));
+    border: 1px solid rgba(123, 181, 255, 0.4);
+}
+
 .auto-multi-image-settings .auto-multi-preset-save:hover {
     background: linear-gradient(135deg, rgba(123, 181, 255, 0.35), rgba(138, 123, 255, 0.3));
     border-color: rgba(123, 181, 255, 0.6);
-    transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(123, 181, 255, 0.2);
+}
+
+.auto-multi-image-settings .auto-multi-preset-import {
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.15));
+    border: 1px solid rgba(76, 175, 80, 0.4);
+}
+
+.auto-multi-image-settings .auto-multi-preset-import:hover {
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.35), rgba(76, 175, 80, 0.25));
+    border-color: rgba(76, 175, 80, 0.6);
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.2);
+}
+
+.auto-multi-image-settings .auto-multi-preset-export {
+    background: linear-gradient(135deg, rgba(33, 150, 243, 0.25), rgba(33, 150, 243, 0.15));
+    border: 1px solid rgba(33, 150, 243, 0.4);
+}
+
+.auto-multi-image-settings .auto-multi-preset-export:hover {
+    background: linear-gradient(135deg, rgba(33, 150, 243, 0.35), rgba(33, 150, 243, 0.25));
+    border-color: rgba(33, 150, 243, 0.6);
+    box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2);
+}
+
+.auto-multi-image-settings .auto-multi-preset-export-btn {
+    padding: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    background: rgba(33, 150, 243, 0.15);
+    border: 1px solid rgba(33, 150, 243, 0.3);
+    color: rgba(33, 150, 243, 0.9);
+}
+
+.auto-multi-image-settings .auto-multi-preset-export-btn:hover {
+    background: rgba(33, 150, 243, 0.25);
+    border-color: rgba(33, 150, 243, 0.5);
 }
 
 .auto-multi-image-settings .auto-multi-preset-list {
@@ -1428,6 +1459,16 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     transition: all 0.2s ease;
     gap: 14px;
+}
+
+.auto-multi-image-settings .auto-multi-preset-item--active {
+    border-left: 3px solid #4CAF50;
+    background: rgba(76, 175, 80, 0.05);
+}
+
+.auto-multi-image-settings .auto-multi-preset-save--active {
+    background: linear-gradient(135deg, rgba(76, 175, 80, 0.25), rgba(76, 175, 80, 0.15));
+    border-color: rgba(76, 175, 80, 0.4);
 }
 
 .auto-multi-image-settings .auto-multi-preset-body {
@@ -1513,13 +1554,6 @@
     color: rgba(255, 100, 100, 0.95);
 }
 
-.auto-multi-image-settings .auto-multi-divider {
-    border: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    margin: 16px 0;
-    width: 100%;
-}
-
 .auto-multi-image-settings .auto-multi-preset-empty {
     display: flex;
     flex-direction: column;
@@ -1530,4 +1564,8 @@
     text-align: center;
     color: rgba(255, 255, 255, 0.4);
     font-size: 0.9rem;
+}
+
+.auto-multi-hidden-input {
+    display: none;
 }

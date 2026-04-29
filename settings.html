@@ -210,6 +210,30 @@
                             ></textarea>
                         </label>
                     </div>
+                    <div class="auto-multi-grid">
+                        <label title="Method used to enforce the maximum length of the generated prompt. None = no limit, Characters = character count, Tokens = Qwen2 token count.">
+                            <span>Prompt length limit type</span>
+                            <select
+                                id="auto_multi_prompt_length_limit_type"
+                                class="text_pole"
+                            >
+                                <option value="none">None</option>
+                                <option value="characters">Characters</option>
+                                <option value="tokens">Tokens</option>
+                            </select>
+                        </label>
+                        <label title="Maximum prompt length. Only used when length limit type is set to Characters or Tokens. Set to 0 to disable.">
+                            <span>Prompt length limit</span>
+                            <input
+                                type="number"
+                                min="0"
+                                max="8000"
+                                step="50"
+                                id="auto_multi_prompt_length_limit"
+                                class="text_pole"
+                            />
+                        </label>
+                    </div>
                 </div>
 
             </section>
@@ -337,12 +361,36 @@
                     <button
                         type="button"
                         id="auto_multi_save_preset_button"
-                        class="menu_button auto-multi-preset-save"
+                        class="menu_button auto-multi-preset-btn auto-multi-preset-save"
                         title="Save current settings as a new preset"
                     >
                         <span class="fa-solid fa-floppy-disk" aria-hidden="true"></span>
                         <span>Save</span>
                     </button>
+                    <button
+                        type="button"
+                        id="auto_multi_import_preset_button"
+                        class="menu_button auto-multi-preset-btn auto-multi-preset-import"
+                        title="Import a preset from a JSON file"
+                    >
+                        <span class="fa-solid fa-file-import" aria-hidden="true"></span>
+                        <span>Import</span>
+                    </button>
+                    <button
+                        type="button"
+                        id="auto_multi_export_preset_button"
+                        class="menu_button auto-multi-preset-btn auto-multi-preset-export"
+                        title="Export selected preset as a JSON file"
+                    >
+                        <span class="fa-solid fa-file-export" aria-hidden="true"></span>
+                        <span>Export</span>
+                    </button>
+                    <input
+                        type="file"
+                        id="auto_multi_preset_file_input"
+                        accept=".json,application/json"
+                        class="auto-multi-hidden-input"
+                    />
                 </div>
 
                 <div class="auto-multi-preset-list" id="auto_multi_preset_list" role="list" aria-label="Saved presets">

@@ -1,6 +1,7 @@
 import { summarizeWithAI } from './src/summarizer.js'
 
 const MODULE_NAME = 'Image-Generation-Autopilot'
+const MAX_TOKEN_LIMIT = 8000
 const INSERT_TYPE = Object.freeze({
     DISABLED: 'disabled',
     INLINE: 'inline',
@@ -25,6 +26,14 @@ function stripPicTags(content) {
         .replace(STRIP_PIC_TAG_REGEX, '')
         .replace(CLOSE_PIC_TAG_REGEX, '')
         .trim()
+}
+
+function isPlainObject(v) {
+    return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function clampMessageDepth(value) {
+    return Math.max(1, Math.min(10, parseInt(value, 10) || 1))
 }
 
 const defaultSettings = Object.freeze({
@@ -453,47 +462,28 @@ function ensureSettings() {
         deepMergeDefaults(extensionSettings[MODULE_NAME], defaultSettings)
         const settings = extensionSettings[MODULE_NAME]
 
-        // Migration: Clear old presets that contain circular references
-        // Only delete presets that have actual circular references (preset.settings.presets === the preset itself)
-        if (settings.presets && Object.keys(settings.presets).length > 0) {
-            const presetsWithCircularRefs = []
-            for (const [presetId, preset] of Object.entries(settings.presets)) {
-                if (preset.settings && preset.settings.presets) {
-                    // Check if this is a circular reference (the presets property contains the preset itself)
-                    if (preset.settings.presets[presetId] === preset) {
-                        presetsWithCircularRefs.push(presetId)
-                        logger.debug('Found preset with circular reference:', { presetId, presetName: preset.name })
-                    }
-                }
-            }
-            if (presetsWithCircularRefs.length > 0) {
-                logger.debug('Clearing presets with circular references:', presetsWithCircularRefs)
-                for (const presetId of presetsWithCircularRefs) {
-                    delete settings.presets[presetId]
-                }
-            }
-        }
+        const V2_FLAG = MODULE_NAME + '_presetsV2'
+        if (!extensionSettings[V2_FLAG]) {
+            const legacyPresets = extensionSettings[PRESET_STORAGE_KEY]
+            const hasLegacyData = legacyPresets && Object.keys(legacyPresets).length > 0
 
-        // Migration: Move presets from old location to separate storage key
-        // This fixes the race condition between saveSettings() and savePresetToStorage()
-        if (settings.presets && Object.keys(settings.presets).length > 0) {
-            if (!extensionSettings[PRESET_STORAGE_KEY]) {
-                extensionSettings[PRESET_STORAGE_KEY] = {}
+            if (hasLegacyData) {
+                try {
+                    extensionSettings[PRESET_STORAGE_KEY + '_legacy_backup'] = JSON.parse(JSON.stringify(legacyPresets))
+                    logger.info('Backed up legacy presets before V2 migration')
+                } catch (error) {
+                    logger.warn('Failed to backup legacy presets (circular data or serialization error)', { error, legacyPresetsCount: Object.keys(legacyPresets).length })
+                }
             }
-            // Only migrate if the new storage is empty or has fewer presets
-            if (
-                Object.keys(extensionSettings[PRESET_STORAGE_KEY]).length <
-                Object.keys(settings.presets).length
-            ) {
-                logger.debug('Migrating presets from old location to separate storage key')
-                extensionSettings[PRESET_STORAGE_KEY] = JSON.parse(
-                    JSON.stringify(settings.presets),
-                )
-                // Clear the old location after successful migration
-                delete settings.presets
-                // Save the migrated presets to persist the changes
+
+            extensionSettings[PRESET_STORAGE_KEY] = {}
+            extensionSettings[V2_FLAG] = true
+
+            if (ctx && typeof ctx.saveSettingsDebounced === 'function') {
                 ctx.saveSettingsDebounced()
             }
+
+            logger.info(hasLegacyData ? 'V2 migration completed with backup' : 'V2 migration completed (no legacy data)')
         }
 
         if (!settings.autoGeneration) {
@@ -588,7 +578,7 @@ function ensureSettings() {
     }
 }
 
-function getSettings() {
+export function getSettings() {
     return ensureSettings()
 }
 
@@ -1017,7 +1007,7 @@ function syncPerCharacterStorage() {
 
 // ==================== PRESET CHARACTER INTEGRATION ====================
 
-function applyPresetToCharacter(presetId) {
+export function applyPresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
         logger.warn('Preset not found:', presetId)
@@ -1040,17 +1030,11 @@ function applyPresetToCharacter(presetId) {
         }
     }
 
-    // Save to character if per-character is enabled
-    if (settings.perCharacter?.enabled) {
-        syncPerCharacterStorage()
-    }
-
-    // Save and sync UI
     saveSettings()
     return true
 }
 
-function savePresetToCharacter(presetId) {
+export function savePresetToCharacter(presetId) {
     const preset = getPreset(presetId)
     if (!preset) {
         logger.warn('Preset not found:', presetId)
@@ -1073,24 +1057,13 @@ function savePresetToCharacter(presetId) {
         }
     }
 
-    // Save to character if per-character is enabled
-    if (settings.perCharacter?.enabled) {
-        syncPerCharacterStorage()
-    }
-
-    // Save and sync UI
     saveSettings()
     return true
 }
 
-function loadPresetToCharacter(presetId) {
+export function loadPresetToCharacter(presetId) {
     const success = loadPreset(presetId)
     if (success) {
-        // Also save to character if per-character is enabled
-        const settings = getSettings()
-        if (settings.perCharacter?.enabled) {
-            syncPerCharacterStorage()
-        }
         logger.info('Preset loaded to character', { presetId })
     }
     return success
@@ -1466,7 +1439,7 @@ function getSwipePlan(settings) {
 }
 
 
-function getPresetStorage() {
+export function getPresetStorage() {
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.extensionSettings) {
@@ -1513,26 +1486,33 @@ function getAllPresets() {
     return getPresetStorage()
 }
 
-function getPreset(id) {
+export function getPreset(id) {
     const presets = getAllPresets()
     return presets[id] || null
 }
 
-function savePreset(id, name, settings) {
+export function savePreset(id, name, settings, createdAt) {
     const presets = getAllPresets()
-    // Exclude 'presets' property from saved preset settings to avoid circular reference
     const { presets: _, ...settingsWithoutPresets } = settings
-    presets[id] = {
-        id,
-        name,
-        settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
-        createdAt: new Date().toISOString(),
+    const existing = presets[id]
+
+    if (existing) {
+        existing.name = name
+        existing.settings = JSON.parse(JSON.stringify(settingsWithoutPresets))
+    } else {
+        presets[id] = {
+            id,
+            name,
+            settings: JSON.parse(JSON.stringify(settingsWithoutPresets)),
+            createdAt: createdAt || new Date().toISOString(),
+        }
     }
+
     savePresetToStorage(presets)
     return presets[id]
 }
 
-function deletePreset(id) {
+export function deletePreset(id) {
     const presets = getAllPresets()
     delete presets[id]
     savePresetToStorage(presets)
@@ -1564,7 +1544,7 @@ function handleRenamePreset(id) {
     logger.info('Preset renamed:', { id, oldName: preset.name, newName: trimmedName })
 }
 
-function loadPreset(id) {
+export function loadPreset(id) {
     const preset = getPreset(id)
     if (!preset) {
         logger.warn('Preset not found:', id)
@@ -1594,7 +1574,7 @@ function loadPreset(id) {
     return true
 }
 
-function listPresets() {
+export function listPresets() {
     const presets = getAllPresets()
     return Object.values(presets).sort((a, b) => {
         // Sort by name, then by creation date
@@ -1607,6 +1587,23 @@ function listPresets() {
 
 // ==================== PRESET UI HANDLERS ====================
 
+function updateSaveButtonState() {
+    const saveButton = state.ui.presetSaveButton
+    const activeId = state.ui.activePresetId
+    const activePreset = activeId ? getPreset(activeId) : null
+    const isNameDirty = state.ui.presetNameDirty
+
+    if (saveButton) {
+        if (activePreset && !isNameDirty) {
+            saveButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i> Update'
+            saveButton.classList.add('auto-multi-preset-save--active')
+        } else {
+            saveButton.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save'
+            saveButton.classList.remove('auto-multi-preset-save--active')
+        }
+    }
+}
+
 function handleSavePreset() {
     const name = state.ui.presetNameInput?.value?.trim()
     if (!name) {
@@ -1615,20 +1612,37 @@ function handleSavePreset() {
     }
 
     const currentSettings = getCurrentSettingsSnapshot()
-    const id = 'preset_' + Date.now()
+    const activeId = state.ui.activePresetId
+    const existingPreset = activeId ? getPreset(activeId) : null
 
-    savePreset(id, name, currentSettings)
+    if (existingPreset) {
+        savePreset(activeId, name, currentSettings)
+        logger.info('Preset updated', { id: activeId, name })
+    } else {
+        const id = 'preset_' + Date.now()
+        savePreset(id, name, currentSettings)
+        state.ui.activePresetId = id
+        logger.info('Preset saved', { id, name })
+    }
 
-    // Clear input and re-render
-    state.ui.presetNameInput.value = ''
+    state.ui.activePresetOriginalName = name
+    state.ui.presetNameDirty = false
+
+    updateSaveButtonState()
     renderPresets()
-
-    logger.info('Preset saved', { id, name })
 }
 
 function handleLoadPreset(id) {
     const success = loadPreset(id)
     if (success) {
+        state.ui.activePresetId = id
+        const preset = getPreset(id)
+        if (preset && state.ui.presetNameInput) {
+            state.ui.presetNameInput.value = preset.name
+            state.ui.activePresetOriginalName = preset.name
+        }
+        state.ui.presetNameDirty = false
+        updateSaveButtonState()
         renderPresets()
         logger.info('Preset loaded', { id })
     }
@@ -1640,8 +1654,57 @@ function handleDeletePreset(id) {
     }
 
     deletePreset(id)
+    if (state.ui.activePresetId === id) {
+        state.ui.activePresetId = null
+        updateSaveButtonState()
+    }
     renderPresets()
     logger.info('Preset deleted', { id })
+}
+
+export async function handleImportPreset() {
+    const fileInput = document.getElementById('auto_multi_preset_file_input')
+    if (!fileInput) {
+        logger.error('File input element not found')
+        return
+    }
+
+    fileInput.click()
+
+    fileInput.onchange = async (event) => {
+        const file = event.target.files?.[0]
+        if (!file) return
+
+        const reader = new FileReader()
+        reader.onload = async (e) => {
+            const jsonString = e.target.result
+
+            try {
+                const presetData = parsePresetFromImport(jsonString)
+                const existingPresets = getAllPresets()
+                const existing = Object.values(existingPresets).find(p => p.name === presetData.name)
+
+                if (existing) {
+                    savePreset(existing.id, presetData.name, presetData.settings, presetData.createdAt)
+                    showToastr('warning', `Preset "${presetData.name}" overwritten with imported version`, 'Preset Imported')
+                } else {
+                    savePreset(presetData.id, presetData.name, presetData.settings, presetData.createdAt)
+                    showToastr('success', `Preset "${presetData.name}" imported successfully`, 'Preset Imported')
+                }
+            } catch (error) {
+                showToastr('error', error.message, 'Import Failed')
+            }
+
+            try {
+                renderPresets()
+            } catch {
+                // UI refresh is non-critical; ignore errors in test/headless environments
+            }
+
+            fileInput.value = ''
+        }
+        reader.readAsText(file)
+    }
 }
 
 function renderPresets() {
@@ -1665,8 +1728,9 @@ function renderPresets() {
     container.innerHTML = presets
         .map((preset) => {
             const createdAt = new Date(preset.createdAt).toLocaleString()
+            const isActive = preset.id === state.ui.activePresetId
             return `
-            <div class="auto-multi-preset-item" data-preset-id="${preset.id}" role="listitem">
+            <div class="auto-multi-preset-item${isActive ? ' auto-multi-preset-item--active' : ''}" data-preset-id="${preset.id}" role="listitem">
                 <button
                     type="button"
                     class="auto-multi-preset-body"
@@ -1694,6 +1758,14 @@ function renderPresets() {
                         aria-label="Rename preset ${escapeHtml(preset.name)}"
                     >
                         <span class="fa-solid fa-pen" aria-hidden="true"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="menu_button auto-multi-preset-export-btn"
+                        title="Export this preset"
+                        aria-label="Export preset ${escapeHtml(preset.name)}"
+                    >
+                        <span class="fa-solid fa-file-export" aria-hidden="true"></span>
                     </button>
                     <button
                         type="button"
@@ -1752,6 +1824,18 @@ function renderPresets() {
                 handleRenamePreset(presetId)
             } else {
                 logger.error('Could not get presetId from rename button')
+            }
+        })
+    })
+
+    container.querySelectorAll('.auto-multi-preset-export-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const presetItem = btn.closest('.auto-multi-preset-item')
+            const presetId = presetItem?.dataset.presetId
+            if (presetId) {
+                handleExportPreset(presetId)
             }
         })
     })
@@ -1879,6 +1963,12 @@ async function buildSettingsPanel() {
     const promptNegativeInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#auto_multi_prompt_negative')
     )
+    const promptLengthLimitTypeInput = /** @type {HTMLSelectElement | null} */ (
+        container.querySelector('#auto_multi_prompt_length_limit_type')
+    )
+    const promptLengthLimitInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#auto_multi_prompt_length_limit')
+    )
 
     if (
         !(
@@ -1938,9 +2028,12 @@ async function buildSettingsPanel() {
         promptMainInput,
         promptPositiveInput,
         promptNegativeInput,
+        promptLengthLimitTypeInput,
+        promptLengthLimitInput,
         presetSaveButton: null,
         presetNameInput: null,
         presetListContainer: null,
+        activePresetId: null,
     }
 
     enabledInput.addEventListener('change', () => {
@@ -2022,7 +2115,7 @@ async function buildSettingsPanel() {
 
     summarizerDepthInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(1, Math.min(10, parseInt(summarizerDepthInput.value, 10) || 1))
+        const value = clampMessageDepth(summarizerDepthInput.value)
         current.autoGeneration.summarizer.messageDepth = value
         summarizerDepthInput.value = String(value)
         saveSettings()
@@ -2044,7 +2137,7 @@ async function buildSettingsPanel() {
 
     summarizerMaxTokensInput?.addEventListener('change', () => {
         const current = getSettings()
-        const value = Math.max(0, Math.min(8000, parseInt(summarizerMaxTokensInput.value, 10) || 0))
+        const value = Math.max(0, Math.min(MAX_TOKEN_LIMIT, parseInt(summarizerMaxTokensInput.value, 10) || 0))
         current.autoGeneration.summarizer.maxTokens = value
         summarizerMaxTokensInput.value = String(value)
         saveSettings()
@@ -2116,6 +2209,20 @@ async function buildSettingsPanel() {
         debouncedSaveSettings()
     })
 
+    promptLengthLimitTypeInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.promptInjection.lengthLimitType = promptLengthLimitTypeInput.value
+        saveSettings()
+    })
+
+    promptLengthLimitInput?.addEventListener('change', () => {
+        const current = getSettings()
+        const value = Math.max(0, Math.min(MAX_TOKEN_LIMIT, parseInt(promptLengthLimitInput.value, 10) || 0))
+        current.autoGeneration.promptInjection.lengthLimit = value
+        promptLengthLimitInput.value = String(value)
+        saveSettings()
+    })
+
     addModelButton?.addEventListener('click', (event) => {
         event.preventDefault()
         handleAddModelRow()
@@ -2147,6 +2254,25 @@ async function buildSettingsPanel() {
     presetNameInput?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             handleSavePreset()
+        }
+    })
+    presetNameInput?.addEventListener('input', () => {
+        const currentName = state.ui.presetNameInput.value
+        const originalName = state.ui.activePresetOriginalName
+        state.ui.presetNameDirty = currentName !== originalName
+        updateSaveButtonState()
+    })
+
+    const importButton = container.querySelector('#auto_multi_import_preset_button')
+    importButton?.addEventListener('click', () => handleImportPreset())
+
+    const exportButton = container.querySelector('#auto_multi_export_preset_button')
+    exportButton?.addEventListener('click', () => {
+        const activeId = state.ui.activePresetId
+        if (activeId) {
+            handleExportPreset(activeId)
+        } else {
+            showToastr('warning', 'Select a preset first', 'Export')
         }
     })
 
@@ -2641,7 +2767,7 @@ function syncUiFromSettings() {
     }
 
     if (state.ui.summarizerDepthInput) {
-        const depth = Math.max(1, Math.min(10, settings.autoGeneration.summarizer.messageDepth || 1))
+        const depth = clampMessageDepth(settings.autoGeneration.summarizer.messageDepth || 1)
         state.ui.summarizerDepthInput.value = String(depth)
     }
 
@@ -2651,7 +2777,7 @@ function syncUiFromSettings() {
     }
 
     if (state.ui.summarizerMaxTokensInput) {
-        const maxTokens = Math.max(0, Math.min(8000, settings.autoGeneration.summarizer.maxTokens || 0))
+        const maxTokens = Math.max(0, Math.min(MAX_TOKEN_LIMIT, settings.autoGeneration.summarizer.maxTokens || 0))
         state.ui.summarizerMaxTokensInput.value = String(maxTokens)
     }
 
@@ -2676,6 +2802,14 @@ function syncUiFromSettings() {
     if (state.ui.promptNegativeInput) {
         state.ui.promptNegativeInput.value =
             settings.autoGeneration.promptInjection.instructionsNegative
+    }
+    if (state.ui.promptLengthLimitTypeInput) {
+        state.ui.promptLengthLimitTypeInput.value =
+            settings.autoGeneration.promptInjection.lengthLimitType || 'none'
+    }
+    if (state.ui.promptLengthLimitInput) {
+        const limitValue = Math.max(0, Math.min(MAX_TOKEN_LIMIT, settings.autoGeneration.promptInjection.lengthLimit || 0))
+        state.ui.promptLengthLimitInput.value = String(limitValue)
     }
 
     const concurrencyValue = Number.isFinite(settings.concurrency) ? settings.concurrency : 0
@@ -3084,10 +3218,7 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
             const autoSettings = freshSettings.autoGeneration
             const summarizerSettings = autoSettings?.summarizer || {}
 
-            const messageDepth = Math.max(
-                1,
-                Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
-            )
+            const messageDepth = clampMessageDepth(summarizerSettings.messageDepth)
 
             const chat = context.chat || []
             const message = chat[sourceMessageId]
@@ -3329,14 +3460,202 @@ function normalizeRewriteResponse(result) {
 }
 
 
+const QWEN2_CHARS_PER_TOKEN = 3.35
+const QWEN2_TOKENIZER_ENDPOINT = '/api/tokenizers/qwen2/encode'
+const TOKEN_TRUNCATION_CUT_RATIO = 0.1
+
+async function countQwen2Tokens(text) {
+    const ctx = getCtx()
+    const headers = (typeof ctx?.getRequestHeaders === 'function'
+        ? ctx.getRequestHeaders()
+        : typeof window?.getRequestHeaders === 'function'
+            ? window.getRequestHeaders()
+            : { 'Content-Type': 'application/json' }) || {
+        'Content-Type': 'application/json',
+    }
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+    try {
+        const response = await fetch(QWEN2_TOKENIZER_ENDPOINT, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ text }),
+            signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+
+        if (!response.ok) {
+            throw new Error(`Tokenizer request failed: ${response.status} ${response.statusText}`)
+        }
+        const data = await response.json()
+        if (typeof data.count !== 'number') {
+            throw new Error(`Tokenizer returned unexpected response: missing count field`)
+        }
+        log('Token count (Qwen2 API)', { count: data.count, charLength: text.length })
+        return data.count
+    } catch (error) {
+        clearTimeout(timeoutId)
+        if (error.name === 'AbortError') {
+            throw new Error('Tokenizer request timeout after 5 seconds')
+        }
+        throw error
+    }
+}
+
+function estimateQwen2Tokens(text) {
+    const count = Math.ceil(text.length / QWEN2_CHARS_PER_TOKEN)
+    log('Token count (estimate)', { count, charLength: text.length, charsPerToken: QWEN2_CHARS_PER_TOKEN })
+    return count
+}
+
+async function truncateToTokenLimit(text, tokenLimit, knownCount) {
+    if (knownCount && knownCount > tokenLimit) {
+        const targetRatio = tokenLimit / knownCount
+        const targetCharLength = Math.floor(text.length * targetRatio)
+        const tailEstimate = text.substring(text.length - targetCharLength)
+        try {
+            const tailCount = await countQwen2Tokens(tailEstimate)
+            log('Truncate: tail token count', { tailCount, tokenLimit, tailCharLength: tailEstimate.length })
+            if (tailCount <= tokenLimit) return tailEstimate
+        } catch (_err) {
+            if (estimateQwen2Tokens(tailEstimate) <= tokenLimit) return tailEstimate
+        }
+    } else if (knownCount && knownCount <= tokenLimit) {
+        return text
+    }
+
+    let truncated = text
+    while (truncated.length > 0) {
+        try {
+            const count = await countQwen2Tokens(truncated)
+            log('Truncate: iteration token count', { count, tokenLimit, charLength: truncated.length })
+            if (count <= tokenLimit) return truncated
+        } catch (_err) {
+            if (estimateQwen2Tokens(truncated) <= tokenLimit) return truncated
+        }
+        const cutSize = Math.max(1, Math.floor(truncated.length * TOKEN_TRUNCATION_CUT_RATIO))
+        truncated = truncated.substring(cutSize)
+    }
+    return truncated
+}
+
+async function shortenPrompt(prompt, lengthLimit, lengthLimitType) {
+    const settings = getSettings()
+    const autoSettings = settings.autoGeneration
+    const profileName = autoSettings?.promptRewrite?.modelId
+
+    const limitLabel = lengthLimitType === 'tokens' ? `${lengthLimit} tokens` : `${lengthLimit} characters`
+    const shortenSystemPrompt = `You are an editor. The following image generation prompt exceeds the ${limitLabel} limit. Rewrite it to fit within ${limitLabel} while preserving the most important visual details. Keep the same format and style. Output only the shortened prompt, nothing else.`
+
+    log('Attempting to shorten prompt via re-summarization', {
+        currentLength: prompt.length,
+        lengthLimit,
+        lengthLimitType,
+    })
+
+    showToastr('info', `Prompt too long, asking AI to shorten it...`, 'Shortening Prompt')
+
+    try {
+        return await withConnectionProfile(profileName, async () => {
+            const result = await summarizeWithAI({
+                messages: [{ role: 'user', content: prompt }],
+                messageDepth: 1,
+                systemPromptTemplate: shortenSystemPrompt,
+                maxTokens: lengthLimitType === 'tokens' ? lengthLimit : 0,
+                characterPercent: 0,
+                scenePercent: 0,
+                promptInjection: { enabled: false },
+            })
+
+            const shortened = typeof result === 'string' ? result.trim() : null
+            if (!shortened) {
+                log('Re-summarization returned empty, falling back to truncation')
+                return null
+            }
+
+            log('Re-summarization returned result', {
+                originalLength: prompt.length,
+                shortenedLength: shortened.length,
+                estimatedTokens: estimateQwen2Tokens(shortened),
+            })
+
+            return shortened
+        })
+    } catch (err) {
+        logger.warn('[ImageAutopilot] Re-summarization failed, falling back to truncation', err)
+        return null
+    }
+}
+
+async function enforcePromptLength(prompt, lengthLimit, lengthLimitType) {
+    if (!prompt || lengthLimitType === 'none' || !lengthLimit || lengthLimit <= 0) {
+        return prompt
+    }
+
+    if (lengthLimitType === 'characters') {
+        if (prompt.length <= lengthLimit) {
+            log('Prompt length OK (characters)', { charCount: prompt.length, limit: lengthLimit })
+            return prompt
+        }
+
+        const shortened = await shortenPrompt(prompt, lengthLimit, lengthLimitType)
+        if (shortened && shortened.length <= lengthLimit) {
+            log('Prompt shortened via re-summarization (characters)', { original: prompt.length, shortened: shortened.length, limit: lengthLimit })
+            showToastr('success', `Prompt shortened from ${prompt.length} to ${shortened.length} characters via AI`, 'Prompt Shortened')
+            return shortened
+        }
+
+        const fallback = shortened || prompt.substring(prompt.length - lengthLimit)
+        logger.warn(`[ImageAutopilot] Prompt truncated: ${prompt.length} chars → ${fallback.length} chars (kept end)`)
+        showToastr('warning', `Prompt truncated from ${prompt.length} to ${lengthLimit} characters`, 'Prompt Length Exceeded')
+        return fallback
+    }
+
+    if (lengthLimitType === 'tokens') {
+        let tokenCount
+        try {
+            tokenCount = await countQwen2Tokens(prompt)
+        } catch (err) {
+            logger.warn('[ImageAutopilot] Qwen2 tokenization failed, falling back to estimate', err)
+            tokenCount = estimateQwen2Tokens(prompt)
+        }
+
+        if (tokenCount <= lengthLimit) {
+            log('Prompt length OK (tokens)', { tokenCount, limit: lengthLimit })
+            return prompt
+        }
+
+        const shortened = await shortenPrompt(prompt, lengthLimit, lengthLimitType)
+        if (shortened) {
+            let shortenedTokenCount
+            try {
+                shortenedTokenCount = await countQwen2Tokens(shortened)
+            } catch (_err) {
+                shortenedTokenCount = estimateQwen2Tokens(shortened)
+            }
+            if (shortenedTokenCount <= lengthLimit) {
+                log('Prompt shortened via re-summarization (tokens)', { originalTokens: tokenCount, shortenedTokens: shortenedTokenCount, limit: lengthLimit })
+                showToastr('success', `Prompt shortened from ${tokenCount} to ${shortenedTokenCount} tokens via AI`, 'Prompt Shortened')
+                return shortened
+            }
+        }
+
+        const fallback = shortened || await truncateToTokenLimit(prompt, lengthLimit, tokenCount)
+        logger.warn(`[ImageAutopilot] Prompt truncated: ${tokenCount} tokens over limit ${lengthLimit}, cut to ${fallback.length} chars (kept end)`)
+        showToastr('warning', `Prompt truncated to ${lengthLimit} tokens (was over limit)`, 'Prompt Length Exceeded')
+        return fallback
+    }
+
+    return prompt
+}
+
 async function generateSummarizedPrompt(messageId) {
     const settings = getSettings()
     const autoSettings = settings.autoGeneration
     const summarizerSettings = autoSettings?.summarizer || {}
-    const messageDepth = Math.max(
-        1,
-        Math.min(10, parseInt(summarizerSettings.messageDepth, 10) || 1),
-    )
+    const messageDepth = clampMessageDepth(summarizerSettings.messageDepth)
 
     const context = getCtx()
     const message = context.chat?.[messageId]
@@ -3386,6 +3705,8 @@ async function generateSummarizedPrompt(messageId) {
         try {
             const promptInjectionSettings = autoSettings?.promptInjection || {}
 
+            showToastr('info', 'Generating image prompt...', 'Summarizing')
+
             const summarizedPrompt = await summarizeWithAI({
                 messages: boundedMessages,
                 messageDepth: boundedMessages.length,
@@ -3401,6 +3722,7 @@ async function generateSummarizedPrompt(messageId) {
             log('Summarizer returned result', {
                 resultType: typeof summarizedPrompt,
                 resultLength: summarizedPrompt?.length,
+                estimatedTokens: typeof summarizedPrompt === 'string' ? estimateQwen2Tokens(summarizedPrompt) : null,
                 preview: typeof summarizedPrompt === 'string' ? summarizedPrompt.substring(0, 100) + '...' : null
             })
 
@@ -3437,10 +3759,17 @@ async function handleIncomingMessage(messageId) {
     }
 
     const context = getCtx()
+    const chat = context.chat || []
     const resolvedId =
-        typeof messageId === 'number' ? messageId : context.chat?.length - 1
-    const message = context.chat?.[resolvedId]
+        typeof messageId === 'number' ? messageId : chat.length - 1
+    const message = chat[resolvedId]
     if (!message || message.is_user || !message.mes) {
+        return
+    }
+
+    const hasUserMessages = chat.some(m => m.is_user)
+    if (!hasUserMessages) {
+        log('Skipping auto-generation on greeting-only chat (no user messages)')
         return
     }
 
@@ -3452,14 +3781,20 @@ async function handleIncomingMessage(messageId) {
                 : message.mes,
     })
 
-    const summarizedPrompt = await generateSummarizedPrompt(resolvedId)
-    if (!summarizedPrompt) {
+    const rawPrompt = await generateSummarizedPrompt(resolvedId)
+    if (!rawPrompt) {
         return
     }
 
+    const promptInjectionSettings = autoSettings?.promptInjection || {}
+    const prompt = await enforcePromptLength(
+        rawPrompt.trim(),
+        promptInjectionSettings.lengthLimit,
+        promptInjectionSettings.lengthLimitType,
+    )
+
     const swipesPerImage = getSwipeTotal(settings)
     const expandedPrompts = []
-    const prompt = summarizedPrompt.trim()
     for (let i = 0; i < swipesPerImage; i += 1) {
         expandedPrompts.push(prompt)
     }
@@ -4082,20 +4417,25 @@ async function queueAutoFill(messageId, button, options = {}) {
         return
     }
 
-    if (state.runningMessages.has(messageId)) {
-        return
-    }
     state.runningMessages.set(messageId, true)
 
     try {
-        const summarizedPrompt = await generateSummarizedPrompt(messageId)
-        if (!summarizedPrompt) {
+        const rawPrompt = await generateSummarizedPrompt(messageId)
+        if (!rawPrompt) {
             logger.warn('Auto-fill failed: could not generate prompt')
             return
         }
 
+        const promptInjectionSettings = autoSettings?.promptInjection || {}
+        const summarizedPrompt = await enforcePromptLength(
+            rawPrompt.trim(),
+            promptInjectionSettings.lengthLimit,
+            promptInjectionSettings.lengthLimitType,
+        )
+
         log('Generated summarized prompt', {
             promptLength: summarizedPrompt.length,
+            estimatedTokens: estimateQwen2Tokens(summarizedPrompt),
             preview: summarizedPrompt.substring(0, 100) + '...'
         })
 
@@ -4159,8 +4499,288 @@ async function handleMessageRendered(messageId, origin) {
 
 const PRESET_STORAGE_KEY = MODULE_NAME + '_presets'
 
-function getCurrentSettingsSnapshot() {
-    return JSON.parse(JSON.stringify(getSettings()))
+export function getCurrentSettingsSnapshot() {
+    const snapshot = JSON.parse(JSON.stringify(getSettings()))
+
+    // Strip perCharacter fields (mirror buildShareableSettingsSnapshot)
+    if (snapshot?.perCharacter) {
+        delete snapshot.perCharacter.globalDefaults
+        delete snapshot.perCharacter.fields
+    }
+
+    // Exclude 'presets' property from snapshot
+    if (snapshot?.presets) {
+        delete snapshot.presets
+    }
+
+    return snapshot
+}
+
+export function validatePresetJSON(data) {
+    if (!data || !isPlainObject(data)) {
+        return { valid: false, error: 'Input must be an object' }
+    }
+
+    if (!('schemaVersion' in data)) {
+        return { valid: false, error: 'Missing schemaVersion field' }
+    }
+    if (typeof data.schemaVersion !== 'number') {
+        return { valid: false, error: 'schemaVersion must be a number' }
+    }
+    if (data.schemaVersion > 1) {
+        return { valid: false, error: 'Preset uses a newer version of the schema' }
+    }
+    if (data.schemaVersion !== 1) {
+        return { valid: false, error: 'Invalid schemaVersion (must be 1)' }
+    }
+
+    if (!('name' in data)) {
+        return { valid: false, error: 'Missing name field' }
+    }
+    if (typeof data.name !== 'string') {
+        return { valid: false, error: 'name must be a string' }
+    }
+    const sanitizedName = data.name
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/javascript:/gi, '')
+        .trim()
+    if (sanitizedName.length === 0) {
+        return { valid: false, error: 'name cannot be empty' }
+    }
+    if (sanitizedName.length > 100) {
+        return { valid: false, error: 'name exceeds 100 characters' }
+    }
+
+    if (!('settings' in data)) {
+        return { valid: false, error: 'Missing settings field' }
+    }
+    if (!isPlainObject(data.settings)) {
+        return { valid: false, error: 'settings must be an object' }
+    }
+
+    const SETTINGS_TYPE_MAP = {
+        enabled: 'boolean',
+        debugMode: 'boolean',
+        targetCount: 'number',
+        delayMs: 'number',
+        swipeTimeoutMs: 'number',
+        concurrency: 'number',
+        modelQueue: 'array',
+        modelQueueEnabled: 'boolean',
+        swipeModel: 'string',
+    }
+
+    for (const [key, expectedType] of Object.entries(SETTINGS_TYPE_MAP)) {
+        if (!(key in data.settings)) {
+            return { valid: false, error: `Missing required settings field: ${key}` }
+        }
+        const actualType = Array.isArray(data.settings[key]) ? 'array' : typeof data.settings[key]
+        if (actualType !== expectedType) {
+            return { valid: false, error: `settings field ${key} must be ${expectedType}, got ${actualType}` }
+        }
+    }
+
+    for (let i = 0; i < data.settings.modelQueue.length; i++) {
+        const item = data.settings.modelQueue[i]
+        if (!item || !isPlainObject(item)) {
+            return { valid: false, error: `modelQueue item ${i} must be an object` }
+        }
+        if (!('id' in item)) {
+            return { valid: false, error: `modelQueue item ${i} missing required 'id' field` }
+        }
+        if (typeof item.id !== 'string') {
+            return { valid: false, error: `modelQueue item ${i} 'id' field must be a string` }
+        }
+        if ('count' in item && typeof item.count !== 'number') {
+            return { valid: false, error: `modelQueue item ${i} 'count' field must be a number` }
+        }
+    }
+
+    if (!isPlainObject(data.settings.perCharacter)) {
+        return { valid: false, error: 'settings field perCharacter must be an object' }
+    }
+    if (!('enabled' in data.settings.perCharacter)) {
+        return { valid: false, error: 'Missing required settings field: perCharacter.enabled' }
+    }
+    if (typeof data.settings.perCharacter.enabled !== 'boolean') {
+        return { valid: false, error: 'settings field perCharacter.enabled must be boolean' }
+    }
+    if ('fields' in data.settings.perCharacter) {
+        if (!isPlainObject(data.settings.perCharacter.fields)) {
+            return { valid: false, error: 'settings field perCharacter.fields must be an object' }
+        }
+    }
+    if ('globalDefaults' in data.settings.perCharacter) {
+        if (!isPlainObject(data.settings.perCharacter.globalDefaults)) {
+            return { valid: false, error: 'settings field perCharacter.globalDefaults must be an object' }
+        }
+    }
+
+    if (!isPlainObject(data.settings.autoGeneration)) {
+        return { valid: false, error: 'settings field autoGeneration must be an object' }
+    }
+    if (!('enabled' in data.settings.autoGeneration)) {
+        return { valid: false, error: 'Missing required settings field: autoGeneration.enabled' }
+    }
+    if (typeof data.settings.autoGeneration.enabled !== 'boolean') {
+        return { valid: false, error: 'settings field autoGeneration.enabled must be boolean' }
+    }
+    if ('promptRewrite' in data.settings.autoGeneration) {
+        if (!isPlainObject(data.settings.autoGeneration.promptRewrite)) {
+            return { valid: false, error: 'settings field autoGeneration.promptRewrite must be an object' }
+        }
+        if ('enabled' in data.settings.autoGeneration.promptRewrite && typeof data.settings.autoGeneration.promptRewrite.enabled !== 'boolean') {
+            return { valid: false, error: 'autoGeneration.promptRewrite.enabled must be boolean' }
+        }
+        if ('modelId' in data.settings.autoGeneration.promptRewrite && typeof data.settings.autoGeneration.promptRewrite.modelId !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptRewrite.modelId must be string' }
+        }
+    }
+
+    if ('promptInjection' in data.settings.autoGeneration) {
+        if (!isPlainObject(data.settings.autoGeneration.promptInjection)) {
+            return { valid: false, error: 'settings field autoGeneration.promptInjection must be an object' }
+        }
+        const promptInjection = data.settings.autoGeneration.promptInjection
+        if ('mainPrompt' in promptInjection && typeof promptInjection.mainPrompt !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.mainPrompt must be string' }
+        }
+        if ('instructionsPositive' in promptInjection && typeof promptInjection.instructionsPositive !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.instructionsPositive must be string' }
+        }
+        if ('instructionsNegative' in promptInjection && typeof promptInjection.instructionsNegative !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.instructionsNegative must be string' }
+        }
+        if ('lengthLimit' in promptInjection && typeof promptInjection.lengthLimit !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.lengthLimit must be number' }
+        }
+        if ('lengthLimitType' in promptInjection && typeof promptInjection.lengthLimitType !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.lengthLimitType must be string' }
+        }
+        if ('picCountMode' in promptInjection && typeof promptInjection.picCountMode !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountMode must be string' }
+        }
+        if ('picCountExact' in promptInjection && typeof promptInjection.picCountExact !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountExact must be number' }
+        }
+        if ('picCountMin' in promptInjection && typeof promptInjection.picCountMin !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountMin must be number' }
+        }
+        if ('picCountMax' in promptInjection && typeof promptInjection.picCountMax !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountMax must be number' }
+        }
+    }
+
+    if ('summarizer' in data.settings.autoGeneration) {
+        if (!isPlainObject(data.settings.autoGeneration.summarizer)) {
+            return { valid: false, error: 'settings field autoGeneration.summarizer must be an object' }
+        }
+        const summarizer = data.settings.autoGeneration.summarizer
+        if ('messageDepth' in summarizer && typeof summarizer.messageDepth !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.messageDepth must be number' }
+        }
+        if ('maxTokens' in summarizer && typeof summarizer.maxTokens !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.maxTokens must be number' }
+        }
+        if ('characterPercent' in summarizer && typeof summarizer.characterPercent !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.characterPercent must be number' }
+        }
+        if ('scenePercent' in summarizer && typeof summarizer.scenePercent !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.scenePercent must be number' }
+        }
+        if ('systemPromptTemplate' in summarizer && typeof summarizer.systemPromptTemplate !== 'string') {
+            return { valid: false, error: 'autoGeneration.summarizer.systemPromptTemplate must be string' }
+        }
+    }
+
+    if (!('createdAt' in data)) {
+        return { valid: false, error: 'Missing createdAt field' }
+    }
+    if (typeof data.createdAt !== 'string') {
+        return { valid: false, error: 'createdAt must be a string' }
+    }
+    if (isNaN(new Date(data.createdAt).getTime())) {
+        return { valid: false, error: 'Invalid createdAt date format' }
+    }
+
+    return {
+        valid: true,
+        data: {
+            schemaVersion: data.schemaVersion,
+            name: sanitizedName,
+            settings: data.settings,
+            createdAt: data.createdAt,
+        },
+    }
+}
+
+export function serializePresetForExport(id) {
+    const preset = getPreset(id)
+    if (!preset) {
+        return null
+    }
+
+    const exportObject = {
+        schemaVersion: 1,
+        name: preset.name,
+        settings: preset.settings,
+        createdAt: preset.createdAt,
+    }
+
+    return JSON.stringify(exportObject, null, 2)
+}
+
+export function handleExportPreset(id) {
+    const jsonString = serializePresetForExport(id)
+    if (!jsonString) {
+        showToastr('error', 'Preset not found', 'Export Failed')
+        return
+    }
+
+    const preset = getPreset(id)
+    if (!preset) return
+
+    const sanitized = preset.name
+        .replace(/[\/\\:*?"<>|]/g, '_')
+        .trim()
+        .substring(0, 100)
+
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+
+    const a = document.createElement('a')
+    a.href = url
+    const basename = sanitized || 'preset'
+    a.download = `${basename}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+
+    setTimeout(() => URL.revokeObjectURL(url), 100)
+
+    showToastr('success', `Preset "${preset.name}" exported`, 'Preset Exported')
+}
+
+export function parsePresetFromImport(jsonString) {
+    let data
+    try {
+        data = JSON.parse(jsonString)
+    } catch {
+        throw new Error('Invalid JSON string')
+    }
+
+    const validation = validatePresetJSON(data)
+    if (!validation.valid) {
+        throw new Error(validation.error)
+    }
+
+    const id = 'preset_' + Date.now()
+    return {
+        id,
+        name: validation.data.name,
+        settings: validation.data.settings,
+        createdAt: validation.data.createdAt,
+    }
 }
 
 // ==================== END PRESET MANAGEMENT ====================
@@ -4476,6 +5096,11 @@ async function init() {
 }
 
 ;(function bootstrap() {
+    if (typeof SillyTavern === 'undefined') {
+        logger.warn('SillyTavern not ready, retrying...')
+        setTimeout(() => bootstrap(), 100)
+        return
+    }
     try {
         const ctx = getCtx()
         if (!ctx || !ctx.eventSource || !ctx.eventTypes) {
