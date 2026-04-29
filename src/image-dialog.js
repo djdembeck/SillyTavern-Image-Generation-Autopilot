@@ -62,6 +62,7 @@ export class ImageSelectionDialog {
         this.onResummarize = dependencies.onResummarize || null;
         this.isResummarizing = false;
         this.isRewriting = false;
+        this.isPromptActionBusy = false;
         this.lastResummarizeTime = 0;
         this.isLightboxTransitioning = false;
     }
@@ -1242,7 +1243,7 @@ export class ImageSelectionDialog {
             }
         }
 
-        const isBusy = this[isBusyFlag];
+        const isBusy = this.isPromptActionBusy || this[isBusyFlag];
         if (isDebugMode()) {
             logger.debug(`${logLabel} button clicked`, {
                 hasOnResummarize: !!this.onResummarize,
@@ -1260,7 +1261,7 @@ export class ImageSelectionDialog {
 
         if (!this.onResummarize || isBusy) {
             logger.warn(`${logLabel} aborted`, {
-                reason: !this.onResummarize ? 'No onResummarize callback' : 'Already busy'
+                reason: !this.onResummarize ? 'No onResummarize callback' : 'Another prompt action is in progress'
             });
             return;
         }
@@ -1270,6 +1271,7 @@ export class ImageSelectionDialog {
 
         try {
             this[isBusyFlag] = true;
+            this.isPromptActionBusy = true;
             if (debounce > 0) {
                 this.lastResummarizeTime = Date.now();
             }
@@ -1300,6 +1302,7 @@ export class ImageSelectionDialog {
             throw error;
         } finally {
             this[isBusyFlag] = false;
+            this.isPromptActionBusy = false;
             btn.disabled = false;
             if (icon) {
                 icon.className = iconClass;

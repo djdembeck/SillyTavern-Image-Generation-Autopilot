@@ -204,7 +204,7 @@ describe('full flow integration', () => {
         }
 
         globalThis.document.querySelector = mock((selector) => {
-            if (selector === '.mes[mesid="0"]') {
+            if (selector === '.mes[mesid="1"]') {
                 return messageElement
             }
             return null
@@ -339,7 +339,7 @@ describe('full flow integration', () => {
         }
 
         globalThis.document.querySelector = mock((selector) => {
-            if (selector === '.mes[mesid="0"]') return messageElement
+            if (selector === '.mes[mesid="1"]') return messageElement
             return null
         })
 

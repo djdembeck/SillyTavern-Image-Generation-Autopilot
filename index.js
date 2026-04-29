@@ -468,8 +468,12 @@ function ensureSettings() {
             const hasLegacyData = legacyPresets && Object.keys(legacyPresets).length > 0
 
             if (hasLegacyData) {
-                extensionSettings[PRESET_STORAGE_KEY + '_legacy_backup'] = JSON.parse(JSON.stringify(legacyPresets))
-                logger.info('Backed up legacy presets before V2 migration')
+                try {
+                    extensionSettings[PRESET_STORAGE_KEY + '_legacy_backup'] = JSON.parse(JSON.stringify(legacyPresets))
+                    logger.info('Backed up legacy presets before V2 migration')
+                } catch (error) {
+                    logger.warn('Failed to backup legacy presets (circular data or serialization error)', { error, legacyPresetsCount: Object.keys(legacyPresets).length })
+                }
             }
 
             extensionSettings[PRESET_STORAGE_KEY] = {}
@@ -1587,9 +1591,10 @@ function updateSaveButtonState() {
     const saveButton = state.ui.presetSaveButton
     const activeId = state.ui.activePresetId
     const activePreset = activeId ? getPreset(activeId) : null
+    const isNameDirty = state.ui.presetNameDirty
 
     if (saveButton) {
-        if (activePreset) {
+        if (activePreset && !isNameDirty) {
             saveButton.innerHTML = '<i class="fa-solid fa-pen-to-square"></i> Update'
             saveButton.classList.add('auto-multi-preset-save--active')
         } else {
@@ -3469,20 +3474,34 @@ async function countQwen2Tokens(text) {
         'Content-Type': 'application/json',
     }
 
-    const response = await fetch(QWEN2_TOKENIZER_ENDPOINT, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ text }),
-    })
-    if (!response.ok) {
-        throw new Error(`Tokenizer request failed: ${response.status} ${response.statusText}`)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+    try {
+        const response = await fetch(QWEN2_TOKENIZER_ENDPOINT, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ text }),
+            signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+
+        if (!response.ok) {
+            throw new Error(`Tokenizer request failed: ${response.status} ${response.statusText}`)
+        }
+        const data = await response.json()
+        if (typeof data.count !== 'number') {
+            throw new Error(`Tokenizer returned unexpected response: missing count field`)
+        }
+        log('Token count (Qwen2 API)', { count: data.count, charLength: text.length })
+        return data.count
+    } catch (error) {
+        clearTimeout(timeoutId)
+        if (error.name === 'AbortError') {
+            throw new Error('Tokenizer request timeout after 5 seconds')
+        }
+        throw error
     }
-    const data = await response.json()
-    if (typeof data.count !== 'number') {
-        throw new Error(`Tokenizer returned unexpected response: missing count field`)
-    }
-    log('Token count (Qwen2 API)', { count: data.count, charLength: text.length })
-    return data.count
 }
 
 function estimateQwen2Tokens(text) {
@@ -4572,6 +4591,9 @@ export function validatePresetJSON(data) {
         if (typeof item.id !== 'string') {
             return { valid: false, error: `modelQueue item ${i} 'id' field must be a string` }
         }
+        if ('count' in item && typeof item.count !== 'number') {
+            return { valid: false, error: `modelQueue item ${i} 'count' field must be a number` }
+        }
     }
 
     if (!isPlainObject(data.settings.perCharacter)) {
@@ -4606,6 +4628,68 @@ export function validatePresetJSON(data) {
     if ('promptRewrite' in data.settings.autoGeneration) {
         if (!isPlainObject(data.settings.autoGeneration.promptRewrite)) {
             return { valid: false, error: 'settings field autoGeneration.promptRewrite must be an object' }
+        }
+        if ('enabled' in data.settings.autoGeneration.promptRewrite && typeof data.settings.autoGeneration.promptRewrite.enabled !== 'boolean') {
+            return { valid: false, error: 'autoGeneration.promptRewrite.enabled must be boolean' }
+        }
+        if ('modelId' in data.settings.autoGeneration.promptRewrite && typeof data.settings.autoGeneration.promptRewrite.modelId !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptRewrite.modelId must be string' }
+        }
+    }
+
+    if ('promptInjection' in data.settings.autoGeneration) {
+        if (!isPlainObject(data.settings.autoGeneration.promptInjection)) {
+            return { valid: false, error: 'settings field autoGeneration.promptInjection must be an object' }
+        }
+        const promptInjection = data.settings.autoGeneration.promptInjection
+        if ('mainPrompt' in promptInjection && typeof promptInjection.mainPrompt !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.mainPrompt must be string' }
+        }
+        if ('instructionsPositive' in promptInjection && typeof promptInjection.instructionsPositive !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.instructionsPositive must be string' }
+        }
+        if ('instructionsNegative' in promptInjection && typeof promptInjection.instructionsNegative !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.instructionsNegative must be string' }
+        }
+        if ('lengthLimit' in promptInjection && typeof promptInjection.lengthLimit !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.lengthLimit must be number' }
+        }
+        if ('lengthLimitType' in promptInjection && typeof promptInjection.lengthLimitType !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.lengthLimitType must be string' }
+        }
+        if ('picCountMode' in promptInjection && typeof promptInjection.picCountMode !== 'string') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountMode must be string' }
+        }
+        if ('picCountExact' in promptInjection && typeof promptInjection.picCountExact !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountExact must be number' }
+        }
+        if ('picCountMin' in promptInjection && typeof promptInjection.picCountMin !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountMin must be number' }
+        }
+        if ('picCountMax' in promptInjection && typeof promptInjection.picCountMax !== 'number') {
+            return { valid: false, error: 'autoGeneration.promptInjection.picCountMax must be number' }
+        }
+    }
+
+    if ('summarizer' in data.settings.autoGeneration) {
+        if (!isPlainObject(data.settings.autoGeneration.summarizer)) {
+            return { valid: false, error: 'settings field autoGeneration.summarizer must be an object' }
+        }
+        const summarizer = data.settings.autoGeneration.summarizer
+        if ('messageDepth' in summarizer && typeof summarizer.messageDepth !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.messageDepth must be number' }
+        }
+        if ('maxTokens' in summarizer && typeof summarizer.maxTokens !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.maxTokens must be number' }
+        }
+        if ('characterPercent' in summarizer && typeof summarizer.characterPercent !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.characterPercent must be number' }
+        }
+        if ('scenePercent' in summarizer && typeof summarizer.scenePercent !== 'number') {
+            return { valid: false, error: 'autoGeneration.summarizer.scenePercent must be number' }
+        }
+        if ('systemPromptTemplate' in summarizer && typeof summarizer.systemPromptTemplate !== 'string') {
+            return { valid: false, error: 'autoGeneration.summarizer.systemPromptTemplate must be string' }
         }
     }
 
