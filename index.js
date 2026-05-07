@@ -91,7 +91,16 @@ Characters:
 - [Name]: [pose, expression, clothing, visible features]
 
 Scene: [environment, lighting, camera angle]`,
+            outputFormatLines: [
+              'Characters:',
+              '  Shared: [body type; common clothing style if shared across all characters]',
+              '  - [Name]: [unique traits only - skin, hair, accessories, distinctive clothing, pose]',
+              '',
+              'Scene: [location, 2-3 key visual elements, lighting]',
+            ].join('\n'),
         },
+        characterRegistry: null,
+        characterRegistryPath: '',
     },
 })
 
@@ -1061,8 +1070,8 @@ export function savePresetToCharacter(presetId) {
     return true
 }
 
-export function loadPresetToCharacter(presetId) {
-    const success = loadPreset(presetId)
+export async function loadPresetToCharacter(presetId) {
+    const success = await loadPreset(presetId)
     if (success) {
         logger.info('Preset loaded to character', { presetId })
     }
@@ -1544,7 +1553,7 @@ function handleRenamePreset(id) {
     logger.info('Preset renamed:', { id, oldName: preset.name, newName: trimmedName })
 }
 
-export function loadPreset(id) {
+export async function loadPreset(id) {
     const preset = getPreset(id)
     if (!preset) {
         logger.warn('Preset not found:', id)
@@ -1567,6 +1576,28 @@ export function loadPreset(id) {
         }
         // Apply defaults for any missing nested properties (e.g., summarizer)
         ensureSettings()
+    }
+
+    const registryPath = newSettings.autoGeneration?.characterRegistryPath
+    if (registryPath) {
+        try {
+            const response = await fetch(registryPath)
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`)
+            }
+            const registry = await response.json()
+            const loadCtx = getCtx()
+            if (loadCtx?.extensionSettings?.[MODULE_NAME]) {
+                loadCtx.extensionSettings[MODULE_NAME].autoGeneration.characterRegistry = registry
+            }
+            logger.info('Character registry loaded', { path: registryPath })
+        } catch (error) {
+            logger.warn('Failed to load character registry', { path: registryPath, error: error.message })
+            const failCtx = getCtx()
+            if (failCtx?.extensionSettings?.[MODULE_NAME]) {
+                failCtx.extensionSettings[MODULE_NAME].autoGeneration.characterRegistry = null
+            }
+        }
     }
 
     // Save and sync UI
@@ -1942,6 +1973,9 @@ async function buildSettingsPanel() {
     const summarizerDepthInput = /** @type {HTMLInputElement | null} */ (
         container.querySelector('#summarizer-depth')
     )
+    const characterRegistryPathInput = /** @type {HTMLInputElement | null} */ (
+        container.querySelector('#character-registry-path')
+    )
     const summarizerSystemPromptInput = /** @type {HTMLTextAreaElement | null} */ (
         container.querySelector('#summarizer-system-prompt')
     )
@@ -2021,6 +2055,7 @@ async function buildSettingsPanel() {
         characterResetButton,
         concurrencyInput,
         summarizerDepthInput,
+        characterRegistryPathInput,
         summarizerSystemPromptInput,
         summarizerMaxTokensInput,
         summarizerCharacterPercentInput,
@@ -2118,6 +2153,12 @@ async function buildSettingsPanel() {
         const value = clampMessageDepth(summarizerDepthInput.value)
         current.autoGeneration.summarizer.messageDepth = value
         summarizerDepthInput.value = String(value)
+        saveSettings()
+    })
+
+    characterRegistryPathInput?.addEventListener('change', () => {
+        const current = getSettings()
+        current.autoGeneration.characterRegistryPath = characterRegistryPathInput.value.trim()
         saveSettings()
     })
 
@@ -2771,6 +2812,11 @@ function syncUiFromSettings() {
         state.ui.summarizerDepthInput.value = String(depth)
     }
 
+    if (state.ui.characterRegistryPathInput) {
+        state.ui.characterRegistryPathInput.value =
+            settings.autoGeneration.characterRegistryPath || ''
+    }
+
     if (state.ui.summarizerSystemPromptInput) {
         state.ui.summarizerSystemPromptInput.value =
             settings.autoGeneration.summarizer.systemPromptTemplate || ''
@@ -3244,6 +3290,8 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
 
             const promptInjectionSettings = autoSettings?.promptInjection || {}
 
+            const sceneCharacters = [...new Set((context.chat || []).filter(m => !m.is_user && m.name).map(m => m.name))].filter(n => n !== userName)
+
             try {
                 const result = await withConnectionProfile(
                     autoSettings.promptRewrite?.modelId || '',
@@ -3255,7 +3303,10 @@ async function openImageSelectionDialog(prompts, sourceMessageId) {
                             characterPercent: summarizerSettings.characterPercent,
                             scenePercent: summarizerSettings.scenePercent,
                             systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                            outputFormatLines: summarizerSettings.outputFormatLines,
                             promptInjection: promptInjectionSettings,
+                            characterRegistry: autoSettings.characterRegistry || null,
+                            sceneCharacters,
                             charName,
                             userName,
                         }),
@@ -3563,10 +3614,12 @@ async function shortenPrompt(prompt, lengthLimit, lengthLimitType) {
                 messages: [{ role: 'user', content: prompt }],
                 messageDepth: 1,
                 systemPromptTemplate: shortenSystemPrompt,
+                outputFormatLines: summarizerSettings.outputFormatLines,
                 maxTokens: lengthLimitType === 'tokens' ? lengthLimit : 0,
                 characterPercent: 0,
                 scenePercent: 0,
                 promptInjection: { enabled: false },
+                characterRegistry: null,
             })
 
             const shortened = typeof result === 'string' ? result.trim() : null
@@ -3705,6 +3758,8 @@ async function generateSummarizedPrompt(messageId) {
         try {
             const promptInjectionSettings = autoSettings?.promptInjection || {}
 
+            const sceneCharacters = [...new Set(rawChatSlice.filter(m => !m.is_user && m.name).map(m => m.name))].filter(n => n !== userName)
+
             showToastr('info', 'Generating image prompt...', 'Summarizing')
 
             const summarizedPrompt = await summarizeWithAI({
@@ -3714,7 +3769,10 @@ async function generateSummarizedPrompt(messageId) {
                 characterPercent: summarizerSettings.characterPercent,
                 scenePercent: summarizerSettings.scenePercent,
                 systemPromptTemplate: summarizerSettings.systemPromptTemplate,
+                outputFormatLines: summarizerSettings.outputFormatLines,
                 promptInjection: promptInjectionSettings,
+                characterRegistry: autoSettings.characterRegistry || null,
+                sceneCharacters,
                 charName,
                 userName,
             })

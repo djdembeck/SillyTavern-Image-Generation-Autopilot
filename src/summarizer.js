@@ -116,6 +116,85 @@ export function getCharacterDescription(charName) {
   return '';
 }
 
+/**
+ * Builds multi-NPC appearance lines from a character registry.
+ * When a registry is provided with scene characters, this replaces the single-character
+ * getCharacterDescription() flow with structured "Shared:" + "a female:" lines.
+ *
+ * @param {Object|null|undefined} registry - Character registry object (from preset's characterRegistry field)
+ * @param {string[]} sceneCharacters - Array of character names in the current scene
+ * @param {string} charName - Primary character name (fallback when no registry)
+ * @returns {string|null} Appearance lines string, or null if registry should not be used
+ */
+export function buildAppearanceLinesFromRegistry(registry, sceneCharacters, charName) {
+  // No registry or empty scene characters → fall back to single-character behavior
+  if (!registry || !registry.characters || !Array.isArray(registry.characters) || registry.characters.length === 0) {
+    return null;
+  }
+
+  if (!Array.isArray(sceneCharacters) || sceneCharacters.length === 0) {
+    return null;
+  }
+
+  const lines = [];
+
+  // Build Shared: line from the first registry entry's body_type_override + under_18_visual_override
+  const firstEntry = registry.characters[0];
+  const sharedParts = [];
+
+  if (firstEntry?.generator_fields?.body_type_override) {
+    sharedParts.push(firstEntry.generator_fields.body_type_override);
+  }
+
+  // Check if any scene character is under 18 and has the override
+  const hasUnder18 = sceneCharacters.some((name) => {
+    const entry = registry.characters.find(
+      (c) => c.name && String(c.name).trim().toLowerCase() === String(name).trim().toLowerCase()
+    );
+    return entry?.generator_fields?.under_18_visual_override;
+  });
+
+  if (hasUnder18) {
+    // Use the first under_18_visual_override found
+    for (const name of sceneCharacters) {
+      const entry = registry.characters.find(
+        (c) => c.name && String(c.name).trim().toLowerCase() === String(name).trim().toLowerCase()
+      );
+      if (entry?.generator_fields?.under_18_visual_override) {
+        sharedParts.push(entry.generator_fields.under_18_visual_override);
+        break;
+      }
+    }
+  }
+
+  if (sharedParts.length > 0) {
+    lines.push(`Shared: ${sharedParts.join('; ')}`);
+  }
+
+  // Build one "a female:" line per scene character
+  for (const name of sceneCharacters) {
+    const entry = registry.characters.find(
+      (c) => c.name && String(c.name).trim().toLowerCase() === String(name).trim().toLowerCase()
+    );
+
+    if (entry?.generator_fields?.prompt_ready_description) {
+      lines.push(`  - a female: ${entry.generator_fields.prompt_ready_description}`);
+    } else {
+      // Character not in registry → fall back to getCharacterDescription
+      const fallbackDesc = getCharacterDescription(name);
+      if (fallbackDesc) {
+        lines.push(`  - a female: ${fallbackDesc}`);
+      }
+    }
+  }
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return lines.join('\n');
+}
+
 function stripReasoning(text) {
   if (typeof text !== 'string') return text;
   // Remove reasoning/thinking tags (DeepSeek R1, OpenAI-compatible, and other models)
@@ -169,10 +248,11 @@ function normalizeResponseContent(result) {
   return '';
 }
 
-function buildSystemPrompt(systemPromptTemplate, appearanceLines) {
+function buildSystemPrompt(systemPromptTemplate, appearanceLines, outputFormatLines) {
+  const formatLines = outputFormatLines || OUTPUT_FORMAT_LINES;
   return systemPromptTemplate
     .replace('{{APPEARANCE_LINES}}', appearanceLines)
-    .replace('{{OUTPUT_FORMAT_LINES}}', OUTPUT_FORMAT_LINES);
+    .replace('{{OUTPUT_FORMAT_LINES}}', formatLines);
 }
 
 function selectMessages(messages, messageDepth) {
@@ -197,13 +277,16 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
       messages: selectMessages(inputOrText.messages, inputOrText.messageDepth),
       callChatCompletion: inputOrText.callChatCompletion,
       systemPromptTemplate,
-      characterDescriptions: inputOrText.characterDescriptions || {},
+characterDescriptions: inputOrText.characterDescriptions || {},
+      characterRegistry: inputOrText.characterRegistry || null,
+      sceneCharacters: inputOrText.sceneCharacters || [],
       charName: inputOrText.charName || '',
       userName: inputOrText.userName || '',
       maxTokens: inputOrText.maxTokens ?? inputOrText.settings?.maxTokens ?? inputOrText.settings?.summarizer?.maxTokens ?? 0,
       characterPercent: inputOrText.characterPercent ?? inputOrText.settings?.characterPercent ?? inputOrText.settings?.summarizer?.characterPercent ?? 30,
       scenePercent: inputOrText.scenePercent ?? inputOrText.settings?.scenePercent ?? inputOrText.settings?.summarizer?.scenePercent ?? 70,
       promptInjection: inputOrText.promptInjection || {},
+      outputFormatLines: inputOrText.outputFormatLines,
     };
   }
 
@@ -215,12 +298,15 @@ function buildInvocationConfig(inputOrText, charName, userName, settings) {
     callChatCompletion: null,
     systemPromptTemplate: summarizerSettings.systemPromptTemplate || DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     characterDescriptions: {},
+    characterRegistry: null,
+    sceneCharacters: [],
     charName: charName || '',
     userName: userName || '',
     maxTokens: summarizerSettings.maxTokens ?? 0,
     characterPercent: summarizerSettings.characterPercent ?? 30,
     scenePercent: summarizerSettings.scenePercent ?? 70,
     promptInjection: summarizerSettings.promptInjection || settings?.promptInjection || {},
+    outputFormatLines: summarizerSettings.outputFormatLines,
   };
 }
 
@@ -373,6 +459,8 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
  * @param {Function} [config.callChatCompletion] - Optional function to call AI completion
  * @param {string} [config.systemPromptTemplate] - Template for system prompt
  * @param {Object} [config.characterDescriptions] - Character descriptions by name
+ * @param {Object} [config.characterRegistry] - Character registry from preset (array of character entries with generator_fields)
+ * @param {string[]} [config.sceneCharacters] - Array of character names in the current scene (used with characterRegistry)
  * @param {string} [config.charName] - Character name
  * @param {string} [config.userName] - User name
  * @param {number} [config.maxTokens=0] - Maximum tokens for response (0 = unlimited, overrides system response length). The API receives max_tokens = Math.ceil(maxTokens * TOKENS_HEADROOM_MULTIPLIER) or MAX_TOKENS_UNLIMITED if 0.
@@ -389,19 +477,30 @@ async function callSummarizer({ messages, systemPrompt, callChatCompletion, maxT
  */
 export async function summarizeWithAI(text, charName, userName, settings) {
   const config = buildInvocationConfig(text, charName, userName, settings);
-  const characterDescriptions = config.characterDescriptions || {};
-  // Normalize lookup: iterate keys and match using trimmed + lowercased comparison
-  const normalizedCharName = String(config.charName || '').trim().toLowerCase();
-  let passedDescription = null;
-  for (const key of Object.keys(characterDescriptions)) {
-    if (key.trim().toLowerCase() === normalizedCharName) {
-      passedDescription = characterDescriptions[key];
-      break;
+
+  // Try registry-based multi-NPC appearance lines first
+  let appearanceLines = buildAppearanceLinesFromRegistry(
+    config.characterRegistry,
+    config.sceneCharacters,
+    config.charName
+  );
+
+  // Fall back to single-character behavior when no registry
+  if (!appearanceLines) {
+    const characterDescriptions = config.characterDescriptions || {};
+    const normalizedCharName = String(config.charName || '').trim().toLowerCase();
+    let passedDescription = null;
+    for (const key of Object.keys(characterDescriptions)) {
+      if (key.trim().toLowerCase() === normalizedCharName) {
+        passedDescription = characterDescriptions[key];
+        break;
+      }
     }
+    const characterDescription = (passedDescription && passedDescription.trim()) ? passedDescription.trim() : getCharacterDescription(config.charName);
+    appearanceLines = characterDescription;
   }
-  const characterDescription = (passedDescription && passedDescription.trim()) ? passedDescription.trim() : getCharacterDescription(config.charName);
-  const appearanceLines = characterDescription;
-  const systemPrompt = buildSystemPrompt(config.systemPromptTemplate, appearanceLines);
+
+  const systemPrompt = buildSystemPrompt(config.systemPromptTemplate, appearanceLines, config.outputFormatLines);
 
   logger.debug('Summarizing with AI', {
     messageCount: config.messages.length,
