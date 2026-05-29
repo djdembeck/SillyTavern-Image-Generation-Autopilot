@@ -32,13 +32,6 @@ This is a SillyTavern browser extension written in vanilla JavaScript with ES mo
         └── example.test.js
 ```
 
-### Extension Files
-
-The extension works as a SillyTavern add-on:
-- **Entry point**: `index.js` registers the extension with SillyTavern
-- **Manifest**: `manifest.json` defines metadata, dependencies, and compatibility
-- **Styles**: `style.css` contains all CSS (includes dialog, settings, styles for both)
-- **Settings**: `settings.html` provides configuration UI
 
 ### Module Architecture
 
@@ -51,32 +44,9 @@ The codebase uses ES6+ modules:
 Example pattern:
 ```javascript
 const MODULE_NAME = 'ImageSelectionDialog';
-
-function isDebugMode() {
-  if (typeof window !== 'undefined' && window.extensionSettings?.autoMultiImageSwipes?.debugMode) {
-    return true;
-  }
-  return false;
-}
-
-const logger = {
-  debug: (...args) => {
-    if (isDebugMode()) {
-      console.debug(`[${MODULE_NAME}]`, ...args);
-    }
-  },
-  info: (...args) => console.info(`[${MODULE_NAME}]`, ...args),
-  warn: (...args) => console.warn(`[${MODULE_NAME}]`, ...args),
-  error: (...args) => console.error(`[${MODULE_NAME}]`, ...args),
-};
-
+// See Browser API Access for logger/debug utilities
 export class ImageSelectionDialog {
-  constructor(dependenciesOrFactory) {
-    // Dependency injection pattern for testing
-    this.PopupClass = dependenciesOrFactory.PopupClass || window.Popup || class MockPopup { ... };
-    this.generatorFactory = dependenciesOrFactory.generatorFactory || ((opts) => new ParallelGenerator(opts));
-    // ...
-  }
+  constructor(dependenciesOrFactory) { /* ... */ }
 }
 ```
 
@@ -149,19 +119,6 @@ When a release tag is published, the workflow:
    - `src/*.js` (excludes `__tests__/`)
 
 4. **Force pushes** the clean `release` branch
-
-5. **Files NOT included in release**:
-   - `package.json` (test infrastructure)
-   - `bunfig.toml` (test config)
-   - `.github/` (workflows)
-   - `src/__tests__/` (test files)
-   - Development files
-
-### Release Branch Usage
-
-- **Users install from**: `https://github.com/djdembeck/SillyTavern-Image-Generation-Autopilot/tree/release`
-- **README references this** as the production install URL
-- The `release` branch contains only what's needed for SillyTavern
 
 ## Commit Message Style
 
@@ -283,13 +240,7 @@ In `index.js`:
 - Listen for SillyTavern events: `MESSAGE_RECEIVED`, `SD_GENERATION_COMPLETE`
 
 ### Extension Settings
-
-Settings stored in `window.extensionSettings.autoMultiImageSwipes`:
-- `enabled`: boolean
-- `debugMode`: boolean
-- `concurrency`: number
-- `modelQueue`: array of model configs
-- etc.
+Settings are defined in `settings.html` and accessible at `window.extensionSettings.autoMultiImageSwipes`.
 
 ### Per-Character Persistence
 
@@ -339,7 +290,6 @@ context.writeExtensionField(MODULE_NAME, 'presets', presets);
 5. Tag release: `git tag -a v2.1.0 -m "Release v2.1.0"`
 6. Push tag: `git push origin v2.1.0`
 7. Create GitHub Release
-8. **DO NOT touch `release` branch** - CI handles it
 
 #### Changelog Format
 
@@ -361,10 +311,6 @@ Keep entries concise and focused on the impact to users.
 ⚠️ **NEVER manually modify `release` branch**
 - It's recreated from scratch by CI on every release
 - Any manual changes will be overwritten
-
-⚠️ **NEVER commit test infrastructure to `release` branch**
-- `package.json`, `bunfig.toml`, `.github/` are dev-only
-- CI excludes them automatically
 
 ⚠️ **ALWAYS use conventional commits**
 - Required for automated changelog generation
